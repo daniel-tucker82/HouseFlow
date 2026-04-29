@@ -1,0 +1,36 @@
+services:
+  houseflow-db:
+    image: postgres:16-alpine
+    container_name: houseflow-db
+    environment:
+      POSTGRES_USER: houseflow
+      POSTGRES_PASSWORD: houseflow
+      POSTGRES_DB: houseflow
+    ports:
+      - "6543:5432"
+    volumes:
+      - houseflow-db-data:/var/lib/postgresql/data
+      - ./database/0001_init.sql:/docker-entrypoint-initdb.d/0001_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U houseflow -d houseflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  houseflow-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: houseflow-web
+    env_file:
+      - .env.local
+    ports:
+      - "3000:3000"
+    depends_on:
+      houseflow-db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  houseflow-db-data:
