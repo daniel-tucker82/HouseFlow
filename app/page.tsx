@@ -77,7 +77,7 @@ export default async function HomePage() {
     <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-4 p-6">
       <h1 className="text-3xl font-semibold">Welcome to HouseFlow</h1>
       <p className="text-muted-foreground">
-        You are signed in but not part of any household yet.
+        You’re signed in, but you’re not part of a household yet.
       </p>
       <div className="flex gap-3">
         <Link className="underline" href="/leader/dashboard">
