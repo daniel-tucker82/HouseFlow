@@ -1868,7 +1868,18 @@ export async function POST(request: Request) {
     }
 
     const client = await db.connect()
-    const pushNotificationIds: string[] = []
+    const deferredUnlockNotifications: Array<{
+      householdId: string
+      actorUserId: string
+      occurrenceId: string
+      taskId: string
+      taskTitle: string
+      isReward: boolean
+      assigneeIds: string[]
+      unlockCause: "prerequisite_completion" | "other"
+      unlockAt: string | null
+      url: string
+    }> = []
     try {
       await client.query("BEGIN")
 
@@ -1907,13 +1918,14 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Task cannot be edited in this view." }, { status: 403 })
       }
 
-      const beforeStatuses = await client.query<{ task_id: string; status: "locked" | "unlocked" | "completed" }>(
-        `select task_id, status
+      const beforeLockedStatuses = await client.query<{ task_id: string }>(
+        `select task_id
          from occurrence_tasks
-         where occurrence_id = $1::uuid`,
+         where occurrence_id = $1::uuid
+           and status = 'locked'::task_status`,
         [occurrenceId],
       )
-      const beforeByTaskId = new Map(beforeStatuses.rows.map((row) => [row.task_id, row.status]))
+      const beforeLockedTaskIdSet = new Set(beforeLockedStatuses.rows.map((row) => row.task_id))
 
       if (completed) {
         await client.query(
@@ -1946,7 +1958,7 @@ export async function POST(request: Request) {
         [occurrenceId],
       )
       const unlockedTaskIds = afterStatuses.rows
-        .filter((row) => row.status === "unlocked" && beforeByTaskId.get(row.task_id) === "locked")
+        .filter((row) => row.status === "unlocked" && beforeLockedTaskIdSet.has(row.task_id))
         .map((row) => row.task_id)
 
       if (unlockedTaskIds.length > 0) {
@@ -1987,7 +1999,7 @@ export async function POST(request: Request) {
             completed && unlockedByCurrentPrereq.has(String(unlockedTask.id))
               ? "prerequisite_completion"
               : "other"
-          const notificationIds = await createUnlockNotifications(client, {
+          deferredUnlockNotifications.push({
             householdId,
             actorUserId: actorMemberId,
             occurrenceId,
@@ -1999,18 +2011,33 @@ export async function POST(request: Request) {
             unlockAt: unlockedTask.unlock_at,
             url: `/member/dashboard?household=${encodeURIComponent(householdId)}`,
           })
-          pushNotificationIds.push(...notificationIds)
         }
       }
 
       await client.query("COMMIT")
-      if (pushNotificationIds.length > 0) {
-        void dispatchPushForNotificationIds(pushNotificationIds).catch((error) => {
-          console.error("[api][setOccurrenceTaskCompleted] push-dispatch-failed", {
-            occurrenceId,
-            error,
-          })
-        })
+      if (deferredUnlockNotifications.length > 0) {
+        void (async () => {
+          const backgroundClient = await db.connect()
+          try {
+            await backgroundClient.query("BEGIN")
+            const pushNotificationIds: string[] = []
+            for (const payload of deferredUnlockNotifications) {
+              pushNotificationIds.push(...(await createUnlockNotifications(backgroundClient, payload)))
+            }
+            await backgroundClient.query("COMMIT")
+            if (pushNotificationIds.length > 0) {
+              await dispatchPushForNotificationIds(pushNotificationIds)
+            }
+          } catch (error) {
+            await backgroundClient.query("ROLLBACK")
+            console.error("[api][setOccurrenceTaskCompleted] async-unlock-notifications-failed", {
+              occurrenceId,
+              error,
+            })
+          } finally {
+            backgroundClient.release()
+          }
+        })()
       }
       return NextResponse.json({
         ok: true,
