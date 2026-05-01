@@ -347,9 +347,11 @@ export function MemberDashboardClient({
       const json = (await response.json().catch(() => null)) as
         | { occurrenceTaskStatuses?: Array<{ task_id: string; status: string }> }
         | null
-      if (json?.occurrenceTaskStatuses?.length) {
+      const serverStatuses = json?.occurrenceTaskStatuses ?? []
+      const hasServerStatuses = serverStatuses.length > 0
+      if (hasServerStatuses) {
         const statusByTaskId = new Map(
-          json.occurrenceTaskStatuses.map((row) => [String(row.task_id), String(row.status)]),
+          serverStatuses.map((row) => [String(row.task_id), String(row.status)]),
         )
         setLocalTasks((prev) =>
           prev.map((row) => {
@@ -362,7 +364,10 @@ export function MemberDashboardClient({
           }),
         )
       }
-      void refreshOccurrenceStatuses(task.occurrence_id)
+      // Avoid a second blocking request when the toggle response already includes recomputed statuses.
+      if (!hasServerStatuses) {
+        void refreshOccurrenceStatuses(task.occurrence_id)
+      }
     } catch (error) {
       console.error(error)
     } finally {

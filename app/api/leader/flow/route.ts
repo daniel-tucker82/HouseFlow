@@ -1950,6 +1950,17 @@ export async function POST(request: Request) {
         .map((row) => row.task_id)
 
       if (unlockedTaskIds.length > 0) {
+        const unlockedByCurrentPrereq = new Set<string>()
+        if (completed) {
+          const deps = await client.query<{ target_task_id: string }>(
+            `select td.target_task_id
+             from task_dependencies td
+             where td.source_task_id = $1::uuid
+               and td.target_task_id = any($2::uuid[])`,
+            [taskId, unlockedTaskIds],
+          )
+          for (const row of deps.rows) unlockedByCurrentPrereq.add(String(row.target_task_id))
+        }
         const unlockedTasks = await client.query<{
           id: string
           title: string
@@ -1972,17 +1983,8 @@ export async function POST(request: Request) {
           [unlockedTaskIds],
         )
         for (const unlockedTask of unlockedTasks.rows) {
-          const dependencyResult = await client.query<{ has_dependency: boolean }>(
-            `select exists(
-               select 1
-               from task_dependencies td
-               where td.source_task_id = $1::uuid
-                 and td.target_task_id = $2::uuid
-             ) as has_dependency`,
-            [taskId, unlockedTask.id],
-          )
           const unlockCause =
-            completed && Boolean(dependencyResult.rows[0]?.has_dependency)
+            completed && unlockedByCurrentPrereq.has(String(unlockedTask.id))
               ? "prerequisite_completion"
               : "other"
           const notificationIds = await createUnlockNotifications(client, {
@@ -2002,7 +2004,14 @@ export async function POST(request: Request) {
       }
 
       await client.query("COMMIT")
-      await dispatchPushForNotificationIds(pushNotificationIds)
+      if (pushNotificationIds.length > 0) {
+        void dispatchPushForNotificationIds(pushNotificationIds).catch((error) => {
+          console.error("[api][setOccurrenceTaskCompleted] push-dispatch-failed", {
+            occurrenceId,
+            error,
+          })
+        })
+      }
       return NextResponse.json({
         ok: true,
         occurrenceTaskStatuses: afterStatuses.rows.map((row) => ({
