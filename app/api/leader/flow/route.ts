@@ -1074,7 +1074,7 @@ export async function POST(request: Request) {
     const recurrenceRule = String(body?.recurrenceRule ?? "").trim() || null
     const result = await db.query(
       `insert into routines (household_id, name, type, recurrence_rule, complete_older_occurrences_on_new, created_by)
-       values ($1, $2, $3, $4, $5)
+       values ($1, $2, $3, $4, $5, $6)
        returning id, household_id, name, type, recurrence_rule, complete_older_occurrences_on_new`,
       [householdId, name, type, recurrenceRule, false, userId],
     )
