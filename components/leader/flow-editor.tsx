@@ -1021,6 +1021,9 @@ export function LeaderFlowEditor({
   const taskSettingsFormRef = useRef<HTMLFormElement | null>(null)
   const taskSettingsAutosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const taskSettingsSaveRequestIdRef = useRef(0)
+  const activeTaskForSettingsRef = useRef<Task | null>(null)
+  activeTaskForSettingsRef.current = activeTask
+  const flushTaskSettingsIfDirtyRef = useRef<() => Promise<void>>(async () => {})
   const recurrenceSaveTimersRef = useRef<Record<string, ReturnType<typeof setTimeout> | null>>({})
   const guideStorageKeyMemo = useMemo(
     () => guideStorageKey(selectedHouseholdId, selectedRoutineId, selectedOccurrenceId),
@@ -1284,6 +1287,15 @@ export function LeaderFlowEditor({
     if (routineId) query.set("routineId", routineId)
     if (occurrenceId) query.set("occurrenceId", occurrenceId)
     const response = await fetch(`/api/leader/flow?${query.toString()}`)
+    if (response.status === 404 && occurrenceId) {
+      saveLastManagementSelection(lastManagementSelectionKeyMemo, {
+        routineId: routineId ?? null,
+        occurrenceId: null,
+      })
+      syncRoute(householdId, routineId ?? null, null)
+      await reloadFlow(householdId, routineId ?? null, null)
+      return
+    }
     if (!response.ok) return
     const json = await response.json()
     if (requestId !== latestReloadRequestIdRef.current) return
@@ -1940,20 +1952,23 @@ export function LeaderFlowEditor({
     setFlowEdges((eds) => applyEdgeChanges(changes, eds))
 
   const clearTaskSelection = useCallback(() => {
-    setSelectedTaskId(null)
-    setActiveTask(null)
-    setFlowNodes((prev) =>
-      prev.map((node) => {
-        if (node.type === "dayDivider") return node
-        return {
-          ...node,
-          data: {
-            ...node.data,
-            highlighted: false,
-          },
-        }
-      }),
-    )
+    void (async () => {
+      await flushTaskSettingsIfDirtyRef.current()
+      setSelectedTaskId(null)
+      setActiveTask(null)
+      setFlowNodes((prev) =>
+        prev.map((node) => {
+          if (node.type === "dayDivider") return node
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              highlighted: false,
+            },
+          }
+        }),
+      )
+    })()
   }, [])
 
   const selectedTaskNodeIds = useMemo(
@@ -1998,6 +2013,7 @@ export function LeaderFlowEditor({
     async (taskIds: string[], occurrenceId?: string | null) => {
       const uniqueTaskIds = [...new Set(taskIds)]
       if (uniqueTaskIds.length === 0) return
+      await flushTaskSettingsIfDirtyRef.current()
       await Promise.all(
         uniqueTaskIds.map((taskId) =>
           fetch("/api/leader/flow", {
@@ -2243,6 +2259,7 @@ export function LeaderFlowEditor({
   }
 
   const deleteTask = async (task: Task) => {
+    await flushTaskSettingsIfDirtyRef.current()
     await fetch("/api/leader/flow", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -2258,6 +2275,7 @@ export function LeaderFlowEditor({
   }
 
   const deleteTaskById = async (taskId: string, occurrenceId?: string | null) => {
+    await flushTaskSettingsIfDirtyRef.current()
     await fetch("/api/leader/flow", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -2368,7 +2386,7 @@ export function LeaderFlowEditor({
     )
     centerTaskInViewport(taskId)
     const fullTask = localTasks.find((t) => t.id === taskId) ?? null
-    openTaskSettings(fullTask)
+    void openTaskSettings(fullTask)
   }
 
   const toggleOccurrenceTaskFromSidebar = async (
@@ -2799,9 +2817,9 @@ export function LeaderFlowEditor({
     setLocalMembers((prev) => [...prev, payload.member as Member])
   }
 
-  const saveTaskSettings = async (formData: FormData) => {
-    if (!activeTask) return
-    const isOccurrenceTask = Boolean(activeTask.routine_occurrence_id)
+  const saveTaskSettings = async (formData: FormData, taskForSave: Task) => {
+    const task = taskForSave
+    const isOccurrenceTask = Boolean(task.routine_occurrence_id)
     const unlockDateInput = normalizeDateInput(String(formData.get("unlockDate") ?? ""))
     const unlockModeRaw = String(formData.get("unlockMode") ?? "none")
     const unlockMode = isOccurrenceTask ? (unlockDateInput ? "fixed" : "none") : unlockModeRaw
@@ -2899,9 +2917,9 @@ export function LeaderFlowEditor({
     const payload = {
       action: "updateTask",
       householdId: selectedHouseholdId,
-      taskId: activeTask.id,
-      occurrenceId: activeTask.routine_occurrence_id ?? selectedOccurrenceId,
-      title: String(formData.get("title") ?? activeTask.title),
+      taskId: task.id,
+      occurrenceId: task.routine_occurrence_id ?? selectedOccurrenceId,
+      title: String(formData.get("title") ?? task.title),
       notes: String(formData.get("notes") ?? ""),
       assigneeIds: formData.getAll("assigneeIds").map(String),
       isReward: String(formData.get("type") ?? "task") === "reward",
@@ -2928,45 +2946,54 @@ export function LeaderFlowEditor({
     return saveJson.task as Task
   }
 
-  const runTaskSettingsAutosave = useCallback(
-    async (formData: FormData) => {
-      if (!activeTask) return
-      const requestId = ++taskSettingsSaveRequestIdRef.current
-      setTaskSettingsSaveState("saving")
-      setTaskSettingsSaveError(null)
-      try {
-        await saveTaskSettings(formData)
-        if (requestId !== taskSettingsSaveRequestIdRef.current) return
-        setTaskSettingsSaveState("saved")
-      } catch (error) {
-        if (requestId !== taskSettingsSaveRequestIdRef.current) return
-        setTaskSettingsSaveState("error")
-        setTaskSettingsSaveError(error instanceof Error ? error.message : "Failed to save task settings")
-      }
-    },
-    [activeTask, saveTaskSettings],
-  )
+  const runTaskSettingsAutosave = async (formData: FormData, taskForSave?: Task | null) => {
+    const task = taskForSave ?? activeTaskForSettingsRef.current
+    if (!task) return
+    const requestId = ++taskSettingsSaveRequestIdRef.current
+    setTaskSettingsSaveState("saving")
+    setTaskSettingsSaveError(null)
+    try {
+      await saveTaskSettings(formData, task)
+      if (requestId !== taskSettingsSaveRequestIdRef.current) return
+      setTaskSettingsSaveState("saved")
+    } catch (error) {
+      if (requestId !== taskSettingsSaveRequestIdRef.current) return
+      setTaskSettingsSaveState("error")
+      setTaskSettingsSaveError(error instanceof Error ? error.message : "Failed to save task settings")
+    }
+  }
 
-  const scheduleTaskSettingsAutosave = useCallback(
-    (immediate = false) => {
-      if (!activeTask) return
+  const flushTaskSettingsIfDirty = async () => {
+    if (taskSettingsAutosaveTimerRef.current) {
+      clearTimeout(taskSettingsAutosaveTimerRef.current)
+      taskSettingsAutosaveTimerRef.current = null
+    }
+    const form = taskSettingsFormRef.current
+    const task = activeTaskForSettingsRef.current
+    if (!form || !task) return
+    await runTaskSettingsAutosave(new FormData(form), task)
+  }
+  flushTaskSettingsIfDirtyRef.current = flushTaskSettingsIfDirty
+
+  const scheduleTaskSettingsAutosave = (immediate = false) => {
+    if (!activeTaskForSettingsRef.current) return
+    if (!taskSettingsFormRef.current) return
+    if (taskSettingsAutosaveTimerRef.current) {
+      clearTimeout(taskSettingsAutosaveTimerRef.current)
+      taskSettingsAutosaveTimerRef.current = null
+    }
+    const save = () => {
       const form = taskSettingsFormRef.current
-      if (!form) return
-      if (taskSettingsAutosaveTimerRef.current) {
-        clearTimeout(taskSettingsAutosaveTimerRef.current)
-        taskSettingsAutosaveTimerRef.current = null
-      }
-      const save = () => {
-        void runTaskSettingsAutosave(new FormData(form))
-      }
-      if (immediate) {
-        save()
-        return
-      }
-      taskSettingsAutosaveTimerRef.current = setTimeout(save, 450)
-    },
-    [activeTask, runTaskSettingsAutosave],
-  )
+      const task = activeTaskForSettingsRef.current
+      if (!form || !task) return
+      void runTaskSettingsAutosave(new FormData(form), task)
+    }
+    if (immediate) {
+      save()
+      return
+    }
+    taskSettingsAutosaveTimerRef.current = setTimeout(save, 280)
+  }
 
   useEffect(() => {
     if (!activeTask) {
@@ -2990,8 +3017,11 @@ export function LeaderFlowEditor({
     }
   }, [])
 
-  const openTaskSettings = (task: Task | null) => {
+  const openTaskSettings = async (task: Task | null) => {
     if (!task) return
+    if (!activeTask || activeTask.id !== task.id) {
+      await flushTaskSettingsIfDirty()
+    }
     const rule = task.unlock_rule as { kind?: string } | null
     const expiryRule = task.expiry_rule as { kind?: string } | null
     const isOccurrenceTask = Boolean(task.routine_occurrence_id)
@@ -3224,7 +3254,7 @@ export function LeaderFlowEditor({
                           )
                           centerTaskInViewport(task.id)
                           const fullTask = localTasks.find((t) => t.id === task.id) ?? null
-                          openTaskSettings(fullTask)
+                          void openTaskSettings(fullTask)
                           setTaskMenu(null)
                           setOccurrenceMenu(null)
                         }}
@@ -3894,45 +3924,51 @@ export function LeaderFlowEditor({
               } else {
                 nextSelectedIds.add(node.id)
               }
-              setSelectedTaskId(null)
-              setActiveTask(null)
-              setFlowNodes((prev) =>
-                prev.map((existingNode) => {
-                  if (existingNode.type === "dayDivider") return existingNode
-                  return {
-                    ...existingNode,
-                    selected: nextSelectedIds.has(existingNode.id),
-                    data: {
-                      ...existingNode.data,
-                      highlighted: false,
-                    },
-                  }
-                }),
-              )
-              setEdgeMenu(null)
-              setTaskMenu(null)
-              setOccurrenceMenu(null)
+              void (async () => {
+                await flushTaskSettingsIfDirtyRef.current()
+                setSelectedTaskId(null)
+                setActiveTask(null)
+                setFlowNodes((prev) =>
+                  prev.map((existingNode) => {
+                    if (existingNode.type === "dayDivider") return existingNode
+                    return {
+                      ...existingNode,
+                      selected: nextSelectedIds.has(existingNode.id),
+                      data: {
+                        ...existingNode.data,
+                        highlighted: false,
+                      },
+                    }
+                  }),
+                )
+                setEdgeMenu(null)
+                setTaskMenu(null)
+                setOccurrenceMenu(null)
+              })()
               return
             }
             if (node.selected && selectedTaskNodeIds.length > 1) {
-              setSelectedTaskId(null)
-              setActiveTask(null)
-              setFlowNodes((prev) =>
-                prev.map((existingNode) => {
-                  if (existingNode.type === "dayDivider") return existingNode
-                  return {
-                    ...existingNode,
-                    selected: selectedTaskNodeIds.includes(existingNode.id),
-                    data: {
-                      ...existingNode.data,
-                      highlighted: false,
-                    },
-                  }
-                }),
-              )
-              setEdgeMenu(null)
-              setTaskMenu(null)
-              setOccurrenceMenu(null)
+              void (async () => {
+                await flushTaskSettingsIfDirtyRef.current()
+                setSelectedTaskId(null)
+                setActiveTask(null)
+                setFlowNodes((prev) =>
+                  prev.map((existingNode) => {
+                    if (existingNode.type === "dayDivider") return existingNode
+                    return {
+                      ...existingNode,
+                      selected: selectedTaskNodeIds.includes(existingNode.id),
+                      data: {
+                        ...existingNode.data,
+                        highlighted: false,
+                      },
+                    }
+                  }),
+                )
+                setEdgeMenu(null)
+                setTaskMenu(null)
+                setOccurrenceMenu(null)
+              })()
               return
             }
             setSelectedTaskId(node.id)
@@ -3952,21 +3988,24 @@ export function LeaderFlowEditor({
             setTaskMenu(null)
             setOccurrenceMenu(null)
             const task = localTasks.find((t) => t.id === node.id) ?? null
-            openTaskSettings(task)
+            void openTaskSettings(task)
           }}
           onEdgeClick={(event, edge) => {
             event.preventDefault()
-            setActiveTask(null)
-            setGuideLineMenu(null)
-            setTaskMenu(null)
-            setOccurrenceMenu(null)
-            setEdgeMenu({
-              edgeId: edge.id,
-              sourceTaskId: edge.source,
-              targetTaskId: edge.target,
-              x: event.clientX,
-              y: event.clientY,
-            })
+            void (async () => {
+              await flushTaskSettingsIfDirtyRef.current()
+              setActiveTask(null)
+              setGuideLineMenu(null)
+              setTaskMenu(null)
+              setOccurrenceMenu(null)
+              setEdgeMenu({
+                edgeId: edge.id,
+                sourceTaskId: edge.source,
+                targetTaskId: edge.target,
+                x: event.clientX,
+                y: event.clientY,
+              })
+            })()
           }}
           onPaneMouseMove={(e) => {
             if (!guidePlaceMode || !reactFlowRef.current) return
@@ -4761,7 +4800,16 @@ export function LeaderFlowEditor({
                       ? taskSettingsSaveError ?? "Save failed"
                       : "Auto-save enabled"}
               </p>
-              <Button type="button" variant="outline" onClick={() => setActiveTask(null)}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  void (async () => {
+                    await flushTaskSettingsIfDirty()
+                    setActiveTask(null)
+                  })()
+                }}
+              >
                 Close
               </Button>
               <Button
