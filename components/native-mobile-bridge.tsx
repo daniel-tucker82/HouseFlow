@@ -38,7 +38,10 @@ export function NativeMobileBridge() {
         return
       }
 
-      const deviceInfo = await Device.getInfo()
+      const [deviceInfo, { identifier: deviceInstallId }] = await Promise.all([
+        Device.getInfo(),
+        Device.getId(),
+      ])
       const platform = deviceInfo.platform === "ios" ? "ios" : deviceInfo.platform === "android" ? "android" : null
       if (!platform) return
 
@@ -57,7 +60,7 @@ export function NativeMobileBridge() {
           body: JSON.stringify({
             token: token.value,
             platform,
-            deviceId: deviceInfo.identifier ?? null,
+            deviceId: deviceInstallId ?? null,
             deviceName: deviceInfo.model ?? null,
             appVersion: deviceInfo.osVersion ?? null,
           }),

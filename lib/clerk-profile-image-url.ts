@@ -63,5 +63,7 @@ export function isClerkGeneratedDefaultProfileImageUrl(url: string | null | unde
 
 /** True when we should render a real `<img>` for this URL (not a Clerk-generated placeholder). */
 export function isRenderableUserProfilePhotoUrl(url: string | null | undefined): boolean {
-  return Boolean(url?.trim()) && !url.includes("undefined") && !isClerkGeneratedDefaultProfileImageUrl(url)
+  const trimmed = url?.trim()
+  if (!trimmed) return false
+  return !trimmed.includes("undefined") && !isClerkGeneratedDefaultProfileImageUrl(url)
 }
