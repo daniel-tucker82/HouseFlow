@@ -1020,6 +1020,7 @@ export function LeaderFlowEditor({
   const householdPanelToggleRef = useRef<HTMLButtonElement | null>(null)
   const taskSettingsFormRef = useRef<HTMLFormElement | null>(null)
   const taskSettingsAutosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const coalescedFlowReloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const taskSettingsSaveRequestIdRef = useRef(0)
   const activeTaskForSettingsRef = useRef<Task | null>(null)
   activeTaskForSettingsRef.current = activeTask
@@ -1411,6 +1412,23 @@ export function LeaderFlowEditor({
     )
   }
   reloadFlowRef.current = reloadFlow
+
+  const scheduleCoalescedFlowReload = useCallback(() => {
+    if (coalescedFlowReloadTimerRef.current) clearTimeout(coalescedFlowReloadTimerRef.current)
+    coalescedFlowReloadTimerRef.current = setTimeout(() => {
+      coalescedFlowReloadTimerRef.current = null
+      void reloadFlowRef.current(selectedHouseholdId, selectedRoutineId, selectedOccurrenceId)
+    }, 380)
+  }, [selectedHouseholdId, selectedRoutineId, selectedOccurrenceId])
+
+  useEffect(() => {
+    return () => {
+      if (coalescedFlowReloadTimerRef.current) {
+        clearTimeout(coalescedFlowReloadTimerRef.current)
+        coalescedFlowReloadTimerRef.current = null
+      }
+    }
+  }, [selectedHouseholdId, selectedRoutineId, selectedOccurrenceId])
 
   useEffect(() => {
     let cancelled = false
@@ -2648,8 +2666,16 @@ export function LeaderFlowEditor({
         isReward: false,
       }),
     })
-    if (response.ok) {
-      await reloadFlow(selectedHouseholdId, selectedRoutineId, selectedOccurrenceId)
+    const json = (await response.json().catch(() => null)) as {
+      task?: Task
+      occurrenceTaskStatus?: { task_id: string; status: string } | null
+    } | null
+    if (response.ok && json?.task) {
+      applyTaskPersistToLocalState(json.task, [], {
+        isNewTask: true,
+        occurrenceTaskStatus: json.occurrenceTaskStatus ?? null,
+      })
+      scheduleCoalescedFlowReload()
     }
   }
 
@@ -2817,6 +2843,167 @@ export function LeaderFlowEditor({
     setLocalMembers((prev) => [...prev, payload.member as Member])
   }
 
+  /** Merge POST /api/leader/flow task payload into canvas state so UI updates without waiting for a full GET. */
+  const applyTaskPersistToLocalState = (
+    serverTask: Task,
+    assigneeIds: string[],
+    options?: { isNewTask?: boolean; occurrenceTaskStatus?: { task_id: string; status: string } | null },
+  ) => {
+    const isNew = Boolean(options?.isNewTask)
+    const occRowFromServer = options?.occurrenceTaskStatus ?? null
+    const colorMap = buildMemberTokenColorMap(localMembers)
+    const assigneesForNode = assigneeIds
+      .map((uid) => localMembers.find((m) => m.id === uid))
+      .filter(Boolean)
+      .map((member) => ({ ...(member as Member), tokenColorClass: colorMap.get((member as Member).id) }))
+
+    const nextOccurrenceStatuses: OccurrenceTaskStatus[] = occRowFromServer
+      ? [
+          ...localOccurrenceTaskStatuses.filter((r) => r.task_id !== serverTask.id),
+          { task_id: serverTask.id, status: occRowFromServer.status },
+        ]
+      : localOccurrenceTaskStatuses
+
+    if (occRowFromServer) {
+      setLocalOccurrenceTaskStatuses(nextOccurrenceStatuses)
+    }
+
+    const listRowStatus = ((): OccurrenceTaskListItem["status"] => {
+      if (!selectedOccurrenceId) return "locked"
+      const raw =
+        occRowFromServer?.status ??
+        nextOccurrenceStatuses.find((r) => r.task_id === serverTask.id)?.status ??
+        serverTask.status
+      if (raw === "unlocked" || raw === "completed" || raw === "locked") return raw
+      return "locked"
+    })()
+
+    setLocalAllTasks((prev) => {
+      const row: TaskListItem = {
+        id: serverTask.id,
+        routine_id: serverTask.routine_id ?? null,
+        title: serverTask.title,
+        is_reward: serverTask.is_reward,
+      }
+      if (!prev.some((t) => t.id === serverTask.id)) {
+        return [...prev, row]
+      }
+      return prev.map((t) => (t.id === serverTask.id ? row : t))
+    })
+
+    setLocalTasks((prev) => {
+      if (isNew && !prev.some((t) => t.id === serverTask.id)) {
+        return [...prev, serverTask]
+      }
+      return prev.map((t) => (t.id === serverTask.id ? { ...t, ...serverTask } : t))
+    })
+
+    const assigneeRows: TaskAssignee[] = assigneeIds.map((user_id) => ({
+      task_id: serverTask.id,
+      user_id,
+    }))
+    setLocalTaskAssignees((prev) => [...prev.filter((a) => a.task_id !== serverTask.id), ...assigneeRows])
+    setLocalTemplateTaskAssignees((prev) => [...prev.filter((a) => a.task_id !== serverTask.id), ...assigneeRows])
+
+    if (selectedOccurrenceId) {
+      setOccurrenceTaskLists((prev) => {
+        const list = prev[selectedOccurrenceId]
+        if (!list) return prev
+        if (list.some((i) => i.id === serverTask.id)) {
+          return {
+            ...prev,
+            [selectedOccurrenceId]: list.map((item) =>
+              item.id === serverTask.id
+                ? {
+                    ...item,
+                    title: serverTask.title,
+                    is_reward: serverTask.is_reward,
+                    assignee_ids: assigneeIds,
+                    status: listRowStatus,
+                  }
+                : item,
+            ),
+          }
+        }
+        return {
+          ...prev,
+          [selectedOccurrenceId]: [
+            ...list,
+            {
+              id: serverTask.id,
+              title: serverTask.title,
+              status: listRowStatus,
+              assignee_ids: assigneeIds,
+              is_reward: serverTask.is_reward,
+            },
+          ],
+        }
+      })
+    }
+
+    setActiveTask((prev) =>
+      prev?.id === serverTask.id ? { ...prev, ...serverTask, assignee_ids: assigneeIds } : prev,
+    )
+
+    const statusByTaskId = new Map<string, "locked" | "unlocked" | "completed">(
+      nextOccurrenceStatuses.map((item) => [item.task_id, item.status as "locked" | "unlocked" | "completed"]),
+    )
+
+    setFlowNodes((prev) => {
+      const guKey = guideStorageKeyMemo
+      const prevTaskNodes = prev.filter((node) => node.type === "taskNode")
+      const existing = prevTaskNodes.find((node) => node.id === serverTask.id)
+      const isOcc = Boolean(selectedOccurrenceId)
+      const occRow = isOcc
+        ? (occRowFromServer ??
+          nextOccurrenceStatuses.find((r) => r.task_id === serverTask.id) ?? {
+            task_id: serverTask.id,
+            status: serverTask.status,
+          })
+        : null
+      const occurrenceNodeStatus = String(isOcc ? occRow?.status : serverTask.status)
+
+      const nodeData: TaskNodeData = {
+        title: serverTask.title,
+        status: occurrenceNodeStatus,
+        isReward: serverTask.is_reward,
+        highlighted: selectedTaskId === serverTask.id,
+        assignees: assigneesForNode,
+        occurrenceView: isOcc,
+        occurrenceStatus: occurrenceNodeStatus,
+        lockTooltip: isOcc
+          ? buildLockTooltip(serverTask, occurrenceNodeStatus, localDeps, statusByTaskId)
+          : null,
+        onToggleOccurrenceComplete: isOcc
+          ? () => {
+              handleOccurrenceToggle(serverTask.id, occurrenceNodeStatus !== "completed")
+            }
+          : undefined,
+      }
+
+      const idx = prevTaskNodes.filter((n) => n.id !== serverTask.id).length
+      const newNode: Node<TaskNodeData> = {
+        id: serverTask.id,
+        type: "taskNode",
+        draggable: existing?.draggable ?? true,
+        selected: existing?.selected ?? false,
+        position:
+          existing?.position ?? {
+            x: Number(serverTask.position_x ?? 80 + (idx % 4) * 280),
+            y: Number(serverTask.position_y ?? 80 + Math.floor(idx / 4) * 170),
+          },
+        zIndex: 1,
+        data: nodeData,
+      }
+
+      const mergedTaskNodes = prevTaskNodes.some((n) => n.id === serverTask.id)
+        ? prevTaskNodes.map((n) => (n.id === serverTask.id ? newNode : n))
+        : [...prevTaskNodes, newNode]
+
+      return mergeTaskNodesWithGuides(guKey, mergedTaskNodes as Node[])
+    })
+  }
+
   const saveTaskSettings = async (formData: FormData, taskForSave: Task) => {
     const task = taskForSave
     const isOccurrenceTask = Boolean(task.routine_occurrence_id)
@@ -2942,8 +3129,10 @@ export function LeaderFlowEditor({
     if (!saveJson?.task) {
       throw new Error("Task settings were not persisted by the backend")
     }
-    await reloadFlow(selectedHouseholdId, selectedRoutineId, selectedOccurrenceId)
-    return saveJson.task as Task
+    const serverTask = saveJson.task as Task
+    applyTaskPersistToLocalState(serverTask, payload.assigneeIds.map(String))
+    scheduleCoalescedFlowReload()
+    return serverTask
   }
 
   const runTaskSettingsAutosave = async (formData: FormData, taskForSave?: Task | null) => {
@@ -2992,7 +3181,7 @@ export function LeaderFlowEditor({
       save()
       return
     }
-    taskSettingsAutosaveTimerRef.current = setTimeout(save, 280)
+    taskSettingsAutosaveTimerRef.current = setTimeout(save, 120)
   }
 
   useEffect(() => {

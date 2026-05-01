@@ -2070,7 +2070,24 @@ export async function POST(request: Request) {
         client.release()
       }
     }
-    return NextResponse.json({ task: result.rows[0] })
+    let occurrenceTaskStatus: { task_id: string; status: string } | null = null
+    if (occurrenceId) {
+      const occRow = await db.query<{ task_id: string; status: string }>(
+        `select task_id, status::text as status
+         from occurrence_tasks
+         where occurrence_id = $1::uuid
+           and task_id = $2::uuid
+         limit 1`,
+        [occurrenceId, result.rows[0].id],
+      )
+      if ((occRow.rowCount ?? 0) > 0 && occRow.rows[0]) {
+        occurrenceTaskStatus = {
+          task_id: String(occRow.rows[0].task_id),
+          status: String(occRow.rows[0].status),
+        }
+      }
+    }
+    return NextResponse.json({ task: result.rows[0], occurrenceTaskStatus })
   }
 
   if (action === "updateTask") {
