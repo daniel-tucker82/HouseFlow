@@ -201,6 +201,22 @@ async function applyRewardAutoCompletion(client: PoolClient, occurrenceId: strin
   }
 }
 
+async function clearExpiredOccurrenceTaskExpiryRules(client: PoolClient, occurrenceId: string) {
+  await client.query(
+    `update tasks t
+     set expiry_rule = null,
+         expires_at = null,
+         updated_at = now()
+     from occurrence_tasks ot
+     where ot.occurrence_id = $1::uuid
+       and ot.task_id = t.id
+       and ot.status = 'completed'::task_status
+       and t.expires_at is not null
+       and t.expires_at <= now()`,
+    [occurrenceId],
+  )
+}
+
 async function recomputeOccurrenceStatuses(client: PoolClient, occurrenceId: string) {
   await client.query(
     `with lock_flags as (
@@ -259,6 +275,9 @@ async function recomputeOccurrenceStatuses(client: PoolClient, occurrenceId: str
        and ot.status <> 'completed'::task_status`,
     [occurrenceId],
   )
+  // Expiry rule is one-shot on occurrence tasks: once the expiry has completed the task,
+  // remove the expiry fields so users can reopen it without instant re-completion.
+  await clearExpiredOccurrenceTaskExpiryRules(client, occurrenceId)
 }
 
 async function materializeDueRecurrences(

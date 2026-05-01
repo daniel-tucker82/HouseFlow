@@ -57,6 +57,7 @@ const managementActions = new Set<string>([
   "renameTaskBoard",
   "deleteOccurrence",
   "listOccurrenceTasks",
+  "listOccurrenceStatuses",
   "createTask",
   "updateTask",
   "updateTaskPosition",
@@ -70,6 +71,7 @@ export function canPerformAction(role: EffectiveRole, action: string) {
   if (managerOnlyActions.has(action)) return role === "manager"
   if (managementActions.has(action)) return isManagementRole(role)
   if (action === "setOccurrenceTaskCompleted") return true
+  if (action === "listOccurrenceStatuses") return true
   if (action === "verifyKioskExitPin" || action === "forgotKioskPinAndSignOut") return isManagementRole(role)
   return false
 }
