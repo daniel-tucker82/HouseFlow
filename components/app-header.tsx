@@ -1,11 +1,12 @@
 "use client"
 
 import { UserButton } from "@clerk/nextjs"
-import { Search, Workflow } from "lucide-react"
+import { Search, Settings, Workflow } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import { FormEvent } from "react"
+import { FormEvent, useEffect, useState } from "react"
 
+import { NotificationBell } from "@/components/notification-bell"
 import { cn } from "@/lib/utils"
 
 function homeHrefForPath(pathname: string | null) {
@@ -14,7 +15,16 @@ function homeHrefForPath(pathname: string | null) {
   return "/leader/dashboard"
 }
 
-export function AppHeader({ className }: { className?: string }) {
+export function AppHeader({
+  className,
+  lockViewSwitch = false,
+  canAccessManagement = true,
+}: {
+  className?: string
+  lockViewSwitch?: boolean
+  canAccessManagement?: boolean
+}) {
+  const [isMounted, setIsMounted] = useState(false)
   const pathname = usePathname()
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -27,6 +37,10 @@ export function AppHeader({ className }: { className?: string }) {
   const onSearchSubmit = (e: FormEvent) => {
     e.preventDefault()
   }
+
+  useEffect(() => {
+    setIsMounted(true)
+  }, [])
 
   return (
     <header
@@ -49,8 +63,10 @@ export function AppHeader({ className }: { className?: string }) {
         <select
           aria-label="Switch application view"
           value={viewMode}
+          disabled={lockViewSwitch && viewMode === "member"}
           onChange={(event) => {
-            const target = event.target.value === "member" ? "/member/dashboard" : "/leader/dashboard"
+            const target =
+              event.target.value === "member" || !canAccessManagement ? "/member/dashboard" : "/leader/dashboard"
             const params = new URLSearchParams()
             if (currentHousehold) params.set("household", currentHousehold)
             if (currentRoutine) params.set("routine", currentRoutine)
@@ -60,7 +76,9 @@ export function AppHeader({ className }: { className?: string }) {
           }}
           className="h-9 rounded-lg border border-input bg-background px-2.5 text-sm shadow-inner outline-none transition-[box-shadow,background-color] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/35"
         >
-          <option value="management">Household management</option>
+          {canAccessManagement && !(lockViewSwitch && viewMode === "member") ? (
+            <option value="management">Household management</option>
+          ) : null}
           <option value="member">Member view</option>
         </select>
       </label>
@@ -98,13 +116,26 @@ export function AppHeader({ className }: { className?: string }) {
             />
           </div>
         </form>
-        <UserButton
-          appearance={{
-            elements: {
-              avatarBox: "size-8 ring-1 ring-border shadow-sm",
-            },
-          }}
-        />
+        <NotificationBell />
+        {isMounted ? (
+          <UserButton
+            appearance={{
+              elements: {
+                avatarBox: "size-8 ring-1 ring-border shadow-sm",
+              },
+            }}
+          >
+            <UserButton.MenuItems>
+              <UserButton.Link
+                label="Notification settings"
+                labelIcon={<Settings className="size-4" />}
+                href="/settings/notifications"
+              />
+            </UserButton.MenuItems>
+          </UserButton>
+        ) : (
+          <div aria-hidden className="size-8 rounded-full bg-muted ring-1 ring-border" />
+        )}
       </div>
     </header>
   )

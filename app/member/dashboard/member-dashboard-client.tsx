@@ -4,17 +4,19 @@ import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Menu } from "lucide-react"
+import { useClerk } from "@clerk/nextjs"
+import type { EffectiveRole } from "@/lib/household-authz"
 
 type Member = {
   id: string
   name: string
   avatar_url: string | null
   token_color: string | null
-  role: "leader" | "member"
+  role: "manager" | "supervisor" | "member" | "leader"
 }
 
 type Membership = {
-  role: "leader" | "member"
+  role: "manager" | "supervisor" | "member" | "leader"
   household: {
     id: string
     name: string
@@ -45,12 +47,19 @@ type Props = {
   memberships: Membership[]
   selectedHouseholdId: string
   selectedMemberIds: string[]
+  editableMemberIds: string[]
+  viewerRole: EffectiveRole
+  viewerUserId: string
   leaderId: string
   members: Member[]
   tasks: Task[]
+  kioskActive: boolean
 }
 
-function lockMessage(task: Task, options?: { currentMemberId?: string; memberNameById?: Map<string, string> }) {
+function lockMessage(
+  task: Task,
+  options?: { currentMemberId?: string; memberNameById?: Map<string, string>; hasHydrated?: boolean },
+) {
   if (task.lock_type === "prerequisite" && task.blocking_task_title) {
     const currentMemberId = options?.currentMemberId
     const memberNameById = options?.memberNameById
@@ -75,6 +84,9 @@ function lockMessage(task: Task, options?: { currentMemberId?: string; memberNam
     )
   }
   if (task.lock_type === "time" && task.unlock_at) {
+    if (!options?.hasHydrated) {
+      return "task will unlock soon"
+    }
     const unlockAt = new Date(task.unlock_at)
     const now = new Date()
     const unlockDay = new Date(unlockAt)
@@ -82,8 +94,18 @@ function lockMessage(task: Task, options?: { currentMemberId?: string; memberNam
     const nowDay = new Date(now)
     nowDay.setHours(0, 0, 0, 0)
     const dayDelta = Math.round((unlockDay.getTime() - nowDay.getTime()) / 86400000)
-    const dayText = dayDelta === 0 ? "today" : dayDelta === 1 ? "tomorrow" : `on ${unlockAt.toLocaleDateString()}`
-    return `task will unlock at ${unlockAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}, ${dayText}`
+    const dayText =
+      dayDelta === 0
+        ? "today"
+        : dayDelta === 1
+          ? "tomorrow"
+          : `on ${new Intl.DateTimeFormat("en-AU", { day: "2-digit", month: "2-digit", year: "numeric" }).format(unlockAt)}`
+    const unlockTime = new Intl.DateTimeFormat("en-AU", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(unlockAt)
+    return `task will unlock at ${unlockTime}, ${dayText}`
   }
   return "task will unlock at [time], [today / tomorrow / on date]"
 }
@@ -92,17 +114,37 @@ export function MemberDashboardClient({
   memberships,
   selectedHouseholdId,
   selectedMemberIds,
+  editableMemberIds,
+  viewerRole,
+  viewerUserId,
   leaderId,
   members,
   tasks,
+  kioskActive,
 }: Props) {
   const router = useRouter()
+  const { signOut } = useClerk()
   const [activeTask, setActiveTask] = useState<Task | null>(null)
   const [isToggling, setIsToggling] = useState<string | null>(null)
   const [selectorsOpen, setSelectorsOpen] = useState(false)
+  const [isKioskMode, setIsKioskMode] = useState(kioskActive)
+  const [isKioskPending, setIsKioskPending] = useState(false)
+  const [roleUpdatingMemberId, setRoleUpdatingMemberId] = useState<string | null>(null)
+  const [hasHydrated, setHasHydrated] = useState(false)
+
+  useEffect(() => {
+    setHasHydrated(true)
+  }, [])
 
   const memberNameById = useMemo(() => new Map(members.map((member) => [member.id, member.name])), [members])
   const selectedMemberSet = useMemo(() => new Set(selectedMemberIds), [selectedMemberIds])
+  const editableMemberSet = useMemo(() => {
+    if (viewerRole !== "member") return new Set(editableMemberIds)
+    return new Set(selectedMemberIds.filter((id) => id === viewerUserId))
+  }, [editableMemberIds, selectedMemberIds, viewerRole, viewerUserId])
+  const effectiveEditableMemberIds = useMemo(() => [...editableMemberSet], [editableMemberSet])
+  const canConfigureView = viewerRole === "manager" || viewerRole === "supervisor"
+  const canActivateKiosk = viewerRole === "manager"
   const selectedMembers = useMemo(
     () => members.filter((member) => selectedMemberSet.has(member.id)),
     [members, selectedMemberSet],
@@ -201,8 +243,13 @@ export function MemberDashboardClient({
     }
   }, [router, tasks])
 
-  const buildDashboardHref = (householdId: string, memberIds: string[]) =>
-    `/member/dashboard?household=${householdId}&members=${memberIds.join(",")}`
+  const buildDashboardHref = (householdId: string, memberIds: string[], editableIds: string[]) => {
+    const params = new URLSearchParams()
+    params.set("household", householdId)
+    params.set("members", memberIds.join(","))
+    params.set("editableMembers", editableIds.join(","))
+    return `/member/dashboard?${params.toString()}`
+  }
   const toggleMemberSelection = (memberId: string) => {
     if (selectedMemberSet.has(memberId)) {
       if (selectedMemberIds.length <= 1) return selectedMemberIds
@@ -210,9 +257,17 @@ export function MemberDashboardClient({
     }
     return [...selectedMemberIds, memberId]
   }
+  const toggleEditableSelection = (memberId: string) => {
+    if (editableMemberSet.has(memberId)) {
+      if (editableMemberIds.length <= 1) return editableMemberIds
+      return editableMemberIds.filter((id) => id !== memberId)
+    }
+    if (!selectedMemberSet.has(memberId)) return editableMemberIds
+    return [...editableMemberIds, memberId]
+  }
 
-  const toggleTaskCompleted = async (task: Task) => {
-    if (task.status === "locked" || isToggling) return
+  const toggleTaskCompleted = async (task: Task, actingMemberId: string) => {
+    if (task.status === "locked" || isToggling || !editableMemberSet.has(actingMemberId)) return
     setIsToggling(task.id)
     try {
       const response = await fetch("/api/leader/flow", {
@@ -224,6 +279,8 @@ export function MemberDashboardClient({
           occurrenceId: task.occurrence_id,
           taskId: task.id,
           completed: task.status !== "completed",
+          actorMemberId: actingMemberId,
+          editableMemberIds: effectiveEditableMemberIds,
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC",
         }),
       })
@@ -238,7 +295,115 @@ export function MemberDashboardClient({
     }
   }
 
-  const TaskRow = ({ task, currentMemberId }: { task: Task; currentMemberId?: string }) => (
+  const activateKioskMode = async () => {
+    if (isKioskPending) return
+    const pin = window.prompt("Set a new kiosk PIN")
+    if (!pin) return
+    setIsKioskPending(true)
+    try {
+      const response = await fetch("/api/leader/flow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "activateKioskMode",
+          householdId: selectedHouseholdId,
+          pin,
+          visibleMemberIds: selectedMemberIds,
+          editableMemberIds,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC",
+        }),
+      })
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null
+        window.alert(payload?.error ?? "Unable to enable kiosk mode.")
+        return
+      }
+      setIsKioskMode(true)
+      router.refresh()
+    } finally {
+      setIsKioskPending(false)
+    }
+  }
+
+  const exitKioskMode = async () => {
+    if (isKioskPending) return
+    const pin = window.prompt("Enter kiosk PIN to exit")
+    if (!pin) return
+    setIsKioskPending(true)
+    try {
+      const response = await fetch("/api/leader/flow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "verifyKioskExitPin",
+          householdId: selectedHouseholdId,
+          pin,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC",
+        }),
+      })
+      if (!response.ok) {
+        window.alert("Incorrect PIN. Kiosk mode remains active.")
+        return
+      }
+      setIsKioskMode(false)
+      router.refresh()
+    } finally {
+      setIsKioskPending(false)
+    }
+  }
+
+  const forgotKioskPin = async () => {
+    if (isKioskPending) return
+    const confirmed = window.confirm("Forgot PIN will sign you out. Continue?")
+    if (!confirmed) return
+    setIsKioskPending(true)
+    try {
+      const response = await fetch("/api/leader/flow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "forgotKioskPinAndSignOut",
+          householdId: selectedHouseholdId,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC",
+        }),
+      })
+      if (!response.ok) {
+        window.alert("Unable to clear kiosk PIN right now.")
+        return
+      }
+      await signOut({ redirectUrl: "/auth/login" })
+    } finally {
+      setIsKioskPending(false)
+    }
+  }
+
+  const updateMemberRole = async (memberId: string, role: "member" | "supervisor") => {
+    if (roleUpdatingMemberId) return
+    setRoleUpdatingMemberId(memberId)
+    try {
+      const response = await fetch("/api/leader/flow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "updateMemberRole",
+          householdId: selectedHouseholdId,
+          memberUserId: memberId,
+          role,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC",
+        }),
+      })
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null
+        window.alert(payload?.error ?? "Unable to update member role.")
+        return
+      }
+      router.refresh()
+    } finally {
+      setRoleUpdatingMemberId(null)
+    }
+  }
+
+  const TaskRow = ({ task, currentMemberId, isEditable }: { task: Task; currentMemberId?: string; isEditable: boolean }) => (
     <li
       className={`flex min-h-[72px] items-stretch overflow-hidden rounded border ${
         task.status === "locked"
@@ -259,7 +424,9 @@ export function MemberDashboardClient({
       >
         <p className={`truncate font-medium ${task.status === "completed" ? "line-through" : ""}`}>{task.title}</p>
         {task.status === "locked" ? (
-          <p className="text-xs">{lockMessage(task, { currentMemberId, memberNameById })}</p>
+          <p className="text-xs">{lockMessage(task, { currentMemberId, memberNameById, hasHydrated })}</p>
+        ) : !isEditable ? (
+          <p className="text-xs text-muted-foreground">Read only in this view</p>
         ) : task.status === "completed" ? (
           <p className="text-xs text-green-700">Completed (click Undo to revert to incomplete)</p>
         ) : (
@@ -268,13 +435,14 @@ export function MemberDashboardClient({
       </button>
       <button
         type="button"
-        disabled={task.status === "locked" || isToggling === task.id}
+        disabled={task.status === "locked" || isToggling === task.id || !isEditable}
         onClick={(event) => {
           event.stopPropagation()
-          void toggleTaskCompleted(task)
+          if (!currentMemberId) return
+          void toggleTaskCompleted(task, currentMemberId)
         }}
         className={`w-14 shrink-0 border-l text-xs font-semibold ${
-          task.status === "locked"
+          task.status === "locked" || !isEditable
             ? task.is_reward
               ? "cursor-not-allowed border-slate-300 bg-slate-200 text-slate-500"
               : "cursor-not-allowed border-zinc-300 bg-zinc-200 text-zinc-400"
@@ -282,9 +450,9 @@ export function MemberDashboardClient({
               ? "border-amber-700 bg-amber-600 text-white hover:bg-amber-700"
               : "border-green-700 bg-green-600 text-white hover:bg-green-700"
         }`}
-        aria-label={task.status === "locked" ? "Task locked" : "Mark task complete"}
+        aria-label={task.status === "locked" || !isEditable ? "Task not editable" : "Mark task complete"}
       >
-        {isToggling === task.id ? "..." : task.status === "completed" ? "Undo" : "Done"}
+        {isToggling === task.id ? "..." : task.status === "completed" ? "Undo" : isEditable ? "Done" : "Lock"}
       </button>
     </li>
   )
@@ -295,7 +463,7 @@ export function MemberDashboardClient({
         <div>
           <h1 className="text-2xl font-semibold">Member dashboard</h1>
           <p className="text-sm text-muted-foreground">
-            Toggle household members to choose which task lanes are shown.
+            Toggle household members to choose visible lanes and which visible lanes are editable.
           </p>
         </div>
         <button
@@ -311,37 +479,139 @@ export function MemberDashboardClient({
 
       {selectorsOpen ? (
         <div className="space-y-4 rounded border bg-card p-4">
-          <section>
-            <h2 className="mb-2 font-medium">Household selector</h2>
-            <div className="flex flex-wrap gap-2">
-              {memberships.map((membership) => (
-                <Link
-                  key={membership.household.id}
-                  href={buildDashboardHref(membership.household.id, selectedMemberIds)}
-                  className={`rounded border px-3 py-1 text-sm ${
-                    membership.household.id === selectedHouseholdId ? "bg-black text-white" : ""
-                  }`}
+          {isKioskMode ? (
+            <section>
+              <h2 className="mb-2 font-medium">Kiosk mode</h2>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void exitKioskMode()}
+                  className="rounded border px-3 py-1 text-sm hover:bg-muted"
+                  disabled={isKioskPending}
                 >
-                  {membership.household.name}
-                </Link>
-              ))}
-            </div>
-          </section>
+                  Exit kiosk mode
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void forgotKioskPin()}
+                  className="rounded border px-3 py-1 text-sm text-red-700 hover:bg-red-50"
+                  disabled={isKioskPending}
+                >
+                  Forgot PIN
+                </button>
+              </div>
+            </section>
+          ) : null}
 
-          <section>
-            <h2 className="mb-2 font-medium">Member selector</h2>
-            <div className="flex flex-wrap gap-2">
-              {members.map((member) => (
-                <Link
-                  key={member.id}
-                  href={buildDashboardHref(selectedHouseholdId, toggleMemberSelection(member.id))}
-                  className={`rounded border px-3 py-1 text-sm ${selectedMemberSet.has(member.id) ? "bg-black text-white" : ""}`}
-                >
-                  {member.name}
-                </Link>
-              ))}
-            </div>
-          </section>
+          {!isKioskMode ? (
+            <>
+              {canActivateKiosk ? (
+                <section>
+                  <h2 className="mb-2 font-medium">Kiosk mode</h2>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void activateKioskMode()}
+                      className="rounded bg-black px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800"
+                      disabled={isKioskPending}
+                    >
+                      Turn on kiosk mode
+                    </button>
+                  </div>
+                </section>
+              ) : null}
+              {canActivateKiosk ? (
+                <section>
+                  <h2 className="mb-2 font-medium">Member roles</h2>
+                  <div className="space-y-2">
+                    {members.map((member) => {
+                      const normalizedRole = member.role === "leader" ? "manager" : member.role
+                      const canChangeRole = member.id !== leaderId
+                      const nextRole = normalizedRole === "supervisor" ? "member" : "supervisor"
+                      return (
+                        <div key={`role:${member.id}`} className="flex items-center justify-between gap-2 rounded border p-2 text-sm">
+                          <div>
+                            <p className="font-medium">{member.name}</p>
+                            <p className="text-xs text-muted-foreground">Role: {normalizedRole}</p>
+                          </div>
+                          {canChangeRole ? (
+                            <button
+                              type="button"
+                              onClick={() => void updateMemberRole(member.id, nextRole)}
+                              className="rounded border px-2 py-1 text-xs hover:bg-muted"
+                              disabled={roleUpdatingMemberId === member.id}
+                            >
+                              {roleUpdatingMemberId === member.id
+                                ? "Saving..."
+                                : `Set ${nextRole === "supervisor" ? "Supervisor" : "Member"}`}
+                            </button>
+                          ) : (
+                            <span className="rounded bg-muted px-2 py-1 text-xs">Manager</span>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </section>
+              ) : null}
+
+              <section>
+                <h2 className="mb-2 font-medium">Household selector</h2>
+                <div className="flex flex-wrap gap-2">
+                  {memberships.map((membership) => (
+                    <Link
+                      key={membership.household.id}
+                      href={buildDashboardHref(membership.household.id, selectedMemberIds, editableMemberIds)}
+                      className={`rounded border px-3 py-1 text-sm ${
+                        membership.household.id === selectedHouseholdId ? "bg-black text-white" : ""
+                      }`}
+                    >
+                      {membership.household.name}
+                    </Link>
+                  ))}
+                </div>
+              </section>
+
+              <section>
+                <h2 className="mb-2 font-medium">Member selector</h2>
+                <div className="flex flex-wrap gap-2">
+                  {members.map((member) => (
+                    <Link
+                      key={member.id}
+                      href={buildDashboardHref(
+                        selectedHouseholdId,
+                        toggleMemberSelection(member.id),
+                        toggleMemberSelection(member.id).filter((id) => effectiveEditableMemberIds.includes(id)),
+                      )}
+                      className={`rounded border px-3 py-1 text-sm ${selectedMemberSet.has(member.id) ? "bg-black text-white" : ""}`}
+                    >
+                      {member.name}
+                    </Link>
+                  ))}
+                </div>
+              </section>
+              {canConfigureView ? (
+                <section>
+                  <h2 className="mb-2 font-medium">Editable members</h2>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedMembers.map((member) => (
+                      <Link
+                        key={`editable:${member.id}`}
+                        href={buildDashboardHref(
+                          selectedHouseholdId,
+                          selectedMemberIds,
+                          toggleEditableSelection(member.id),
+                        )}
+                        className={`rounded border px-3 py-1 text-sm ${editableMemberSet.has(member.id) ? "bg-green-700 text-white" : ""}`}
+                      >
+                        {member.name}
+                      </Link>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+            </>
+          ) : null}
         </div>
       ) : null}
 
@@ -350,6 +620,7 @@ export function MemberDashboardClient({
         <div className="flex gap-3 overflow-x-auto pb-1">
           {selectedMembers.map((member) => {
             const laneTasks = tasksByMember.get(member.id) ?? []
+            const laneIsEditable = editableMemberSet.has(member.id)
             const laneCount = Math.max(selectedMembers.length, 1)
             const laneBasis = `calc((100% - ${(laneCount - 1) * 0.75}rem) / ${laneCount})`
             return (
@@ -361,10 +632,16 @@ export function MemberDashboardClient({
                 <p className="mb-2 text-sm font-semibold">
                   {member.name}
                   {member.id === leaderId ? " (manager + unassigned)" : ""}
+                  {!laneIsEditable ? " (read only)" : ""}
                 </p>
                 <ul className="space-y-2 text-sm">
                   {laneTasks.map((task) => (
-                    <TaskRow key={`${member.id}:${task.occurrence_id}:${task.id}`} task={task} currentMemberId={member.id} />
+                    <TaskRow
+                      key={`${member.id}:${task.occurrence_id}:${task.id}`}
+                      task={task}
+                      currentMemberId={member.id}
+                      isEditable={laneIsEditable}
+                    />
                   ))}
                   {laneTasks.length === 0 ? <li className="text-muted-foreground">No active tasks.</li> : null}
                 </ul>

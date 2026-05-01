@@ -1,5 +1,5 @@
 import type { AppRole } from "@/lib/types"
 
 export function roleToDashboard(role: AppRole) {
-  return role === "leader" ? "/leader/dashboard" : "/member/dashboard"
+  return role === "manager" || role === "supervisor" || role === "leader" ? "/leader/dashboard" : "/member/dashboard"
 }

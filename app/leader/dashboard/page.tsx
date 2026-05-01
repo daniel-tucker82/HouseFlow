@@ -1,4 +1,6 @@
 import { createHousehold } from "@/lib/actions/household"
+import { redirect } from "next/navigation"
+import { cookies } from "next/headers"
 import { db } from "@/lib/db"
 import { LeaderFlowEditor } from "@/components/leader/flow-editor"
 import {
@@ -7,6 +9,7 @@ import {
   getHouseholdTasks,
   getUserHouseholds,
 } from "@/lib/data"
+import { resolveActiveKioskHouseholdFromCookie } from "@/lib/household-authz"
 
 type LeaderDashboardProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>
@@ -15,7 +18,23 @@ type LeaderDashboardProps = {
 export default async function LeaderDashboard({ searchParams }: LeaderDashboardProps) {
   const user = await getCurrentUserOrRedirect()
   const memberships = await getUserHouseholds(user.id)
-  const leaderMemberships = memberships.filter((m) => m.role === "leader")
+  const cookieStore = await cookies()
+  const kioskCookieValue = cookieStore.get("houseflow_kiosk_session")?.value ?? null
+  const activeKioskHouseholdId = await resolveActiveKioskHouseholdFromCookie(kioskCookieValue)
+  if (activeKioskHouseholdId) {
+    const matchingMembership = memberships.find((membership) => membership.household.id === activeKioskHouseholdId)
+    if (matchingMembership) {
+      redirect(`/member/dashboard?household=${activeKioskHouseholdId}`)
+    }
+  }
+
+  const leaderMemberships = memberships.filter(
+    (m) => m.role === "manager" || m.role === "supervisor" || m.role === "leader",
+  )
+
+  if (memberships.length > 0 && leaderMemberships.length === 0) {
+    redirect("/member/dashboard")
+  }
 
   if (leaderMemberships.length === 0) {
   return (
@@ -128,7 +147,12 @@ export default async function LeaderDashboard({ searchParams }: LeaderDashboardP
         [selectedHousehold.id, selectedRoutineId || null],
       )
   const membersResult = await db.query(
-    `select hm.user_id as id, coalesce(u.full_name, u.email, hm.user_id) as name, u.avatar_url, hm.token_color
+    `select hm.user_id as id,
+            coalesce(u.full_name, u.email, hm.user_id) as name,
+            u.avatar_url,
+            hm.token_color,
+            hm.role,
+            (u.email is not null or hm.user_id like 'user_%') as is_clerk_linked
      from household_members hm
      left join users u on u.id = hm.user_id
      where hm.household_id = $1

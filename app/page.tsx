@@ -1,7 +1,9 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
+import { cookies } from "next/headers"
 import { isPostgresConfigured } from "@/lib/config"
 import { getCurrentUserOrRedirect, getUserHouseholds } from "@/lib/data"
+import { resolveActiveKioskHouseholdFromCookie } from "@/lib/household-authz"
 import { roleToDashboard } from "@/lib/routing"
 
 export default async function HomePage() {
@@ -54,7 +56,21 @@ export default async function HomePage() {
   }
 
   if (memberships.length > 0) {
-    redirect(roleToDashboard(memberships[0].role))
+    const cookieStore = await cookies()
+    const kioskCookieValue = cookieStore.get("houseflow_kiosk_session")?.value ?? null
+    const activeKioskHouseholdId = await resolveActiveKioskHouseholdFromCookie(kioskCookieValue)
+    if (activeKioskHouseholdId) {
+      const matchingMembership = memberships.find((membership) => membership.household.id === activeKioskHouseholdId)
+      if (matchingMembership) {
+        redirect(`/member/dashboard?household=${activeKioskHouseholdId}`)
+      }
+    }
+
+    const managementMembership = memberships.find(
+      (membership) =>
+        membership.role === "manager" || membership.role === "supervisor" || membership.role === "leader",
+    )
+    redirect(roleToDashboard((managementMembership ?? memberships[0]).role))
   }
 
   return (

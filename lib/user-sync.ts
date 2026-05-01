@@ -1,5 +1,6 @@
 import { currentUser } from "@clerk/nextjs/server"
 import { db } from "@/lib/db"
+import { isClerkGeneratedDefaultProfileImageUrl } from "@/lib/clerk-profile-image-url"
 
 export async function ensureCurrentUserRecord() {
   const clerkUser = await currentUser()
@@ -7,7 +8,11 @@ export async function ensureCurrentUserRecord() {
 
   const email = clerkUser.emailAddresses[0]?.emailAddress ?? null
   const fullName = `${clerkUser.firstName ?? ""} ${clerkUser.lastName ?? ""}`.trim() || null
-  const avatarUrl = clerkUser.hasImage ? clerkUser.imageUrl : null
+  const candidate = clerkUser.imageUrl?.trim() || null
+  const avatarUrl =
+    clerkUser.hasImage && candidate && !isClerkGeneratedDefaultProfileImageUrl(candidate)
+      ? candidate
+      : null
 
   try {
     await db.query(

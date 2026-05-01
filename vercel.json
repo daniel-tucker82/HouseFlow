@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/internal/recurrence",
+      "schedule": "*/5 * * * *"
+    }
+  ]
+}

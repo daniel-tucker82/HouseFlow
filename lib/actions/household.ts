@@ -6,6 +6,7 @@ import { redirect } from "next/navigation"
 import { auth } from "@clerk/nextjs/server"
 import { db } from "@/lib/db"
 import { ensureCurrentUserRecord } from "@/lib/user-sync"
+import { createManagerNotificationEvent } from "@/lib/notifications"
 
 function makeInviteCode() {
   return randomUUID().replaceAll("-", "").slice(0, 12)
@@ -33,7 +34,7 @@ export async function createHousehold(formData: FormData) {
 
   await db.query(
     `insert into household_members (household_id, user_id, role)
-     values ($1, $2, 'leader')
+     values ($1, $2, 'manager')
      on conflict (household_id, user_id)
      do update set role = excluded.role`,
     [householdId, userId],
@@ -68,10 +69,22 @@ export async function createInvite(formData: FormData) {
 
 export async function acceptInvite(formData: FormData) {
   const code = String(formData.get("inviteCode") ?? "").trim()
-  await ensureCurrentUserRecord()
   const { userId } = await auth()
   if (!userId) {
-    redirect(`/auth/login?next=/join/${code}`)
+    redirect(`/auth/login?next=${encodeURIComponent(`/join/${code}?autoJoin=1`)}`)
+  }
+  await ensureCurrentUserRecord()
+
+  await acceptInviteByCode(code, userId)
+
+  revalidatePath("/", "layout")
+  redirect("/member/dashboard")
+}
+
+export async function acceptInviteByCode(code: string, userId: string) {
+  const inviteCode = code.trim()
+  if (!inviteCode) {
+    throw new Error("Invite code is required.")
   }
 
   const inviteResult = await db.query(
@@ -79,20 +92,20 @@ export async function acceptInvite(formData: FormData) {
      from household_invites
      where code = $1
      limit 1`,
-    [code],
+    [inviteCode],
   )
   const invite = inviteResult.rows[0]
   if (!invite) {
-    redirect(`/join/${code}?error=${encodeURIComponent("Invite not found.")}`)
+    throw new Error("Invite not found.")
   }
 
   const isExpired = new Date(invite.expires_at).getTime() < Date.now()
   const limitReached = invite.max_uses !== null && invite.uses_count >= invite.max_uses
   if (!invite.is_active || isExpired || limitReached) {
-    redirect(`/join/${code}?error=${encodeURIComponent("Invite has expired or is inactive.")}`)
+    throw new Error("Invite has expired or is inactive.")
   }
 
-  await db.query(
+  const insertResult = await db.query(
     `insert into household_members (household_id, user_id, role)
      values ($1, $2, 'member')
      on conflict (household_id, user_id)
@@ -100,13 +113,37 @@ export async function acceptInvite(formData: FormData) {
     [invite.household_id, userId],
   )
 
-  await db.query(
-    `update household_invites
-     set uses_count = uses_count + 1
-     where id = $1`,
-    [invite.id],
-  )
-
-  revalidatePath("/", "layout")
-  redirect("/member/dashboard")
+  // Only consume an invite use when this actually creates a new membership.
+  if ((insertResult.rowCount ?? 0) > 0) {
+    await db.query(
+      `update household_invites
+       set uses_count = uses_count + 1
+       where id = $1`,
+      [invite.id],
+    )
+    const memberInfo = await db.query<{ member_name: string; household_name: string }>(
+      `select
+          coalesce(u.full_name, u.email, u.id) as member_name,
+          h.name as household_name
+       from users u
+       join households h on h.id = $2::uuid
+       where u.id = $1
+       limit 1`,
+      [userId, invite.household_id],
+    )
+    const memberName = String(memberInfo.rows[0]?.member_name ?? "A household member")
+    const householdName = String(memberInfo.rows[0]?.household_name ?? "household")
+    await createManagerNotificationEvent({
+      householdId: String(invite.household_id),
+      actorUserId: userId,
+      kind: "member_joined_via_link",
+      title: "New member joined",
+      body: `${memberName} has joined your ${householdName} household via link.`,
+      metadata: {
+        memberName,
+        householdName,
+        url: `/leader/dashboard?household=${encodeURIComponent(String(invite.household_id))}`,
+      },
+    })
+  }
 }

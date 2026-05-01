@@ -18,6 +18,7 @@ import {
   Panel,
   Position,
   ReactFlow,
+  SelectionMode,
   addEdge,
   applyEdgeChanges,
   applyNodeChanges,
@@ -43,12 +44,15 @@ import {
   serializeRoutineRecurrenceRules,
 } from "@/lib/recurrence"
 import { cn } from "@/lib/utils"
+import { isRenderableUserProfilePhotoUrl } from "@/lib/clerk-profile-image-url"
 
 type Member = {
   id: string
   name: string
   avatar_url?: string | null
   token_color?: string | null
+  role?: "manager" | "supervisor" | "member" | "leader"
+  is_clerk_linked?: boolean
   tokenColorClass?: string
 }
 type Dependency = { source_task_id: string; target_task_id: string }
@@ -119,8 +123,7 @@ function guideStorageKey(householdId: string, routineId: string | null, occurren
 
 function loadGuideNodes(key: string): Node<DayDividerData>[] {
   if (typeof window === "undefined") return []
-  try {
-    const raw = localStorage.getItem(key)
+  const parse = (raw: string | null): Node<DayDividerData>[] => {
     if (!raw) return []
     const parsed = JSON.parse(raw) as Array<{
       id: string
@@ -142,6 +145,28 @@ function loadGuideNodes(key: string): Node<DayDividerData>[] {
       selectable: true,
       zIndex: 0,
     }))
+  }
+
+  try {
+    const primary = parse(localStorage.getItem(key))
+    if (primary.length > 0) return primary
+
+    // Backward compatibility: recover occurrence guide lines saved with older key shapes.
+    const occurrenceMatch = key.match(/^houseflow:flow-guides:([^:]+):occurrence:(.+)$/)
+    if (occurrenceMatch) {
+      const householdId = occurrenceMatch[1]
+      const occurrenceId = occurrenceMatch[2]
+      for (let idx = 0; idx < localStorage.length; idx += 1) {
+        const candidateKey = localStorage.key(idx)
+        if (!candidateKey || candidateKey === key) continue
+        if (!candidateKey.startsWith(`houseflow:flow-guides:${householdId}:`)) continue
+        if (!candidateKey.includes(`occurrence:${occurrenceId}`)) continue
+        const recovered = parse(localStorage.getItem(candidateKey))
+        if (recovered.length > 0) return recovered
+      }
+    }
+
+    return []
   } catch {
     return []
   }
@@ -340,10 +365,6 @@ function memberInitials(name: string) {
     .join("")
 }
 
-function hasRenderableAvatar(avatarUrl?: string | null) {
-  return Boolean(avatarUrl && avatarUrl.trim().length > 0 && !avatarUrl.includes("undefined"))
-}
-
 type TaskNodeData = {
   title: string
   status: string
@@ -356,14 +377,11 @@ type TaskNodeData = {
   onToggleOccurrenceComplete?: () => void
 }
 
-function TaskNode({ data }: NodeProps<Node<TaskNodeData>>) {
+function TaskNode({ data, selected }: NodeProps<Node<TaskNodeData>>) {
   const [isClientMounted, setIsClientMounted] = useState(false)
   useEffect(() => {
     setIsClientMounted(true)
   }, [])
-  const hasRenderableAvatar = (avatarUrl?: string | null) =>
-    Boolean(avatarUrl && avatarUrl.trim().length > 0 && !avatarUrl.includes("undefined"))
-
   const initials = (name: string) =>
     name
       .split(" ")
@@ -378,20 +396,31 @@ function TaskNode({ data }: NodeProps<Node<TaskNodeData>>) {
     data.occurrenceView && data.onToggleOccurrenceComplete && (!isLocked || isComplete)
   const tooltip = isLocked ? data.lockTooltip ?? "Locked" : undefined
 
+  /** Completed task: light grey. Completed reward: same grey-blue as locked rewards on member dashboard. */
+  const surfaceClass = cn(
+    "relative w-[220px] max-w-[220px] rounded-xl border p-3 shadow-sm",
+    isComplete
+      ? data.isReward
+        ? "border-slate-300 bg-sky-50/60"
+        : "border-zinc-300 bg-zinc-100"
+      : data.isReward
+        ? "border-sky-300 bg-sky-50"
+        : "border-zinc-300 bg-white",
+    data.occurrenceView ? "pr-9" : "",
+    data.highlighted || selected ? "ring-2 ring-blue-500 ring-offset-2" : "",
+  )
+
   return (
-    <div
-      title={isClientMounted ? tooltip : undefined}
-      className={`relative w-[220px] max-w-[220px] rounded-xl border p-3 shadow-sm ${
-        data.isReward ? "border-sky-300 bg-sky-50" : "border-zinc-300 bg-white"
-      } ${data.occurrenceView ? "pr-9" : ""} ${data.highlighted ? "ring-2 ring-blue-500 ring-offset-2" : ""
-      }`}
-    >
+    <div title={isClientMounted ? tooltip : undefined} className={surfaceClass}>
       <Handle type="target" position={Position.Top} className="!h-3 !w-3 !bg-zinc-700" />
       {data.occurrenceView ? (
         <input
           type="checkbox"
           checked={isComplete}
           disabled={!canToggleOccurrence}
+          onPointerDown={(event) => event.stopPropagation()}
+          onPointerUp={(event) => event.stopPropagation()}
+          onClick={(event) => event.stopPropagation()}
           onChange={() => {
             if (canToggleOccurrence) data.onToggleOccurrenceComplete?.()
           }}
@@ -412,12 +441,28 @@ function TaskNode({ data }: NodeProps<Node<TaskNodeData>>) {
           }`}
         />
       ) : null}
+      {data.occurrenceView && isLocked && !isComplete ? (
+        <div
+          aria-hidden
+          className="absolute right-2 top-2 z-[11] h-3.5 w-3.5 cursor-not-allowed rounded"
+          onPointerDown={(event) => event.stopPropagation()}
+          onPointerUp={(event) => event.stopPropagation()}
+          onClick={(event) => event.stopPropagation()}
+        />
+      ) : null}
       <div className="mb-1 flex items-center justify-between gap-2">
-        <p className="text-xs uppercase tracking-wide text-zinc-500">{data.isReward ? "Reward" : "Task"}</p>
+        <p
+          className={cn(
+            "text-xs uppercase tracking-wide",
+            isComplete ? (data.isReward ? "text-slate-500" : "text-zinc-400") : "text-zinc-500",
+          )}
+        >
+          {data.isReward ? "Reward" : "Task"}
+        </p>
         <div className="flex shrink-0 -space-x-1">
           {data.assignees.length <= 4
             ? data.assignees.slice(0, 4).map((assignee) =>
-                hasRenderableAvatar(assignee.avatar_url) ? (
+                isRenderableUserProfilePhotoUrl(assignee.avatar_url) && !assignee.token_color ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     key={assignee.id}
@@ -440,7 +485,7 @@ function TaskNode({ data }: NodeProps<Node<TaskNodeData>>) {
               )
             : [
                 ...data.assignees.slice(0, 3).map((assignee) =>
-                  hasRenderableAvatar(assignee.avatar_url) ? (
+                  isRenderableUserProfilePhotoUrl(assignee.avatar_url) && !assignee.token_color ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       key={assignee.id}
@@ -471,7 +516,14 @@ function TaskNode({ data }: NodeProps<Node<TaskNodeData>>) {
               ]}
         </div>
       </div>
-      <p className="whitespace-normal break-words font-medium text-zinc-900">{data.title}</p>
+      <p
+        className={cn(
+          "whitespace-normal break-words font-medium",
+          isComplete ? (data.isReward ? "text-slate-800" : "text-zinc-700") : "text-zinc-900",
+        )}
+      >
+        {data.title}
+      </p>
       <Handle type="source" position={Position.Bottom} className="!h-3 !w-3 !bg-zinc-700" />
     </div>
   )
@@ -616,6 +668,7 @@ type OccurrenceMenuState = {
 
 type TaskMenuState = {
   taskId: string
+  taskIds: string[]
   routineId?: string
   occurrenceId?: string | null
   x: number
@@ -636,7 +689,19 @@ type OccurrenceTaskListItem = {
   is_reward?: boolean
 }
 
-function sidebarLeafTaskClass(isReward: boolean, isSelected: boolean) {
+function sidebarLeafTaskClass(isReward: boolean, isSelected: boolean, isCompleted?: boolean) {
+  if (isCompleted) {
+    if (isReward) {
+      return cn(
+        "border border-slate-300 bg-sky-50/60 text-slate-700 transition-colors",
+        isSelected && "font-medium ring-2 ring-blue-500",
+      )
+    }
+    return cn(
+      "border border-zinc-300 bg-zinc-100 text-zinc-700 transition-colors hover:bg-zinc-200/80",
+      isSelected ? "font-medium ring-2 ring-blue-500" : "",
+    )
+  }
   if (isReward) {
     return cn(
       "border border-sky-300 bg-sky-50 text-sky-900 transition-colors hover:bg-sky-100/90",
@@ -942,6 +1007,8 @@ export function LeaderFlowEditor({
   const [editingRoutineValue, setEditingRoutineValue] = useState("")
   const [editingBoardId, setEditingBoardId] = useState<string | null>(null)
   const [editingBoardValue, setEditingBoardValue] = useState("")
+  const [editingMemberNameId, setEditingMemberNameId] = useState<string | null>(null)
+  const [editingMemberNameValue, setEditingMemberNameValue] = useState("")
   const [serverClockOffsetMs, setServerClockOffsetMs] = useState(0)
   const [taskSettingsSaveState, setTaskSettingsSaveState] = useState<"idle" | "saving" | "saved" | "error">(
     "idle",
@@ -949,6 +1016,8 @@ export function LeaderFlowEditor({
   const [taskSettingsSaveError, setTaskSettingsSaveError] = useState<string | null>(null)
   const reactFlowRef = useRef<ReactFlowInstance | null>(null)
   const flowSectionRef = useRef<HTMLElement | null>(null)
+  const householdPanelRef = useRef<HTMLElement | null>(null)
+  const householdPanelToggleRef = useRef<HTMLButtonElement | null>(null)
   const taskSettingsFormRef = useRef<HTMLFormElement | null>(null)
   const taskSettingsAutosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const taskSettingsSaveRequestIdRef = useRef(0)
@@ -969,6 +1038,10 @@ export function LeaderFlowEditor({
   )
   const [isHouseholdPanelOpen, setIsHouseholdPanelOpen] = useState(false)
   const memberTokenColorMap = useMemo(() => buildMemberTokenColorMap(localMembers), [localMembers])
+  const selectedHouseholdLeaderId = useMemo(
+    () => households.find((household) => household.id === selectedHouseholdId)?.leader_id ?? "",
+    [households, selectedHouseholdId],
+  )
   const routineNameById = useMemo(
     () => new Map(localRoutines.map((routine) => [routine.id, routine.name])),
     [localRoutines],
@@ -994,6 +1067,21 @@ export function LeaderFlowEditor({
       return !(board.total_tasks > 0 && board.completed_tasks >= board.total_tasks)
     })
   }, [localOccurrences, hideCompletedTasks])
+
+  useEffect(() => {
+    if (!isHouseholdPanelOpen) return
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as globalThis.Node | null
+      if (!target) return
+      if (householdPanelRef.current?.contains(target)) return
+      if (householdPanelToggleRef.current?.contains(target)) return
+      setIsHouseholdPanelOpen(false)
+    }
+    document.addEventListener("pointerdown", onPointerDown)
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown)
+    }
+  }, [isHouseholdPanelOpen])
 
   const buildLockTooltip = useCallback(
     (
@@ -1091,7 +1179,7 @@ export function LeaderFlowEditor({
     return (
       <div className="flex shrink-0 items-center -space-x-2">
         {visible.map((assignee) =>
-          hasRenderableAvatar(assignee.avatar_url) ? (
+                  isRenderableUserProfilePhotoUrl(assignee.avatar_url) && !assignee.token_color ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               key={assignee.id}
@@ -1259,6 +1347,8 @@ export function LeaderFlowEditor({
         return {
           id: task.id,
           type: "taskNode" as const,
+          draggable: existing?.draggable ?? true,
+          selected: existing?.selected ?? false,
           position:
             existing?.position ?? {
               x: task.position_x ?? 80 + (index % 4) * 280,
@@ -1476,6 +1566,24 @@ export function LeaderFlowEditor({
     serverClockOffsetMs,
   ])
 
+  /** Occurrence boards do not use the routine “next minute” poll above; still refetch so other members’ completions update the canvas. */
+  useEffect(() => {
+    if (!selectedOccurrenceId) return
+    const pollMs = 15_000
+    const tick = () => {
+      void reloadFlowRef.current(selectedHouseholdId, selectedRoutineId, selectedOccurrenceId)
+    }
+    const intervalId = window.setInterval(tick, pollMs)
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void tick()
+    }
+    document.addEventListener("visibilitychange", onVisibility)
+    return () => {
+      window.clearInterval(intervalId)
+      document.removeEventListener("visibilitychange", onVisibility)
+    }
+  }, [selectedHouseholdId, selectedRoutineId, selectedOccurrenceId])
+
   useEffect(() => {
     setLocalRoutines(routines)
     setLocalMembers(members)
@@ -1526,6 +1634,8 @@ export function LeaderFlowEditor({
         return {
           id: task.id,
           type: "taskNode" as const,
+          draggable: existing?.draggable ?? true,
+          selected: existing?.selected ?? false,
           position:
             existing?.position ?? {
               x: task.position_x ?? 80 + (index % 4) * 280,
@@ -1846,20 +1956,96 @@ export function LeaderFlowEditor({
     )
   }, [])
 
+  const selectedTaskNodeIds = useMemo(
+    () => flowNodes.filter((node) => node.type === "taskNode" && node.selected).map((node) => node.id),
+    [flowNodes],
+  )
+  const isTaskNodeLocked = useCallback(
+    (taskId: string) =>
+      flowNodes.some((node) => node.type === "taskNode" && node.id === taskId && node.draggable === false),
+    [flowNodes],
+  )
+  const taskMenuHasLockedSelection = useMemo(
+    () => (taskMenu ? taskMenu.taskIds.some((id) => isTaskNodeLocked(id)) : false),
+    [isTaskNodeLocked, taskMenu],
+  )
+  const taskMenuAllLocked = useMemo(
+    () => (taskMenu ? taskMenu.taskIds.every((id) => isTaskNodeLocked(id)) : false),
+    [isTaskNodeLocked, taskMenu],
+  )
+  const activeTaskLocked = useMemo(
+    () => (activeTask ? isTaskNodeLocked(activeTask.id) : false),
+    [activeTask, isTaskNodeLocked],
+  )
+
+  const toggleTaskNodeLock = useCallback((taskIds: string[]) => {
+    const ids = new Set(taskIds)
+    if (ids.size === 0) return
+    setFlowNodes((prev) => {
+      const selectedTaskNodes = prev.filter((node) => node.type === "taskNode" && ids.has(node.id))
+      const allLocked = selectedTaskNodes.length > 0 && selectedTaskNodes.every((node) => node.draggable === false)
+      return prev.map((node) => {
+        if (node.type !== "taskNode" || !ids.has(node.id)) return node
+        return {
+          ...node,
+          draggable: allLocked,
+        }
+      })
+    })
+  }, [])
+
+  const deleteTaskIds = useCallback(
+    async (taskIds: string[], occurrenceId?: string | null) => {
+      const uniqueTaskIds = [...new Set(taskIds)]
+      if (uniqueTaskIds.length === 0) return
+      await Promise.all(
+        uniqueTaskIds.map((taskId) =>
+          fetch("/api/leader/flow", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "deleteTask",
+              householdId: selectedHouseholdId,
+              taskId,
+              occurrenceId: occurrenceId ?? null,
+            }),
+          }),
+        ),
+      )
+      setActiveTask(null)
+      await reloadFlow(selectedHouseholdId, selectedRoutineId, selectedOccurrenceId)
+    },
+    [reloadFlow, selectedHouseholdId, selectedOccurrenceId, selectedRoutineId],
+  )
+
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null
+      const tag = target?.tagName
+      const isEditable =
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
+        Boolean(target?.isContentEditable)
       if (e.key === "Escape") {
         setGuidePlaceMode(null)
         setGuidePreviewFlow(null)
         setGuidePreviewScreen(null)
         setGuideLineMenu(null)
         setEdgeMenu(null)
+        setTaskMenu(null)
         setEditingGuideId(null)
+        return
+      }
+      if (!isEditable && (e.key === "Delete" || e.key === "Backspace") && selectedTaskNodeIds.length > 0) {
+        e.preventDefault()
+        void deleteTaskIds(selectedTaskNodeIds, selectedOccurrenceId)
+        setTaskMenu(null)
       }
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [])
+  }, [deleteTaskIds, selectedOccurrenceId, selectedTaskNodeIds])
 
   useEffect(() => {
     if (!guidePlaceMode || !reactFlowRef.current) return
@@ -2473,6 +2659,29 @@ export function LeaderFlowEditor({
     await navigator.clipboard.writeText(url)
   }
 
+  const deactivateInvite = async (inviteId: string) => {
+    const confirmed = window.confirm(
+      "Delete this invite link? Existing household members stay in the household, but this link will no longer work.",
+    )
+    if (!confirmed) return
+
+    const response = await fetch("/api/leader/flow", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "deactivateInvite",
+        householdId: selectedHouseholdId,
+        inviteId,
+      }),
+    })
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null
+      window.alert(payload?.error ?? "Unable to delete invite link.")
+      return
+    }
+    setLocalInvites((prev) => prev.filter((invite) => invite.id !== inviteId))
+  }
+
   const updateMemberTokenColor = async (memberUserId: string, tokenColor: string) => {
     await fetch("/api/leader/flow", {
       method: "POST",
@@ -2489,6 +2698,105 @@ export function LeaderFlowEditor({
         member.id === memberUserId ? { ...member, token_color: tokenColor } : member,
       ),
     )
+  }
+
+  const updateMemberRole = async (memberUserId: string, role: "member" | "supervisor") => {
+    const response = await fetch("/api/leader/flow", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "updateMemberRole",
+        householdId: selectedHouseholdId,
+        memberUserId,
+        role,
+      }),
+    })
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null
+    if (!response.ok) {
+      window.alert(payload?.error ?? "Unable to update member role.")
+      return
+    }
+    setLocalMembers((prev) =>
+      prev.map((member) =>
+        member.id === memberUserId ? { ...member, role } : member,
+      ),
+    )
+  }
+
+  const renameHouseholdMember = async (memberUserId: string, name: string) => {
+    const trimmedName = name.trim()
+    if (!trimmedName) {
+      window.alert("Member name is required.")
+      return
+    }
+    const response = await fetch("/api/leader/flow", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "renameHouseholdMember",
+        householdId: selectedHouseholdId,
+        memberUserId,
+        name: trimmedName,
+      }),
+    })
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null
+    if (!response.ok) {
+      window.alert(payload?.error ?? "Unable to rename household member.")
+      return
+    }
+    setLocalMembers((prev) =>
+      prev.map((member) => (member.id === memberUserId ? { ...member, name: trimmedName } : member)),
+    )
+  }
+
+  const removeHouseholdMember = async (memberUserId: string, memberName: string) => {
+    const confirmed = window.confirm(`Remove ${memberName} from this household?`)
+    if (!confirmed) return
+    const response = await fetch("/api/leader/flow", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "removeHouseholdMember",
+        householdId: selectedHouseholdId,
+        memberUserId,
+      }),
+    })
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null
+    if (!response.ok) {
+      window.alert(payload?.error ?? "Unable to remove household member.")
+      return
+    }
+    setLocalMembers((prev) => prev.filter((member) => member.id !== memberUserId))
+    await reloadFlow(selectedHouseholdId, selectedRoutineId, selectedOccurrenceId)
+  }
+
+  const createHouseholdMember = async () => {
+    const name = window.prompt("Member name")
+    if (!name?.trim()) return
+    const roleInput = window.prompt("Profile type: member or supervisor", "member")
+    const role = String(roleInput ?? "").trim().toLowerCase() === "supervisor" ? "supervisor" : "member"
+    const colorInput = window.prompt("Token color (optional)", "sky")
+    const tokenColor = String(colorInput ?? "").trim() || null
+
+    const response = await fetch("/api/leader/flow", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "createHouseholdMember",
+        householdId: selectedHouseholdId,
+        name: name.trim(),
+        role,
+        tokenColor,
+      }),
+    })
+    const payload = (await response.json().catch(() => null)) as
+      | { error?: string; member?: Member }
+      | null
+    if (!response.ok || !payload?.member) {
+      window.alert(payload?.error ?? "Unable to add household member.")
+      return
+    }
+    setLocalMembers((prev) => [...prev, payload.member as Member])
   }
 
   const saveTaskSettings = async (formData: FormData) => {
@@ -2893,7 +3201,11 @@ export function LeaderFlowEditor({
                         type="button"
                         className={cn(
                           "block w-full rounded-lg px-2 py-1.5 text-left text-xs",
-                          sidebarLeafTaskClass(Boolean(task.is_reward), selectedTaskId === task.id),
+                          sidebarLeafTaskClass(
+                            Boolean(task.is_reward),
+                            selectedTaskId === task.id,
+                            localTasks.find((t) => t.id === task.id)?.status === "completed",
+                          ),
                         )}
                         onClick={() => {
                           syncRoute(selectedHouseholdId, routine.id, null)
@@ -2920,6 +3232,7 @@ export function LeaderFlowEditor({
                           event.preventDefault()
                           setTaskMenu({
                             taskId: task.id,
+                            taskIds: [task.id],
                             routineId: routine.id,
                             occurrenceId: null,
                             x: event.clientX,
@@ -3045,7 +3358,11 @@ export function LeaderFlowEditor({
                               tabIndex={0}
                               className={cn(
                                 "flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-xs",
-                                sidebarLeafTaskClass(Boolean(task.is_reward), selectedTaskId === task.id),
+                                sidebarLeafTaskClass(
+                                  Boolean(task.is_reward),
+                                  selectedTaskId === task.id,
+                                  task.status === "completed",
+                                ),
                               )}
                               onClick={() => {
                                 void focusOccurrenceTask(board.routine_id ?? null, board.id, task.id)
@@ -3060,6 +3377,7 @@ export function LeaderFlowEditor({
                                 event.preventDefault()
                                 setTaskMenu({
                                   taskId: task.id,
+                                  taskIds: [task.id],
                                   routineId: board.routine_id ?? undefined,
                                   occurrenceId: board.id,
                                   x: event.clientX,
@@ -3533,12 +3851,28 @@ export function LeaderFlowEditor({
             setEditingGuideValue(cur)
           }}
           onNodeContextMenu={(e, node) => {
-            if (node.type !== "dayDivider") return
             e.preventDefault()
-            setGuideLineMenu({ nodeId: node.id, x: e.clientX, y: e.clientY })
-            setEdgeMenu(null)
+            if (node.type === "dayDivider") {
+              setGuideLineMenu({ nodeId: node.id, x: e.clientX, y: e.clientY })
+              setEdgeMenu(null)
+              setTaskMenu(null)
+              return
+            }
+            if (node.type === "taskNode") {
+              const ids =
+                node.selected && selectedTaskNodeIds.length > 0 ? selectedTaskNodeIds : [node.id]
+              setTaskMenu({
+                taskId: node.id,
+                taskIds: ids,
+                occurrenceId: selectedOccurrenceId,
+                x: e.clientX,
+                y: e.clientY,
+              })
+              setGuideLineMenu(null)
+              setEdgeMenu(null)
+            }
           }}
-          onNodeClick={(_, node) => {
+          onNodeClick={(event, node) => {
             if (guidePlaceMode) {
               setGuidePlaceMode(null)
               setGuidePreviewFlow(null)
@@ -3550,6 +3884,55 @@ export function LeaderFlowEditor({
               setGuideLineMenu(null)
               setOccurrenceMenu(null)
               setTaskMenu(null)
+              return
+            }
+            if (event.shiftKey) {
+              const wasSelectedBeforeClick = selectedTaskNodeIds.includes(node.id)
+              const nextSelectedIds = new Set(selectedTaskNodeIds)
+              if (wasSelectedBeforeClick) {
+                nextSelectedIds.delete(node.id)
+              } else {
+                nextSelectedIds.add(node.id)
+              }
+              setSelectedTaskId(null)
+              setActiveTask(null)
+              setFlowNodes((prev) =>
+                prev.map((existingNode) => {
+                  if (existingNode.type === "dayDivider") return existingNode
+                  return {
+                    ...existingNode,
+                    selected: nextSelectedIds.has(existingNode.id),
+                    data: {
+                      ...existingNode.data,
+                      highlighted: false,
+                    },
+                  }
+                }),
+              )
+              setEdgeMenu(null)
+              setTaskMenu(null)
+              setOccurrenceMenu(null)
+              return
+            }
+            if (node.selected && selectedTaskNodeIds.length > 1) {
+              setSelectedTaskId(null)
+              setActiveTask(null)
+              setFlowNodes((prev) =>
+                prev.map((existingNode) => {
+                  if (existingNode.type === "dayDivider") return existingNode
+                  return {
+                    ...existingNode,
+                    selected: selectedTaskNodeIds.includes(existingNode.id),
+                    data: {
+                      ...existingNode.data,
+                      highlighted: false,
+                    },
+                  }
+                }),
+              )
+              setEdgeMenu(null)
+              setTaskMenu(null)
+              setOccurrenceMenu(null)
               return
             }
             setSelectedTaskId(node.id)
@@ -3589,6 +3972,25 @@ export function LeaderFlowEditor({
             if (!guidePlaceMode || !reactFlowRef.current) return
             const p = reactFlowRef.current.screenToFlowPosition({ x: e.clientX, y: e.clientY })
             setGuidePreviewFlow(p)
+          }}
+          onMouseDown={(evt: ReactMouseEvent) => {
+            const target = evt.target as HTMLElement | null
+            if (!target?.closest(".react-flow__pane")) return
+            if (evt.button !== 0 || evt.shiftKey) return
+            setSelectedTaskId(null)
+            setFlowNodes((prev) =>
+              prev.map((node) => {
+                if (node.type !== "taskNode") return node
+                return {
+                  ...node,
+                  selected: false,
+                  data: {
+                    ...node.data,
+                    highlighted: false,
+                  },
+                }
+              }),
+            )
           }}
           onPaneClick={(evt) => {
             setEdgeMenu(null)
@@ -3647,6 +4049,10 @@ export function LeaderFlowEditor({
             setOccurrenceMenu(null)
           }}
           nodeTypes={nodeTypes}
+          selectionOnDrag
+          selectionMode={SelectionMode.Partial}
+          panOnDrag={[1]}
+          panActivationKeyCode="Shift"
         >
           <Panel position="bottom-right" className="mb-20 mr-2 flex gap-1.5">
               <button
@@ -3716,6 +4122,7 @@ export function LeaderFlowEditor({
 
       <div className="absolute right-4 top-4 z-30">
         <Button
+          ref={householdPanelToggleRef}
           type="button"
           variant={isHouseholdPanelOpen ? "secondary" : "outline"}
           size="sm"
@@ -3727,27 +4134,35 @@ export function LeaderFlowEditor({
       </div>
 
       {isHouseholdPanelOpen ? (
-        <aside className="absolute right-4 top-16 z-30 w-[340px] overflow-visible rounded-xl border border-border/80 bg-card/95 p-4 shadow-2xl shadow-black/10 ring-1 ring-black/[0.04] backdrop-blur-md dark:ring-white/[0.06]">
+        <aside
+          ref={householdPanelRef}
+          className="absolute right-4 top-16 z-30 w-[380px] max-h-[calc(100dvh-5.5rem)] overflow-y-auto overflow-x-visible rounded-xl border border-border/80 bg-card/95 p-4 shadow-2xl shadow-black/10 ring-1 ring-black/[0.04] backdrop-blur-md dark:ring-white/[0.06]"
+        >
           <div className="mb-3 flex items-center justify-between gap-2">
             <h3 className="text-base font-semibold tracking-tight">Household management</h3>
-            <Button
-              type="button"
-              variant="outline"
-              size="xs"
-              className="shrink-0 gap-1"
-              onClick={() => {
-                void createInvite()
-              }}
-            >
-              <Plus className="size-3.5" aria-hidden />
-              Invite link
-            </Button>
           </div>
 
           <div className="mb-4">
-            <p className="mb-2 text-sm font-medium text-muted-foreground">Joined users ({localMembers.length})</p>
-            <ul className="max-h-56 space-y-1.5 overflow-y-auto overflow-x-hidden rounded-lg border border-border/60 bg-muted/20 p-2 text-sm">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <p className="text-sm font-medium text-muted-foreground">Joined users ({localMembers.length})</p>
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                className="shrink-0 gap-1"
+                onClick={() => {
+                  void createHouseholdMember()
+                }}
+              >
+                <Plus className="size-3.5" aria-hidden />
+                Add household member
+              </Button>
+            </div>
+            <ul className="max-h-[min(24rem,calc(100dvh-19rem))] space-y-1.5 overflow-y-auto overflow-x-hidden rounded-lg border border-border/60 bg-muted/20 p-2 text-sm">
               {localMembers.map((member) => {
+                const normalizedRole = member.role === "leader" ? "manager" : member.role ?? "member"
+                const canEditRole = member.id !== selectedHouseholdLeaderId
+                const canEditName = !member.is_clerk_linked
                 const currentOption =
                   TOKEN_COLOR_OPTIONS.find((o) => o.id === member.token_color) ?? null
                 const popoverId = `hm-token-color-${member.id}`
@@ -3769,27 +4184,103 @@ export function LeaderFlowEditor({
                     key={member.id}
                     className="flex items-center justify-between gap-2 rounded-lg border border-transparent bg-background/80 px-2 py-1.5 transition-colors hover:border-border/60"
                   >
-                    <p className="min-w-0 flex-1 truncate font-medium">{member.name}</p>
-                    <div className="shrink-0">
-                      <button
-                        type="button"
-                        style={anchorStyles}
-                        popoverTarget={popoverId}
-                        popoverTargetAction="toggle"
-                        className="flex cursor-pointer items-center gap-1.5 rounded-md border border-input bg-muted/60 px-2 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted"
-                        aria-label={`Token color for ${member.name}`}
-                      >
-                        <span
-                          className={`h-4 w-4 shrink-0 rounded border border-zinc-300 ${
-                            currentOption?.className ?? "bg-zinc-100"
-                          }`}
-                          aria-hidden
+                    <div className="min-w-0 flex-1">
+                      {editingMemberNameId === member.id ? (
+                        <input
+                          value={editingMemberNameValue}
+                          onChange={(event) => setEditingMemberNameValue(event.target.value)}
+                          onBlur={() => {
+                            void renameHouseholdMember(member.id, editingMemberNameValue)
+                            setEditingMemberNameId(null)
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault()
+                              void renameHouseholdMember(member.id, editingMemberNameValue)
+                              setEditingMemberNameId(null)
+                            } else if (event.key === "Escape") {
+                              event.preventDefault()
+                              setEditingMemberNameId(null)
+                            }
+                          }}
+                          autoFocus
+                          className="w-full rounded border border-input bg-background px-2 py-0.5 text-sm font-medium"
                         />
-                        <span className="hidden sm:inline">Color</span>
-                        <span className="text-[10px] text-zinc-500" aria-hidden>
-                          ▾
-                        </span>
-                      </button>
+                      ) : (
+                        <p
+                          className={`truncate font-medium ${canEditName ? "cursor-text hover:underline" : ""}`}
+                          onDoubleClick={() => {
+                            if (!canEditName) return
+                            setEditingMemberNameId(member.id)
+                            setEditingMemberNameValue(member.name)
+                          }}
+                          title={
+                            canEditName
+                              ? "Double-click to edit name"
+                              : "Clerk-linked members can edit their own name in Clerk settings"
+                          }
+                        >
+                          {member.name}
+                        </p>
+                      )}
+                      <div className="mt-1">
+                        {canEditRole ? (
+                          <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                            <span>Role</span>
+                            <select
+                              value={normalizedRole === "supervisor" ? "supervisor" : "member"}
+                              onChange={(event) => {
+                                const value = event.target.value === "supervisor" ? "supervisor" : "member"
+                                void updateMemberRole(member.id, value)
+                              }}
+                              className="rounded border border-input bg-background px-1.5 py-0.5 text-[11px] text-foreground"
+                            >
+                              <option value="member">Member</option>
+                              <option value="supervisor">Supervisor</option>
+                            </select>
+                          </label>
+                        ) : (
+                          <span className="inline-flex items-center rounded bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                            Manager
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="shrink-0">
+                      <div className="flex items-center gap-1">
+                        {canEditRole ? (
+                          <button
+                            type="button"
+                            className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[10px] font-medium text-red-700 hover:bg-red-100"
+                            onClick={() => {
+                              void removeHouseholdMember(member.id, member.name)
+                            }}
+                            title="Remove member from household"
+                            aria-label={`Remove ${member.name}`}
+                          >
+                            Remove
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          style={anchorStyles}
+                          popoverTarget={popoverId}
+                          popoverTargetAction="toggle"
+                          className="flex cursor-pointer items-center gap-1.5 rounded-md border border-input bg-muted/60 px-2 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+                          aria-label={`Token color for ${member.name}`}
+                        >
+                          <span
+                            className={`h-4 w-4 shrink-0 rounded border border-zinc-300 ${
+                              currentOption?.className ?? "bg-zinc-100"
+                            }`}
+                            aria-hidden
+                          />
+                          <span className="hidden sm:inline">Color</span>
+                          <span className="text-[10px] text-zinc-500" aria-hidden>
+                            ▾
+                          </span>
+                        </button>
+                      </div>
                       <div
                         id={popoverId}
                         popover="auto"
@@ -3838,12 +4329,28 @@ export function LeaderFlowEditor({
           </div>
 
           <div>
-            <p className="mb-2 text-sm font-medium text-muted-foreground">Join links</p>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <p className="text-sm font-medium text-muted-foreground">Join links</p>
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                className="shrink-0 gap-1"
+                onClick={() => {
+                  void createInvite()
+                }}
+              >
+                <Plus className="size-3.5" aria-hidden />
+                Invite link
+              </Button>
+            </div>
             <ul className="max-h-44 space-y-2 overflow-auto">
-              {localInvites.map((invite) => (
+              {localInvites
+                .filter((invite) => invite.is_active)
+                .map((invite) => (
                 <li key={invite.id} className="rounded-lg border border-border/70 bg-muted/15 p-3 text-xs shadow-sm">
                   <p className="font-medium text-foreground">
-                    /join/{invite.code} {invite.is_active ? "" : "(inactive)"}
+                    /join/{invite.code}
                   </p>
                   <p className="mt-1 text-muted-foreground">
                     Uses: {invite.uses_count}/{invite.max_uses}
@@ -3862,9 +4369,20 @@ export function LeaderFlowEditor({
                   >
                     Copy link
                   </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="xs"
+                    className="ml-2 mt-2 border-red-300 text-red-700 hover:bg-red-50 hover:text-red-800"
+                    onClick={() => {
+                      void deactivateInvite(invite.id)
+                    }}
+                  >
+                    Delete link
+                  </Button>
                 </li>
               ))}
-              {localInvites.length === 0 ? (
+              {localInvites.filter((invite) => invite.is_active).length === 0 ? (
                 <li className="rounded-lg border border-dashed border-border/80 p-3 text-xs text-muted-foreground">
                   No invites created yet.
                 </li>
@@ -4249,7 +4767,10 @@ export function LeaderFlowEditor({
               <Button
                 type="button"
                 variant="destructive"
+                disabled={activeTaskLocked}
+                title={activeTaskLocked ? "Locked task cannot be deleted" : "Delete task"}
                 onClick={() => {
+                  if (activeTaskLocked) return
                   void deleteTask(activeTask)
                 }}
               >
@@ -4408,10 +4929,32 @@ export function LeaderFlowEditor({
         >
           <button
             type="button"
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-destructive transition-colors hover:bg-destructive/10"
-            title="Delete task"
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-muted"
+            title={taskMenuAllLocked ? "Unlock task" : "Lock task"}
             onClick={() => {
-              void deleteTaskById(taskMenu.taskId, taskMenu.occurrenceId)
+              toggleTaskNodeLock(taskMenu.taskIds)
+              setTaskMenu(null)
+            }}
+          >
+            {taskMenuAllLocked ? (
+              <LockOpen className="h-4 w-4" />
+            ) : (
+              <Lock className="h-4 w-4" />
+            )}
+          </button>
+          <button
+            type="button"
+            disabled={taskMenuHasLockedSelection}
+            className={cn(
+              "flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors",
+              taskMenuHasLockedSelection
+                ? "cursor-not-allowed text-muted-foreground opacity-50"
+                : "text-destructive hover:bg-destructive/10",
+            )}
+            title={taskMenu.taskIds.length > 1 ? "Delete selected tasks" : "Delete task"}
+            onClick={() => {
+              if (taskMenuHasLockedSelection) return
+              void deleteTaskIds(taskMenu.taskIds, taskMenu.occurrenceId)
               setTaskMenu(null)
             }}
           >

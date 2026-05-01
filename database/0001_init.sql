@@ -3,7 +3,7 @@ create extension if not exists pgcrypto;
 do $$
 begin
   if not exists (select 1 from pg_type where typname = 'app_role') then
-    create type app_role as enum ('leader', 'member');
+    create type app_role as enum ('manager', 'supervisor', 'member');
   end if;
   if not exists (select 1 from pg_type where typname = 'routine_type') then
     create type routine_type as enum ('recurring', 'one_off');

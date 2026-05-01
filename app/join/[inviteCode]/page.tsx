@@ -1,6 +1,10 @@
 import Link from "next/link"
+import { auth } from "@clerk/nextjs/server"
+import { redirect } from "next/navigation"
 import { acceptInvite } from "@/lib/actions/household"
 import { getInviteByCode } from "@/lib/data"
+import { acceptInviteByCode } from "@/lib/actions/household"
+import { ensureCurrentUserRecord } from "@/lib/user-sync"
 
 type JoinPageProps = {
   params: Promise<{ inviteCode: string }>
@@ -11,6 +15,20 @@ export default async function JoinInvitePage({ params, searchParams }: JoinPageP
   const { inviteCode } = await params
   const query = await searchParams
   const error = typeof query.error === "string" ? query.error : ""
+  const autoJoin = query.autoJoin === "1"
+  const { userId } = await auth()
+
+  if (userId && autoJoin) {
+    await ensureCurrentUserRecord()
+    try {
+      await acceptInviteByCode(inviteCode, userId)
+      redirect("/member/dashboard")
+    } catch (joinError) {
+      const message = joinError instanceof Error ? joinError.message : "Unable to accept invite."
+      redirect(`/join/${inviteCode}?error=${encodeURIComponent(message)}`)
+    }
+  }
+
   const invite = await getInviteByCode(inviteCode)
 
   return (
@@ -35,7 +53,7 @@ export default async function JoinInvitePage({ params, searchParams }: JoinPageP
         </form>
       )}
 
-      <Link className="underline text-sm" href={`/auth/login?next=/join/${inviteCode}`}>
+      <Link className="underline text-sm" href={`/auth/login?next=${encodeURIComponent(`/join/${inviteCode}?autoJoin=1`)}`}>
         Sign in with a different account
       </Link>
     </main>

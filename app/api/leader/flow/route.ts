@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
+import type { PoolClient } from "pg"
 import { db } from "@/lib/db"
 import { ensureRoutineSchemaColumns } from "@/lib/schema-ensure"
 import { ensureCurrentUserRecord } from "@/lib/user-sync"
@@ -18,42 +19,46 @@ import {
   recurrenceRuleSummary,
   serializeRoutineRecurrenceRules,
 } from "@/lib/recurrence"
+import {
+  canEditMemberTasksInView,
+  canPerformAction,
+  constantTimeEqual,
+  getHouseholdKioskSettings,
+  getHouseholdMembershipAuthz,
+  hashPin,
+  sha256,
+  verifyPinHash,
+} from "@/lib/household-authz"
+import {
+  createManagerNotificationEvent,
+  createManagerNotificationEventInTransaction,
+  createUnlockNotifications,
+} from "@/lib/notifications"
+import { dispatchPushForNotificationIds } from "@/lib/push"
 
-async function isLeader(userId: string, householdId: string) {
-  const result = await db.query(
-    `select 1
-     from household_members
-     where household_id = $1 and user_id = $2 and role = 'leader'
-     limit 1`,
-    [householdId, userId],
-  )
-  return (result.rowCount ?? 0) > 0
+type QueryClient = {
+  query: (...args: unknown[]) => Promise<{ rows: unknown[]; rowCount?: number | null }>
 }
 
-async function isHouseholdMember(userId: string, householdId: string) {
-  const result = await db.query(
-    `select 1
-     from household_members
-     where household_id = $1 and user_id = $2
-     limit 1`,
-    [householdId, userId],
-  )
-  return (result.rowCount ?? 0) > 0
+function readCookieValue(cookieHeader: string | null, key: string) {
+  if (!cookieHeader) return null
+  const segments = cookieHeader.split(";").map((segment) => segment.trim())
+  for (const segment of segments) {
+    if (!segment.startsWith(`${key}=`)) continue
+    return decodeURIComponent(segment.slice(key.length + 1))
+  }
+  return null
 }
 
-async function getHouseholdTimeZone(client: Awaited<ReturnType<typeof db.connect>> | typeof db, householdId: string) {
-  const result = await client.query<{ timezone: string }>(
+async function getHouseholdTimeZone(client: QueryClient, householdId: string) {
+  const result = (await client.query(
     `select timezone from households where id = $1::uuid limit 1`,
     [householdId],
-  )
+  )) as { rows: Array<{ timezone?: string | null }> }
   return String(result.rows[0]?.timezone ?? "UTC")
 }
 
-async function backfillHouseholdTimeZoneIfUtc(
-  client: Awaited<ReturnType<typeof db.connect>> | typeof db,
-  householdId: string,
-  clientTimeZone?: string | null,
-) {
+async function backfillHouseholdTimeZoneIfUtc(client: QueryClient, householdId: string, clientTimeZone?: string | null) {
   const tz = (clientTimeZone ?? "").trim()
   if (!tz) return
   const currentTz = await getHouseholdTimeZone(client, householdId)
@@ -112,7 +117,7 @@ function isUnlockBasedDeferredExpiryRule(rule: { kind?: string } | null): boolea
   )
 }
 
-async function materializeDeferredExpiryForUnlockedTasks(client: Awaited<ReturnType<typeof db.connect>>, occurrenceId: string) {
+async function materializeDeferredExpiryForUnlockedTasks(client: PoolClient, occurrenceId: string) {
   const rows = await client.query<{
     id: string
     unlock_at: string | null
@@ -174,7 +179,7 @@ async function materializeDeferredExpiryForUnlockedTasks(client: Awaited<ReturnT
   }
 }
 
-async function applyRewardAutoCompletion(client: Awaited<ReturnType<typeof db.connect>>, occurrenceId: string) {
+async function applyRewardAutoCompletion(client: PoolClient, occurrenceId: string) {
   const result = await client.query(
     `update occurrence_tasks ot
      set status = 'completed',
@@ -196,7 +201,7 @@ async function applyRewardAutoCompletion(client: Awaited<ReturnType<typeof db.co
   }
 }
 
-async function recomputeOccurrenceStatuses(client: Awaited<ReturnType<typeof db.connect>>, occurrenceId: string) {
+async function recomputeOccurrenceStatuses(client: PoolClient, occurrenceId: string) {
   await client.query(
     `with lock_flags as (
        select
@@ -254,39 +259,14 @@ async function recomputeOccurrenceStatuses(client: Awaited<ReturnType<typeof db.
        and ot.status <> 'completed'::task_status`,
     [occurrenceId],
   )
-
-  const diagnostics = await client.query<{
-    task_id: string
-    status: string
-    unlock_at: string | null
-    db_now: string
-    time_unsatisfied: boolean
-  }>(
-    `select ot.task_id,
-            ot.status::text as status,
-            t.unlock_at,
-            now()::text as db_now,
-            (t.unlock_at is not null and now() < t.unlock_at) as time_unsatisfied
-     from occurrence_tasks ot
-     join tasks t on t.id = ot.task_id
-     where ot.occurrence_id = $1::uuid
-       and t.unlock_at is not null
-     order by t.unlock_at asc`,
-    [occurrenceId],
-  )
-  if (diagnostics.rowCount && diagnostics.rowCount > 0) {
-    console.info("[api][recomputeOccurrenceStatuses] time-lock-diagnostics", {
-      occurrenceId,
-      rows: diagnostics.rows,
-    })
-  }
 }
 
 async function materializeDueRecurrences(
-  client: Awaited<ReturnType<typeof db.connect>>,
+  client: PoolClient,
   householdId: string,
   userId: string,
 ) {
+  const createdNotificationIds: string[] = []
   const routines = await client.query<{
     id: string
     name: string
@@ -501,6 +481,20 @@ async function materializeDueRecurrences(
       await recomputeOccurrenceStatuses(client, newOccurrenceId)
       await materializeDeferredExpiryForUnlockedTasks(client, newOccurrenceId)
       await applyRewardAutoCompletion(client, newOccurrenceId)
+      const managerNotificationIds = await createManagerNotificationEventInTransaction(client, {
+        householdId,
+        actorUserId: userId,
+        kind: "routine_occurrence_generated",
+        title: "Routine occurrence generated",
+        body: `An occurrence of the routine: ${routine.name} has been generated.`,
+        metadata: {
+          routineId: routine.id,
+          routineName: routine.name,
+          occurrenceId: newOccurrenceId,
+          url: `/leader/dashboard?household=${encodeURIComponent(householdId)}&routine=${encodeURIComponent(routine.id)}&occurrence=${encodeURIComponent(newOccurrenceId)}`,
+        },
+      })
+      createdNotificationIds.push(...managerNotificationIds)
       nextRules[i] = { ...rule, lastGeneratedAt: dueIso }
       rulesChanged = true
 
@@ -523,10 +517,11 @@ async function materializeDueRecurrences(
       )
     }
   }
+  return createdNotificationIds
 }
 
 async function completeOlderRoutineOccurrences(
-  client: Awaited<ReturnType<typeof db.connect>>,
+  client: PoolClient,
   routineId: string,
   newOccurrenceId: string,
 ) {
@@ -601,9 +596,10 @@ export async function GET(request: Request) {
 
   {
     const client = await db.connect()
+    const pushNotificationIds: string[] = []
     try {
       await client.query("BEGIN")
-      await materializeDueRecurrences(client, householdId, userId)
+      pushNotificationIds.push(...(await materializeDueRecurrences(client, householdId, userId)))
       await client.query("COMMIT")
     } catch (error) {
       await client.query("ROLLBACK")
@@ -611,6 +607,7 @@ export async function GET(request: Request) {
     } finally {
       client.release()
     }
+    await dispatchPushForNotificationIds(pushNotificationIds)
   }
 
   const routinesResult = await db.query(
@@ -636,13 +633,71 @@ export async function GET(request: Request) {
 
   if (occurrenceId) {
     const client = await db.connect()
+    const pushNotificationIds: string[] = []
     try {
       await client.query("BEGIN")
+      const beforeStatuses = await client.query<{ task_id: string; status: "locked" | "unlocked" | "completed" }>(
+        `select task_id, status
+         from occurrence_tasks
+         where occurrence_id = $1::uuid`,
+        [occurrenceId],
+      )
+      const beforeByTaskId = new Map(beforeStatuses.rows.map((row) => [row.task_id, row.status]))
       await recomputeOccurrenceStatuses(client, occurrenceId)
       await materializeDeferredExpiryForUnlockedTasks(client, occurrenceId)
       await applyRewardAutoCompletion(client, occurrenceId)
       await recomputeOccurrenceStatuses(client, occurrenceId)
+
+      const afterStatuses = await client.query<{ task_id: string; status: "locked" | "unlocked" | "completed" }>(
+        `select task_id, status
+         from occurrence_tasks
+         where occurrence_id = $1::uuid`,
+        [occurrenceId],
+      )
+      const unlockedTaskIds = afterStatuses.rows
+        .filter((row) => row.status === "unlocked" && beforeByTaskId.get(row.task_id) === "locked")
+        .map((row) => row.task_id)
+
+      if (unlockedTaskIds.length > 0) {
+        const unlockedTasks = await client.query<{
+          id: string
+          title: string
+          is_reward: boolean
+          assignee_ids: string[]
+          unlock_at: string | null
+        }>(
+          `select t.id,
+                  t.title,
+                  t.is_reward,
+                  t.unlock_at,
+                  coalesce(
+                    array_agg(ta.user_id) filter (where ta.user_id is not null),
+                    '{}'::text[]
+                  ) as assignee_ids
+           from tasks t
+           left join task_assignees ta on ta.task_id = t.id
+           where t.id = any($1::uuid[])
+           group by t.id, t.title, t.is_reward, t.unlock_at`,
+          [unlockedTaskIds],
+        )
+        for (const unlockedTask of unlockedTasks.rows) {
+          const notificationIds = await createUnlockNotifications(client, {
+            householdId,
+            actorUserId: userId,
+            occurrenceId,
+            taskId: unlockedTask.id,
+            taskTitle: unlockedTask.title,
+            isReward: Boolean(unlockedTask.is_reward),
+            assigneeIds: unlockedTask.assignee_ids ?? [],
+            unlockCause: "other",
+            unlockAt: unlockedTask.unlock_at,
+            url: `/member/dashboard?household=${encodeURIComponent(householdId)}`,
+          })
+          pushNotificationIds.push(...notificationIds)
+        }
+      }
       await client.query("COMMIT")
+      await dispatchPushForNotificationIds(pushNotificationIds)
     } catch (error) {
       await client.query("ROLLBACK")
       throw error
@@ -743,7 +798,12 @@ export async function GET(request: Request) {
       )
 
   const membersResult = await db.query(
-    `select hm.user_id as id, coalesce(u.full_name, u.email, hm.user_id) as name, u.avatar_url, hm.token_color
+    `select hm.user_id as id,
+            coalesce(u.full_name, u.email, hm.user_id) as name,
+            u.avatar_url,
+            hm.token_color,
+            hm.role,
+            (u.email is not null or hm.user_id like 'user_%') as is_clerk_linked
      from household_members hm
      left join users u on u.id = hm.user_id
      where hm.household_id = $1
@@ -855,7 +915,7 @@ export async function POST(request: Request) {
     const householdId = create.rows[0].id
     await db.query(
       `insert into household_members (household_id, user_id, role)
-       values ($1, $2, 'leader')
+       values ($1, $2, 'manager')
        on conflict (household_id, user_id)
        do update set role = excluded.role`,
       [householdId, userId],
@@ -868,17 +928,145 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "householdId is required" }, { status: 400 })
   }
 
-  if (action === "setOccurrenceTaskCompleted") {
-    if (!(await isHouseholdMember(userId, householdId))) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-    }
-  } else {
-    if (!(await isLeader(userId, householdId))) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-    }
+  const membership = await getHouseholdMembershipAuthz(householdId, userId)
+  if (!membership) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+  if (!canPerformAction(membership.role, action)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
   await backfillHouseholdTimeZoneIfUtc(db, householdId, clientTimeZone)
+  const cookieValue = readCookieValue(request.headers.get("cookie"), "houseflow_kiosk_session")
+  const [cookieHouseholdId, cookieToken] = (cookieValue ?? "").split(":", 2)
+  const kioskSettings = await getHouseholdKioskSettings(householdId)
+  const kioskSessionActive =
+    kioskSettings.kioskActive &&
+    cookieHouseholdId === householdId &&
+    Boolean(cookieToken) &&
+    Boolean(kioskSettings.sessionTokenHash) &&
+    constantTimeEqual(kioskSettings.sessionTokenHash ?? "", sha256(cookieToken ?? ""))
+  const kioskAllowedActions = new Set(["setOccurrenceTaskCompleted", "verifyKioskExitPin", "forgotKioskPinAndSignOut"])
+  if (kioskSessionActive && !kioskAllowedActions.has(action)) {
+    return NextResponse.json({ error: "Kiosk mode is active." }, { status: 423 })
+  }
+
+  if (action === "updateKioskSettings") {
+    const visibleMemberIds = Array.isArray(body?.visibleMemberIds)
+      ? body.visibleMemberIds.map((id: unknown) => String(id).trim()).filter(Boolean)
+      : []
+    const editableMemberIds = Array.isArray(body?.editableMemberIds)
+      ? body.editableMemberIds.map((id: unknown) => String(id).trim()).filter(Boolean)
+      : []
+    const uniqueVisibleIds = [...new Set(visibleMemberIds)]
+    const visibleSet = new Set(uniqueVisibleIds)
+    const uniqueEditableIds = [...new Set(editableMemberIds)].filter((id) => visibleSet.has(id))
+
+    await db.query(
+      `insert into household_kiosk_settings (household_id, visible_member_ids, editable_member_ids, updated_by, updated_at)
+       values ($1::uuid, $2::text[], $3::text[], $4, now())
+       on conflict (household_id)
+       do update set visible_member_ids = excluded.visible_member_ids,
+                     editable_member_ids = excluded.editable_member_ids,
+                     updated_by = excluded.updated_by,
+                     updated_at = now()`,
+      [householdId, uniqueVisibleIds, uniqueEditableIds, userId],
+    )
+    return NextResponse.json({ ok: true })
+  }
+
+  if (action === "activateKioskMode") {
+    const pin = String(body?.pin ?? "").trim()
+    if (pin.length < 4) {
+      return NextResponse.json({ error: "PIN must be at least 4 characters." }, { status: 400 })
+    }
+    const requestedVisibleIds = Array.isArray(body?.visibleMemberIds)
+      ? body.visibleMemberIds.map((id: unknown) => String(id).trim()).filter(Boolean)
+      : []
+    const requestedEditableIds = Array.isArray(body?.editableMemberIds)
+      ? body.editableMemberIds.map((id: unknown) => String(id).trim()).filter(Boolean)
+      : []
+    const uniqueVisibleIds = [...new Set(requestedVisibleIds)]
+    const visibleSet = new Set(uniqueVisibleIds)
+    const uniqueEditableIds = [...new Set(requestedEditableIds)].filter((id) => visibleSet.has(id))
+
+    const sessionToken = crypto.randomUUID()
+    const pinHash = hashPin(pin)
+    const sessionTokenHash = sha256(sessionToken)
+    await db.query(
+      `insert into household_kiosk_settings (
+          household_id, visible_member_ids, editable_member_ids, kiosk_active, pin_hash, session_token_hash, updated_by, updated_at
+        )
+       values ($1::uuid, $2::text[], $3::text[], true, $4, $5, $6, now())
+       on conflict (household_id)
+       do update set visible_member_ids = excluded.visible_member_ids,
+                     editable_member_ids = excluded.editable_member_ids,
+                     kiosk_active = true,
+                     pin_hash = excluded.pin_hash,
+                     session_token_hash = excluded.session_token_hash,
+                     updated_by = excluded.updated_by,
+                     updated_at = now()`,
+      [householdId, uniqueVisibleIds, uniqueEditableIds, pinHash, sessionTokenHash, userId],
+    )
+
+    const response = NextResponse.json({ ok: true })
+    response.cookies.set("houseflow_kiosk_session", `${householdId}:${sessionToken}`, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      path: "/",
+      maxAge: 60 * 60 * 24 * 30,
+    })
+    return response
+  }
+
+  if (action === "verifyKioskExitPin") {
+    const pin = String(body?.pin ?? "").trim()
+    if (!pin) return NextResponse.json({ error: "PIN is required." }, { status: 400 })
+    const settings = kioskSettings
+    const cookieMatchesSession =
+      cookieHouseholdId === householdId &&
+      Boolean(cookieToken) &&
+      Boolean(settings.sessionTokenHash) &&
+      constantTimeEqual(settings.sessionTokenHash ?? "", sha256(cookieToken ?? ""))
+
+    if (!settings.kioskActive || !settings.pinHash || !cookieMatchesSession) {
+      return NextResponse.json({ error: "Kiosk session not active." }, { status: 400 })
+    }
+    const pinMatches = verifyPinHash(settings.pinHash, pin)
+    if (!pinMatches) {
+      return NextResponse.json({ error: "Incorrect PIN." }, { status: 401 })
+    }
+
+    await db.query(
+      `update household_kiosk_settings
+       set kiosk_active = false,
+           session_token_hash = null,
+           updated_by = $2,
+           updated_at = now()
+       where household_id = $1::uuid`,
+      [householdId, userId],
+    )
+    const response = NextResponse.json({ ok: true })
+    response.cookies.delete("houseflow_kiosk_session")
+    return response
+  }
+
+  if (action === "forgotKioskPinAndSignOut") {
+    await db.query(
+      `update household_kiosk_settings
+       set kiosk_active = false,
+           pin_hash = null,
+           session_token_hash = null,
+           updated_by = $2,
+           updated_at = now()
+       where household_id = $1::uuid`,
+      [householdId, userId],
+    )
+    const response = NextResponse.json({ ok: true, shouldSignOut: true })
+    response.cookies.delete("houseflow_kiosk_session")
+    return response
+  }
 
   if (action === "createRoutine") {
     const name = String(body?.name ?? "").trim() || "New routine"
@@ -929,6 +1117,68 @@ export async function POST(request: Request) {
     return NextResponse.json({ invite: result.rows[0] })
   }
 
+  if (action === "deactivateInvite") {
+    const inviteId = String(body?.inviteId ?? "").trim()
+    if (!inviteId) {
+      return NextResponse.json({ error: "inviteId is required" }, { status: 400 })
+    }
+    const result = await db.query(
+      `update household_invites
+       set is_active = false,
+           updated_at = now()
+       where id = $1::uuid
+         and household_id = $2::uuid
+       returning id, is_active`,
+      [inviteId, householdId],
+    )
+    if ((result.rowCount ?? 0) === 0) {
+      return NextResponse.json({ error: "Invite not found" }, { status: 404 })
+    }
+    return NextResponse.json({ ok: true, invite: result.rows[0] })
+  }
+
+  if (action === "createHouseholdMember") {
+    const name = String(body?.name ?? "").trim()
+    const tokenColor = String(body?.tokenColor ?? "").trim() || null
+    const requestedRole = String(body?.role ?? "").trim()
+    const role = requestedRole === "supervisor" ? "supervisor" : "member"
+    if (!name) {
+      return NextResponse.json({ error: "name is required" }, { status: 400 })
+    }
+
+    const memberUserId = `local_member_${crypto.randomUUID()}`
+    const client = await db.connect()
+    try {
+      await client.query("BEGIN")
+      await client.query(
+        `insert into users (id, full_name, email, avatar_url)
+         values ($1, $2, null, null)`,
+        [memberUserId, name],
+      )
+      const memberResult = await client.query(
+        `insert into household_members (household_id, user_id, role, token_color)
+         values ($1::uuid, $2, $3::app_role, $4)
+         returning user_id as id, role, token_color`,
+        [householdId, memberUserId, role, tokenColor],
+      )
+      await client.query("COMMIT")
+      return NextResponse.json({
+        ok: true,
+        member: {
+          ...memberResult.rows[0],
+          name,
+          avatar_url: null,
+          is_clerk_linked: false,
+        },
+      })
+    } catch (error) {
+      await client.query("ROLLBACK")
+      throw error
+    } finally {
+      client.release()
+    }
+  }
+
   if (action === "updateMemberTokenColor") {
     const memberUserId = String(body?.memberUserId ?? "").trim()
     const tokenColor = String(body?.tokenColor ?? "").trim() || null
@@ -941,6 +1191,116 @@ export async function POST(request: Request) {
        where household_id = $2
          and user_id = $3`,
       [tokenColor, householdId, memberUserId],
+    )
+    return NextResponse.json({ ok: true })
+  }
+
+  if (action === "updateMemberRole") {
+    const memberUserId = String(body?.memberUserId ?? "").trim()
+    const requestedRole = String(body?.role ?? "").trim()
+    const role = requestedRole === "supervisor" ? "supervisor" : "member"
+    if (!memberUserId) {
+      return NextResponse.json({ error: "memberUserId is required" }, { status: 400 })
+    }
+    if (memberUserId === membership.leaderId) {
+      return NextResponse.json({ error: "Household manager role cannot be changed here." }, { status: 400 })
+    }
+
+    const result = await db.query(
+      `update household_members
+       set role = $1::app_role
+       where household_id = $2::uuid
+         and user_id = $3
+       returning user_id, role`,
+      [role, householdId, memberUserId],
+    )
+    if ((result.rowCount ?? 0) === 0) {
+      return NextResponse.json({ error: "Member not found." }, { status: 404 })
+    }
+    return NextResponse.json({ ok: true, member: result.rows[0] })
+  }
+
+  if (action === "removeHouseholdMember") {
+    const memberUserId = String(body?.memberUserId ?? "").trim()
+    if (!memberUserId) {
+      return NextResponse.json({ error: "memberUserId is required" }, { status: 400 })
+    }
+    if (memberUserId === membership.leaderId) {
+      return NextResponse.json({ error: "Household manager cannot be removed." }, { status: 400 })
+    }
+
+    const memberInfo = await db.query<{ member_name: string; household_name: string }>(
+      `select
+          coalesce(u.full_name, u.email, hm.user_id) as member_name,
+          h.name as household_name
+       from household_members hm
+       join households h on h.id = hm.household_id
+       left join users u on u.id = hm.user_id
+       where hm.household_id = $1::uuid
+         and hm.user_id = $2
+       limit 1`,
+      [householdId, memberUserId],
+    )
+    if ((memberInfo.rowCount ?? 0) === 0) {
+      return NextResponse.json({ error: "Member not found." }, { status: 404 })
+    }
+
+    const deleteResult = await db.query(
+      `delete from household_members
+       where household_id = $1::uuid
+         and user_id = $2`,
+      [householdId, memberUserId],
+    )
+    if ((deleteResult.rowCount ?? 0) === 0) {
+      return NextResponse.json({ error: "Member not found." }, { status: 404 })
+    }
+
+    const memberName = String(memberInfo.rows[0]?.member_name ?? "A household member")
+    const householdName = String(memberInfo.rows[0]?.household_name ?? "household")
+    await createManagerNotificationEvent({
+      householdId,
+      actorUserId: userId,
+      kind: "member_left_household",
+      title: "Household member left",
+      body: `${memberName} has left your ${householdName} household.`,
+      metadata: {
+        memberName,
+        householdName,
+        url: `/leader/dashboard?household=${encodeURIComponent(householdId)}`,
+      },
+    })
+    return NextResponse.json({ ok: true })
+  }
+
+  if (action === "renameHouseholdMember") {
+    const memberUserId = String(body?.memberUserId ?? "").trim()
+    const name = String(body?.name ?? "").trim()
+    if (!memberUserId || !name) {
+      return NextResponse.json({ error: "memberUserId and name are required" }, { status: 400 })
+    }
+
+    const linkedResult = await db.query<{ is_clerk_linked: boolean }>(
+      `select (u.email is not null or u.id like 'user_%') as is_clerk_linked
+       from users u
+       join household_members hm on hm.user_id = u.id
+       where hm.household_id = $1::uuid
+         and hm.user_id = $2
+       limit 1`,
+      [householdId, memberUserId],
+    )
+    if ((linkedResult.rowCount ?? 0) === 0) {
+      return NextResponse.json({ error: "Member not found." }, { status: 404 })
+    }
+    if (Boolean(linkedResult.rows[0]?.is_clerk_linked)) {
+      return NextResponse.json({ error: "Clerk-linked members must update their name in Clerk profile settings." }, { status: 400 })
+    }
+
+    await db.query(
+      `update users
+       set full_name = $1,
+           updated_at = now()
+       where id = $2`,
+      [name, memberUserId],
     )
     return NextResponse.json({ ok: true })
   }
@@ -1449,27 +1809,62 @@ export async function POST(request: Request) {
     const occurrenceId = String(body?.occurrenceId ?? "")
     const taskId = String(body?.taskId ?? "")
     const completed = Boolean(body?.completed)
+    const actorMemberId = String(body?.actorMemberId ?? userId).trim() || userId
+    const requestedEditableMemberIds = Array.isArray(body?.editableMemberIds)
+      ? body.editableMemberIds.map((id: unknown) => String(id).trim()).filter(Boolean)
+      : []
+    const editableMemberIds = kioskSessionActive ? kioskSettings.editableMemberIds : requestedEditableMemberIds
     if (!occurrenceId || !taskId) {
       return NextResponse.json({ error: "occurrenceId and taskId are required" }, { status: 400 })
     }
 
     const client = await db.connect()
+    const pushNotificationIds: string[] = []
     try {
       await client.query("BEGIN")
 
-      const check = await client.query(
-        `select 1
+      const check = await client.query<{
+        assignee_ids: string[]
+      }>(
+        `select coalesce(
+            array_agg(ta.user_id) filter (where ta.user_id is not null),
+            '{}'::text[]
+          ) as assignee_ids
          from occurrence_tasks ot
          join routine_occurrences ro on ro.id = ot.occurrence_id
+         join tasks t on t.id = ot.task_id
+         left join task_assignees ta on ta.task_id = t.id
          where ot.occurrence_id = $1::uuid
            and ot.task_id = $2::uuid
-           and ro.household_id = $3`,
+           and ro.household_id = $3
+         group by ot.occurrence_id, ot.task_id`,
         [occurrenceId, taskId, householdId],
       )
       if ((check.rowCount ?? 0) === 0) {
         await client.query("ROLLBACK")
         return NextResponse.json({ error: "Occurrence task not found" }, { status: 404 })
       }
+      const assigneeIds = check.rows[0]?.assignee_ids ?? []
+      const canToggle = canEditMemberTasksInView({
+        actorRole: membership.role,
+        actorUserId: userId,
+        leaderId: membership.leaderId,
+        targetMemberId: actorMemberId,
+        taskAssigneeIds: assigneeIds,
+        editableMemberIds,
+      })
+      if (!canToggle) {
+        await client.query("ROLLBACK")
+        return NextResponse.json({ error: "Task cannot be edited in this view." }, { status: 403 })
+      }
+
+      const beforeStatuses = await client.query<{ task_id: string; status: "locked" | "unlocked" | "completed" }>(
+        `select task_id, status
+         from occurrence_tasks
+         where occurrence_id = $1::uuid`,
+        [occurrenceId],
+      )
+      const beforeByTaskId = new Map(beforeStatuses.rows.map((row) => [row.task_id, row.status]))
 
       if (completed) {
         await client.query(
@@ -1495,7 +1890,70 @@ export async function POST(request: Request) {
       await materializeDeferredExpiryForUnlockedTasks(client, occurrenceId)
       await applyRewardAutoCompletion(client, occurrenceId)
 
+      const afterStatuses = await client.query<{ task_id: string; status: "locked" | "unlocked" | "completed" }>(
+        `select task_id, status
+         from occurrence_tasks
+         where occurrence_id = $1::uuid`,
+        [occurrenceId],
+      )
+      const unlockedTaskIds = afterStatuses.rows
+        .filter((row) => row.status === "unlocked" && beforeByTaskId.get(row.task_id) === "locked")
+        .map((row) => row.task_id)
+
+      if (unlockedTaskIds.length > 0) {
+        const unlockedTasks = await client.query<{
+          id: string
+          title: string
+          is_reward: boolean
+          assignee_ids: string[]
+          unlock_at: string | null
+        }>(
+          `select t.id,
+                  t.title,
+                  t.is_reward,
+                  t.unlock_at,
+                  coalesce(
+                    array_agg(ta.user_id) filter (where ta.user_id is not null),
+                    '{}'::text[]
+                  ) as assignee_ids
+           from tasks t
+           left join task_assignees ta on ta.task_id = t.id
+           where t.id = any($1::uuid[])
+           group by t.id, t.title, t.is_reward, t.unlock_at`,
+          [unlockedTaskIds],
+        )
+        for (const unlockedTask of unlockedTasks.rows) {
+          const dependencyResult = await client.query<{ has_dependency: boolean }>(
+            `select exists(
+               select 1
+               from task_dependencies td
+               where td.source_task_id = $1::uuid
+                 and td.target_task_id = $2::uuid
+             ) as has_dependency`,
+            [taskId, unlockedTask.id],
+          )
+          const unlockCause =
+            completed && Boolean(dependencyResult.rows[0]?.has_dependency)
+              ? "prerequisite_completion"
+              : "other"
+          const notificationIds = await createUnlockNotifications(client, {
+            householdId,
+            actorUserId: actorMemberId,
+            occurrenceId,
+            taskId: unlockedTask.id,
+            taskTitle: unlockedTask.title,
+            isReward: Boolean(unlockedTask.is_reward),
+            assigneeIds: unlockedTask.assignee_ids ?? [],
+            unlockCause,
+            unlockAt: unlockedTask.unlock_at,
+            url: `/member/dashboard?household=${encodeURIComponent(householdId)}`,
+          })
+          pushNotificationIds.push(...notificationIds)
+        }
+      }
+
       await client.query("COMMIT")
+      await dispatchPushForNotificationIds(pushNotificationIds)
       return NextResponse.json({ ok: true })
     } catch (err) {
       await client.query("ROLLBACK")

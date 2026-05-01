@@ -2,6 +2,8 @@ import { redirect } from "next/navigation"
 import { auth } from "@clerk/nextjs/server"
 import { db } from "@/lib/db"
 import { ensureRoutineSchemaColumns } from "@/lib/schema-ensure"
+import { createUnlockNotifications } from "@/lib/notifications"
+import { dispatchPushForNotificationIds } from "@/lib/push"
 import type { AppRole, Household, Routine, Task } from "@/lib/types"
 import { ensureCurrentUserRecord } from "@/lib/user-sync"
 
@@ -141,75 +143,165 @@ export type HouseholdMemberViewData = {
   leaderId: string
   members: MemberViewMember[]
   tasks: MemberViewTask[]
+  kioskActive: boolean
+  kioskVisibleMemberIds: string[]
+  kioskEditableMemberIds: string[]
 }
 
-export async function getHouseholdMemberViewData(householdId: string): Promise<HouseholdMemberViewData> {
+export async function getHouseholdMemberViewData(
+  householdId: string,
+  actorUserId: string,
+): Promise<HouseholdMemberViewData> {
   // Recompute occurrence lock states on read so time-based unlocks flip
   // even if no write action has happened recently.
-  await db.query(
-    `with active_occurrences as (
-       select ro.id
-       from routine_occurrences ro
-       where ro.household_id = $1
-         and ro.status = 'active'
-     ),
-     lock_flags as (
-       select
-         ot.occurrence_id,
-         ot.task_id,
-         coalesce(t.unlock_combiner, 'and') as unlock_combiner,
-         (t.expires_at is not null and t.expires_at <= now()) as is_expired,
-         exists (
-           select 1
-           from task_dependencies td_any
-           join occurrence_tasks src_any
-             on src_any.task_id = td_any.source_task_id
-            and src_any.occurrence_id = ot.occurrence_id
-           where td_any.target_task_id = ot.task_id
-         ) as prereq_applies,
-         exists (
-           select 1
-           from task_dependencies td
-           join occurrence_tasks src
-             on src.task_id = td.source_task_id
-            and src.occurrence_id = ot.occurrence_id
-           where td.target_task_id = ot.task_id
-             and src.status <> 'completed'::task_status
-         ) as prereq_unsatisfied,
-         (t.unlock_at is not null) as time_applies,
-         (t.unlock_at is not null and now() < t.unlock_at) as time_unsatisfied
+  const client = await db.connect()
+  const pushNotificationIds: string[] = []
+  try {
+    await client.query("BEGIN")
+    const beforeStatuses = await client.query<{ occurrence_id: string; task_id: string; status: "locked" | "unlocked" | "completed" }>(
+      `select ot.occurrence_id, ot.task_id, ot.status
        from occurrence_tasks ot
-       join tasks t on t.id = ot.task_id
-       where ot.occurrence_id in (select id from active_occurrences)
-         and ot.status <> 'completed'::task_status
-     )
-     update occurrence_tasks ot
-     set status = case
-        when lf.is_expired then 'completed'::task_status
-         when (
-           case
-             when lf.prereq_applies and lf.time_applies and lf.unlock_combiner = 'or'
-               then lf.prereq_unsatisfied and lf.time_unsatisfied
-             when lf.prereq_applies and lf.time_applies
-               then lf.prereq_unsatisfied or lf.time_unsatisfied
-             when lf.prereq_applies then lf.prereq_unsatisfied
-             when lf.time_applies then lf.time_unsatisfied
-             else false
-           end
-         ) then 'locked'::task_status
-         else 'unlocked'::task_status
-       end,
-      completed_at = case
-        when lf.is_expired then coalesce(ot.completed_at, now())
-        else ot.completed_at
-      end,
-       updated_at = now()
-     from lock_flags lf
-     where ot.occurrence_id = lf.occurrence_id
-       and ot.task_id = lf.task_id
-       and ot.status <> 'completed'::task_status`,
-    [householdId],
-  )
+       join routine_occurrences ro on ro.id = ot.occurrence_id
+       where ro.household_id = $1
+         and ro.status = 'active'`,
+      [householdId],
+    )
+    const beforeByOccurrenceTask = new Map(
+      beforeStatuses.rows.map((row) => [`${row.occurrence_id}:${row.task_id}`, row.status]),
+    )
+
+    await client.query(
+      `with active_occurrences as (
+         select ro.id
+         from routine_occurrences ro
+         where ro.household_id = $1
+           and ro.status = 'active'
+       ),
+       lock_flags as (
+         select
+           ot.occurrence_id,
+           ot.task_id,
+           coalesce(t.unlock_combiner, 'and') as unlock_combiner,
+           (t.expires_at is not null and t.expires_at <= now()) as is_expired,
+           exists (
+             select 1
+             from task_dependencies td_any
+             join occurrence_tasks src_any
+               on src_any.task_id = td_any.source_task_id
+              and src_any.occurrence_id = ot.occurrence_id
+             where td_any.target_task_id = ot.task_id
+           ) as prereq_applies,
+           exists (
+             select 1
+             from task_dependencies td
+             join occurrence_tasks src
+               on src.task_id = td.source_task_id
+              and src.occurrence_id = ot.occurrence_id
+             where td.target_task_id = ot.task_id
+               and src.status <> 'completed'::task_status
+           ) as prereq_unsatisfied,
+           (t.unlock_at is not null) as time_applies,
+           (t.unlock_at is not null and now() < t.unlock_at) as time_unsatisfied
+         from occurrence_tasks ot
+         join tasks t on t.id = ot.task_id
+         where ot.occurrence_id in (select id from active_occurrences)
+           and ot.status <> 'completed'::task_status
+       )
+       update occurrence_tasks ot
+       set status = case
+          when lf.is_expired then 'completed'::task_status
+           when (
+             case
+               when lf.prereq_applies and lf.time_applies and lf.unlock_combiner = 'or'
+                 then lf.prereq_unsatisfied and lf.time_unsatisfied
+               when lf.prereq_applies and lf.time_applies
+                 then lf.prereq_unsatisfied or lf.time_unsatisfied
+               when lf.prereq_applies then lf.prereq_unsatisfied
+               when lf.time_applies then lf.time_unsatisfied
+               else false
+             end
+           ) then 'locked'::task_status
+           else 'unlocked'::task_status
+         end,
+        completed_at = case
+          when lf.is_expired then coalesce(ot.completed_at, now())
+          else ot.completed_at
+        end,
+         updated_at = now()
+       from lock_flags lf
+       where ot.occurrence_id = lf.occurrence_id
+         and ot.task_id = lf.task_id
+         and ot.status <> 'completed'::task_status`,
+      [householdId],
+    )
+
+    const afterStatuses = await client.query<{ occurrence_id: string; task_id: string; status: "locked" | "unlocked" | "completed" }>(
+      `select ot.occurrence_id, ot.task_id, ot.status
+       from occurrence_tasks ot
+       join routine_occurrences ro on ro.id = ot.occurrence_id
+       where ro.household_id = $1
+         and ro.status = 'active'`,
+      [householdId],
+    )
+    const unlockedTransitions = afterStatuses.rows.filter((row) => {
+      const key = `${row.occurrence_id}:${row.task_id}`
+      return row.status === "unlocked" && beforeByOccurrenceTask.get(key) === "locked"
+    })
+
+    if (unlockedTransitions.length > 0) {
+      const unlockedTaskIds = unlockedTransitions.map((row) => row.task_id)
+      const unlockedTasks = await client.query<{
+        occurrence_id: string
+        id: string
+        title: string
+        is_reward: boolean
+        assignee_ids: string[]
+        unlock_at: string | null
+      }>(
+        `select ot.occurrence_id,
+                t.id,
+                t.title,
+                t.is_reward,
+                t.unlock_at,
+                coalesce(
+                  array_agg(ta.user_id) filter (where ta.user_id is not null),
+                  '{}'::text[]
+                ) as assignee_ids
+         from occurrence_tasks ot
+         join tasks t on t.id = ot.task_id
+         join routine_occurrences ro on ro.id = ot.occurrence_id
+         left join task_assignees ta on ta.task_id = t.id
+         where t.id = any($1::uuid[])
+           and ro.household_id = $2
+           and ro.status = 'active'
+         group by ot.occurrence_id, t.id, t.title, t.is_reward, t.unlock_at`,
+        [unlockedTaskIds, householdId],
+      )
+      for (const unlockedTask of unlockedTasks.rows) {
+        const notificationIds = await createUnlockNotifications(client, {
+          householdId,
+          actorUserId,
+          occurrenceId: unlockedTask.occurrence_id,
+          taskId: unlockedTask.id,
+          taskTitle: unlockedTask.title,
+          isReward: Boolean(unlockedTask.is_reward),
+          assigneeIds: unlockedTask.assignee_ids ?? [],
+          unlockCause: "other",
+          unlockAt: unlockedTask.unlock_at,
+          url: `/member/dashboard?household=${encodeURIComponent(householdId)}`,
+        })
+        pushNotificationIds.push(...notificationIds)
+      }
+    }
+
+    await client.query("COMMIT")
+  } catch (error) {
+    await client.query("ROLLBACK")
+    throw error
+  } finally {
+    client.release()
+  }
+  await dispatchPushForNotificationIds(pushNotificationIds)
 
   const householdResult = await db.query(
     `select id, leader_id
@@ -219,7 +311,14 @@ export async function getHouseholdMemberViewData(householdId: string): Promise<H
     [householdId],
   )
   if ((householdResult.rowCount ?? 0) === 0) {
-    return { leaderId: "", members: [], tasks: [] }
+    return {
+      leaderId: "",
+      members: [],
+      tasks: [],
+      kioskActive: false,
+      kioskVisibleMemberIds: [],
+      kioskEditableMemberIds: [],
+    }
   }
 
   const leaderId = String(householdResult.rows[0].leader_id)
@@ -296,6 +395,31 @@ export async function getHouseholdMemberViewData(householdId: string): Promise<H
     [householdId],
   )
 
+  let kioskSettings:
+    | {
+        kiosk_active: boolean
+        visible_member_ids: string[] | null
+        editable_member_ids: string[] | null
+      }
+    | undefined
+  try {
+    const kioskSettingsResult = await db.query<{
+      kiosk_active: boolean
+      visible_member_ids: string[] | null
+      editable_member_ids: string[] | null
+    }>(
+      `select kiosk_active, visible_member_ids, editable_member_ids
+       from household_kiosk_settings
+       where household_id = $1::uuid
+       limit 1`,
+      [householdId],
+    )
+    kioskSettings = kioskSettingsResult.rows[0]
+  } catch (error) {
+    const code = (error as { code?: string }).code
+    if (code !== "42P01") throw error
+  }
+
   const blockerMap = new Map<string, { id: string; title: string; assigneeIds: string[] }>()
   for (const row of dependencyResult.rows as {
     occurrence_id: string
@@ -347,5 +471,8 @@ export async function getHouseholdMemberViewData(householdId: string): Promise<H
     leaderId,
     members: membersResult.rows as MemberViewMember[],
     tasks,
+    kioskActive: Boolean(kioskSettings?.kiosk_active ?? false),
+    kioskVisibleMemberIds: kioskSettings?.visible_member_ids ?? [],
+    kioskEditableMemberIds: kioskSettings?.editable_member_ids ?? [],
   }
 }

@@ -1,4 +1,4 @@
-export type AppRole = "leader" | "member"
+export type AppRole = "manager" | "supervisor" | "member" | "leader"
 export type RoutineType = "recurring" | "one_off"
 export type TaskStatus = "locked" | "unlocked" | "completed"
 export type OccurrenceStatus = "active" | "completed" | "cancelled"
