@@ -2103,14 +2103,18 @@ export async function POST(request: Request) {
     const unlockRule = parseUnlockRule(body?.unlockRule ?? null)
     const unlockCombiner: UnlockCombiner = body?.unlockCombiner === "or" ? "or" : "and"
     const expiryRule = parseExpiryRule(body?.expiryRule ?? null)
-    const unlockAtOverride =
-      typeof body?.unlockAtOverride === "string" && body.unlockAtOverride.trim()
-        ? new Date(body.unlockAtOverride)
-        : null
-    const expiryAtOverride =
-      typeof body?.expiryAtOverride === "string" && body.expiryAtOverride.trim()
-        ? new Date(body.expiryAtOverride)
-        : null
+    const unlockAtOverrideRaw =
+      typeof body?.unlockAtOverride === "string" && body.unlockAtOverride.trim() ? body.unlockAtOverride : null
+    const expiryAtOverrideRaw =
+      typeof body?.expiryAtOverride === "string" && body.expiryAtOverride.trim() ? body.expiryAtOverride : null
+    const unlockAtOverride = unlockAtOverrideRaw ? new Date(unlockAtOverrideRaw) : null
+    const expiryAtOverride = expiryAtOverrideRaw ? new Date(expiryAtOverrideRaw) : null
+    if (unlockAtOverride && Number.isNaN(unlockAtOverride.getTime())) {
+      return NextResponse.json({ error: "Invalid unlockAtOverride date" }, { status: 400 })
+    }
+    if (expiryAtOverride && Number.isNaN(expiryAtOverride.getTime())) {
+      return NextResponse.json({ error: "Invalid expiryAtOverride date" }, { status: 400 })
+    }
     const baselineDate = new Date()
     const householdTimeZone = await getHouseholdTimeZone(db, householdId)
     const resolvedUnlockAt =
