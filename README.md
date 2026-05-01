@@ -41,7 +41,7 @@ Recurring routine occurrences are materialized by the internal endpoint `GET /ap
 
 - In production, this endpoint requires `Authorization: Bearer <CRON_SECRET>`.
 - Configure `CRON_SECRET` in your deployment environment.
-- `vercel.json` schedules this endpoint every 5 minutes via Vercel Cron.
+- `vercel.json` schedules this endpoint once daily at **06:00 UTC** via Vercel Cron (Hobby-compatible). On **Vercel Pro**, you can use a tighter schedule (for example every five minutes) if you need faster materialization.
 
 ## Native Mobile App (Capacitor)
 
