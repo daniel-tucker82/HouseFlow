@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">HouseFlow</string>
-    <string name="title_activity_main">HouseFlow</string>
+    <string name="app_name">Cyntch</string>
+    <string name="title_activity_main">Cyntch</string>
     <string name="package_name">com.houseflow.app</string>
     <string name="custom_url_scheme">com.houseflow.app</string>
 </resources>

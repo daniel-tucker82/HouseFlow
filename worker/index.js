@@ -4,9 +4,9 @@ self.addEventListener("push", (event) => {
   try {
     payload = event.data.json()
   } catch {
-    payload = { title: "HouseFlow notification", body: event.data.text() }
+    payload = { title: "Cyntch notification", body: event.data.text() }
   }
-  const title = typeof payload.title === "string" ? payload.title : "HouseFlow"
+  const title = typeof payload.title === "string" ? payload.title : "Cyntch"
   const body = typeof payload.body === "string" ? payload.body : ""
   const tag = typeof payload.tag === "string" ? payload.tag : undefined
   const url = typeof payload.url === "string" ? payload.url : "/"

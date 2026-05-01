@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "HouseFlow",
+  title: "Cyntch",
   description: "Family Operations & Routine workflow engine",
 };
 

@@ -37,7 +37,7 @@ export async function POST(request: Request) {
     `insert into user_notifications (event_id, user_id, title, body)
      values ($1::uuid, $2, $3, $4)
      returning id`,
-    [eventId, userId, "Push test", "HouseFlow push notifications are working on this device."],
+    [eventId, userId, "Push test", "Cyntch push notifications are working on this device."],
   )
   const notificationId = String(notificationResult.rows[0]?.id ?? "")
   if (notificationId) {

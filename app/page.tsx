@@ -10,7 +10,7 @@ export default async function HomePage() {
   if (!isPostgresConfigured()) {
     return (
       <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-4 p-6">
-        <h1 className="text-3xl font-semibold">HouseFlow setup required</h1>
+        <h1 className="text-3xl font-semibold">Cyntch setup required</h1>
         <p className="text-muted-foreground">
           PostgreSQL is not configured yet, so app data features are paused.
         </p>
@@ -44,7 +44,7 @@ export default async function HomePage() {
         <div className="rounded border p-4 text-sm">
           <p className="font-medium">Check your local PostgreSQL connection</p>
           <p className="text-muted-foreground">
-            HouseFlow is configured for local dev. Make sure `POSTGRES_URL` points to a running
+            Cyntch is configured for local dev. Make sure `POSTGRES_URL` points to a running
             database (for Docker default: `postgres://houseflow:houseflow@localhost:6543/houseflow`).
           </p>
         </div>
@@ -75,7 +75,7 @@ export default async function HomePage() {
 
   return (
     <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-4 p-6">
-      <h1 className="text-3xl font-semibold">Welcome to HouseFlow</h1>
+      <h1 className="text-3xl font-semibold">Welcome to Cyntch</h1>
       <p className="text-muted-foreground">
         You’re signed in, but you’re not part of a household yet.
       </p>
