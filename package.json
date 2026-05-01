@@ -7,6 +7,7 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
+    "db:migrate": "node scripts/migrate-database.cjs",
     "mobile:sync": "cap sync",
     "mobile:copy": "cap copy",
     "mobile:add:android": "cap add android",
