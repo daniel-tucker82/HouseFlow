@@ -1021,6 +1021,7 @@ export function LeaderFlowEditor({
   const taskSettingsFormRef = useRef<HTMLFormElement | null>(null)
   const taskSettingsAutosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const coalescedFlowReloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const scheduleCoalescedFlowReloadRef = useRef<() => void>(() => {})
   const taskSettingsSaveRequestIdRef = useRef(0)
   const activeTaskForSettingsRef = useRef<Task | null>(null)
   activeTaskForSettingsRef.current = activeTask
@@ -1255,9 +1256,83 @@ export function LeaderFlowEditor({
     router.replace(nextHref, { scroll: false })
   }
 
+  const applyOccurrenceTaskStatusesSnapshot = useCallback(
+    (
+      occurrenceId: string,
+      rawRows: Array<{ task_id: string; status: string }>,
+    ) => {
+      const incoming = rawRows.map((row) => ({
+        task_id: String(row.task_id),
+        status: String(row.status),
+      }))
+      setLocalOccurrenceTaskStatuses(incoming)
+      const statusByTaskId = new Map<string, "locked" | "unlocked" | "completed">(
+        incoming.map((row) => [row.task_id, row.status as "locked" | "unlocked" | "completed"]),
+      )
+      setOccurrenceTaskLists((prev) => {
+        const list = prev[occurrenceId]
+        if (!list) return prev
+        return {
+          ...prev,
+          [occurrenceId]: list.map((item) => {
+            const s = statusByTaskId.get(item.id)
+            return s ? { ...item, status: s } : item
+          }),
+        }
+      })
+      setFlowNodes((prev) =>
+        prev.map((node) => {
+          if (node.type !== "taskNode") return node
+          const status = statusByTaskId.get(node.id)
+          if (!status) return node
+          const task = localTasks.find((t) => t.id === node.id)
+          return {
+            ...node,
+            data: {
+              ...(node.data as TaskNodeData),
+              status,
+              occurrenceStatus: status,
+              lockTooltip: task ? buildLockTooltip(task, status, localDeps, statusByTaskId) : null,
+            },
+          }
+        }),
+      )
+    },
+    [buildLockTooltip, localDeps, localTasks],
+  )
+
+  const fetchOccurrenceTaskStatusesSnapshot = useCallback(
+    async (householdId: string, occurrenceId: string) => {
+      const res = await fetch("/api/leader/flow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "listOccurrenceStatuses",
+          householdId,
+          occurrenceId,
+        }),
+      })
+      if (!res.ok) return false
+      const json = (await res.json().catch(() => null)) as
+        | { occurrenceTaskStatuses?: Array<{ task_id: string; status: string }> }
+        | null
+      if (!json?.occurrenceTaskStatuses) return false
+      applyOccurrenceTaskStatusesSnapshot(occurrenceId, json.occurrenceTaskStatuses)
+      return true
+    },
+    [applyOccurrenceTaskStatusesSnapshot],
+  )
+
   const handleOccurrenceToggle = useCallback((taskId: string, completed: boolean) => {
     const { householdId, routineId, occurrenceId } = occurrenceCtxRef.current
     if (!occurrenceId) return
+    setLocalOccurrenceTaskStatuses((prev) => {
+      const nextStatus = completed ? "completed" : "unlocked"
+      if (prev.some((row) => row.task_id === taskId)) {
+        return prev.map((row) => (row.task_id === taskId ? { ...row, status: nextStatus } : row))
+      }
+      return [...prev, { task_id: taskId, status: nextStatus }]
+    })
     void (async () => {
       const res = await fetch("/api/leader/flow", {
         method: "POST",
@@ -1271,11 +1346,19 @@ export function LeaderFlowEditor({
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC",
         }),
       })
-      if (res.ok) {
-        await reloadFlowRef.current(householdId, routineId, occurrenceId)
+      if (!res.ok) {
+        scheduleCoalescedFlowReloadRef.current()
+        return
       }
+      const json = (await res.json().catch(() => null)) as
+        | { occurrenceTaskStatuses?: Array<{ task_id: string; status: string }> }
+        | null
+      if (json?.occurrenceTaskStatuses) {
+        applyOccurrenceTaskStatusesSnapshot(occurrenceId, json.occurrenceTaskStatuses)
+      }
+      scheduleCoalescedFlowReloadRef.current()
     })()
-  }, [])
+  }, [applyOccurrenceTaskStatusesSnapshot])
 
   const reloadFlow = async (
     householdId: string,
@@ -1417,9 +1500,24 @@ export function LeaderFlowEditor({
     if (coalescedFlowReloadTimerRef.current) clearTimeout(coalescedFlowReloadTimerRef.current)
     coalescedFlowReloadTimerRef.current = setTimeout(() => {
       coalescedFlowReloadTimerRef.current = null
+      if (selectedOccurrenceId) {
+        void (async () => {
+          const ok = await fetchOccurrenceTaskStatusesSnapshot(selectedHouseholdId, selectedOccurrenceId)
+          if (!ok) {
+            await reloadFlowRef.current(selectedHouseholdId, selectedRoutineId, selectedOccurrenceId)
+          }
+        })()
+        return
+      }
       void reloadFlowRef.current(selectedHouseholdId, selectedRoutineId, selectedOccurrenceId)
     }, 380)
-  }, [selectedHouseholdId, selectedRoutineId, selectedOccurrenceId])
+  }, [
+    fetchOccurrenceTaskStatusesSnapshot,
+    selectedHouseholdId,
+    selectedOccurrenceId,
+    selectedRoutineId,
+  ])
+  scheduleCoalescedFlowReloadRef.current = scheduleCoalescedFlowReload
 
   useEffect(() => {
     return () => {

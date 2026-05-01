@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Menu } from "lucide-react"
@@ -124,6 +124,7 @@ export function MemberDashboardClient({
 }: Props) {
   const router = useRouter()
   const { signOut } = useClerk()
+  const [localTasks, setLocalTasks] = useState<Task[]>(tasks)
   const [activeTask, setActiveTask] = useState<Task | null>(null)
   const [isToggling, setIsToggling] = useState<string | null>(null)
   const [selectorsOpen, setSelectorsOpen] = useState(false)
@@ -131,10 +132,15 @@ export function MemberDashboardClient({
   const [isKioskPending, setIsKioskPending] = useState(false)
   const [roleUpdatingMemberId, setRoleUpdatingMemberId] = useState<string | null>(null)
   const [hasHydrated, setHasHydrated] = useState(false)
+  const refreshOccurrenceStatusesRef = useRef<(occurrenceId: string) => Promise<void>>(async () => {})
 
   useEffect(() => {
     setHasHydrated(true)
   }, [])
+
+  useEffect(() => {
+    setLocalTasks(tasks)
+  }, [tasks])
 
   // Leader flow runs materializeDueRecurrences on GET /api/leader/flow; member tasks are SSR-only
   // unless we ping that route so routine occurrences catch up after the scheduled time (cron is daily on Hobby).
@@ -166,7 +172,7 @@ export function MemberDashboardClient({
     [members, selectedMemberSet],
   )
   const orderedTasks = useMemo(() => {
-    const byId = new Map(tasks.map((task) => [task.id, task]))
+    const byId = new Map(localTasks.map((task) => [task.id, task]))
     const createdAtMs = (task: Task) => new Date(task.created_at).getTime()
     const statusRank = (status: Task["status"]) =>
       status === "unlocked" ? 0 : status === "completed" ? 1 : 2
@@ -183,7 +189,7 @@ export function MemberDashboardClient({
       return depth
     }
 
-    return [...tasks].sort((a, b) => {
+    return [...localTasks].sort((a, b) => {
       const rankDiff = statusRank(a.status) - statusRank(b.status)
       if (rankDiff !== 0) return rankDiff
       if (a.status === "locked" && b.status === "locked") {
@@ -192,7 +198,7 @@ export function MemberDashboardClient({
       }
       return createdAtMs(a) - createdAtMs(b)
     })
-  }, [tasks])
+  }, [localTasks])
 
   const tasksByMember = useMemo(() => {
     const grouped = new Map<string, Task[]>()
@@ -208,15 +214,15 @@ export function MemberDashboardClient({
   }, [leaderId, members, orderedTasks])
 
   useEffect(() => {
-    const hasTimeEligibleLockedTask = tasks.some(
+    const hasTimeEligibleLockedTask = localTasks.some(
       (task) => task.status === "locked" && task.lock_type === "time" && Boolean(task.unlock_at),
     )
-    const hasExpiryCandidate = tasks.some(
+    const hasExpiryCandidate = localTasks.some(
       (task) => Boolean(task.expires_at) && task.status !== "completed",
     )
     if (!hasTimeEligibleLockedTask && !hasExpiryCandidate) return
 
-    const candidateInstantsMs = tasks
+    const candidateInstantsMs = localTasks
       .flatMap((task) => {
         if (task.status === "completed") return []
         const values: number[] = []
@@ -247,7 +253,8 @@ export function MemberDashboardClient({
           ? Math.max(10, Math.min(msUntilNextMinute, msUntilNearestInstant))
           : Math.max(10, msUntilNextMinute)
       timeoutId = window.setTimeout(() => {
-        router.refresh()
+        const occurrenceIds = [...new Set(localTasks.map((task) => task.occurrence_id).filter(Boolean))]
+        void Promise.all(occurrenceIds.map((occurrenceId) => refreshOccurrenceStatusesRef.current(occurrenceId)))
         scheduleNextPoll()
       }, nextDelay)
     }
@@ -257,7 +264,7 @@ export function MemberDashboardClient({
       cancelled = true
       if (timeoutId !== null) window.clearTimeout(timeoutId)
     }
-  }, [router, tasks])
+  }, [localTasks])
 
   const buildDashboardHref = (householdId: string, memberIds: string[], editableIds: string[]) => {
     const params = new URLSearchParams()
@@ -282,9 +289,42 @@ export function MemberDashboardClient({
     return [...editableMemberIds, memberId]
   }
 
+  const refreshOccurrenceStatuses = useCallback(async (occurrenceId: string) => {
+    const response = await fetch("/api/leader/flow", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "listOccurrenceStatuses",
+        householdId: selectedHouseholdId,
+        occurrenceId,
+      }),
+    })
+    if (!response.ok) return
+    const json = (await response.json().catch(() => null)) as
+      | { occurrenceTaskStatuses?: Array<{ task_id: string; status: string }> }
+      | null
+    if (!json?.occurrenceTaskStatuses?.length) return
+    const statusByTaskId = new Map(
+      json.occurrenceTaskStatuses.map((row) => [String(row.task_id), String(row.status)]),
+    )
+    setLocalTasks((prev) =>
+      prev.map((row) => {
+        const incoming = statusByTaskId.get(row.id)
+        if (!incoming) return row
+        if (incoming === "locked" || incoming === "unlocked" || incoming === "completed") {
+          return { ...row, status: incoming }
+        }
+        return row
+      }),
+    )
+  }, [selectedHouseholdId])
+  refreshOccurrenceStatusesRef.current = refreshOccurrenceStatuses
+
   const toggleTaskCompleted = async (task: Task, actingMemberId: string) => {
     if (task.status === "locked" || isToggling || !editableMemberSet.has(actingMemberId)) return
     setIsToggling(task.id)
+    const nextStatus: Task["status"] = task.status === "completed" ? "unlocked" : "completed"
+    setLocalTasks((prev) => prev.map((row) => (row.id === task.id ? { ...row, status: nextStatus } : row)))
     try {
       const response = await fetch("/api/leader/flow", {
         method: "POST",
@@ -301,9 +341,28 @@ export function MemberDashboardClient({
         }),
       })
       if (!response.ok) {
+        setLocalTasks((prev) => prev.map((row) => (row.id === task.id ? { ...row, status: task.status } : row)))
         throw new Error("Failed to update task")
       }
-      router.refresh()
+      const json = (await response.json().catch(() => null)) as
+        | { occurrenceTaskStatuses?: Array<{ task_id: string; status: string }> }
+        | null
+      if (json?.occurrenceTaskStatuses?.length) {
+        const statusByTaskId = new Map(
+          json.occurrenceTaskStatuses.map((row) => [String(row.task_id), String(row.status)]),
+        )
+        setLocalTasks((prev) =>
+          prev.map((row) => {
+            const incoming = statusByTaskId.get(row.id)
+            if (!incoming) return row
+            if (incoming === "locked" || incoming === "unlocked" || incoming === "completed") {
+              return { ...row, status: incoming }
+            }
+            return row
+          }),
+        )
+      }
+      void refreshOccurrenceStatuses(task.occurrence_id)
     } catch (error) {
       console.error(error)
     } finally {

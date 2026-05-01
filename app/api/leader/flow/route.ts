@@ -1805,6 +1805,36 @@ export async function POST(request: Request) {
     return NextResponse.json({ tasks: tasks.rows, dependencies: deps.rows })
   }
 
+  if (action === "listOccurrenceStatuses") {
+    const occurrenceId = String(body?.occurrenceId ?? "")
+    if (!occurrenceId) {
+      return NextResponse.json({ error: "occurrenceId is required" }, { status: 400 })
+    }
+    const access = await db.query(
+      `select 1
+       from routine_occurrences ro
+       where ro.id = $1::uuid
+         and ro.household_id = $2
+       limit 1`,
+      [occurrenceId, householdId],
+    )
+    if ((access.rowCount ?? 0) === 0) {
+      return NextResponse.json({ error: "Occurrence not found" }, { status: 404 })
+    }
+    const statuses = await db.query<{ task_id: string; status: "locked" | "unlocked" | "completed" }>(
+      `select task_id, status
+       from occurrence_tasks
+       where occurrence_id = $1::uuid`,
+      [occurrenceId],
+    )
+    return NextResponse.json({
+      occurrenceTaskStatuses: statuses.rows.map((row) => ({
+        task_id: row.task_id,
+        status: row.status,
+      })),
+    })
+  }
+
   if (action === "setOccurrenceTaskCompleted") {
     const occurrenceId = String(body?.occurrenceId ?? "")
     const taskId = String(body?.taskId ?? "")
@@ -1954,7 +1984,13 @@ export async function POST(request: Request) {
 
       await client.query("COMMIT")
       await dispatchPushForNotificationIds(pushNotificationIds)
-      return NextResponse.json({ ok: true })
+      return NextResponse.json({
+        ok: true,
+        occurrenceTaskStatuses: afterStatuses.rows.map((row) => ({
+          task_id: row.task_id,
+          status: row.status,
+        })),
+      })
     } catch (err) {
       await client.query("ROLLBACK")
       throw err
