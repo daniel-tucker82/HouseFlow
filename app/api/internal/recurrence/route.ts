@@ -498,7 +498,15 @@ async function materializeDueRecurrences(
 }
 
 export async function GET(request: Request) {
+  const secretConfigured = Boolean(process.env.CRON_SECRET?.trim())
   if (!authorizedByCronSecret(request)) {
+    if (process.env.NODE_ENV === "production" && !secretConfigured) {
+      console.error(
+        "[cron][recurrence] rejected: CRON_SECRET is not set in production. Add it in Vercel env and redeploy so cron can authorize.",
+      )
+    } else {
+      console.warn("[cron][recurrence] unauthorized (wrong Authorization bearer or CRON_SECRET mismatch)")
+    }
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
@@ -507,6 +515,11 @@ export async function GET(request: Request) {
     `select id, leader_id
      from households`,
   )
+
+  console.info("[cron][recurrence] run start", {
+    householdCount: households.rows.length,
+    atIso: new Date().toISOString(),
+  })
 
   const pushNotificationIds: string[] = []
   let householdsProcessed = 0
@@ -532,10 +545,13 @@ export async function GET(request: Request) {
   }
 
   await dispatchPushForNotificationIds(pushNotificationIds)
-  return NextResponse.json({
+
+  const body = {
     ok: householdsFailed === 0,
     householdsProcessed,
     householdsFailed,
     notificationsDispatched: pushNotificationIds.length,
-  })
+  }
+  console.info("[cron][recurrence] run complete", { ...body, atIso: new Date().toISOString() })
+  return NextResponse.json(body)
 }
