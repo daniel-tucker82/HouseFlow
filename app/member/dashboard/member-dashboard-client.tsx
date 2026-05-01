@@ -136,6 +136,22 @@ export function MemberDashboardClient({
     setHasHydrated(true)
   }, [])
 
+  // Leader flow runs materializeDueRecurrences on GET /api/leader/flow; member tasks are SSR-only
+  // unless we ping that route so routine occurrences catch up after the scheduled time (cron is daily on Hobby).
+  useEffect(() => {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC"
+    const qs = new URLSearchParams({ householdId: selectedHouseholdId, timezone: tz })
+    let cancelled = false
+    void (async () => {
+      const res = await fetch(`/api/leader/flow?${qs.toString()}`)
+      if (cancelled || !res.ok) return
+      router.refresh()
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [router, selectedHouseholdId])
+
   const memberNameById = useMemo(() => new Map(members.map((member) => [member.id, member.name])), [members])
   const selectedMemberSet = useMemo(() => new Set(selectedMemberIds), [selectedMemberIds])
   const editableMemberSet = useMemo(() => {

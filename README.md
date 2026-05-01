@@ -42,6 +42,8 @@ Recurring routine occurrences are materialized by the internal endpoint `GET /ap
 - In production, this endpoint requires `Authorization: Bearer <CRON_SECRET>`.
 - Configure `CRON_SECRET` in your deployment environment.
 - `vercel.json` schedules this endpoint once daily at **06:00 UTC** via Vercel Cron (Hobby-compatible). On **Vercel Pro**, you can use a tighter schedule (for example every five minutes) if you need faster materialization.
+- With the app **closed**, only that cron (or an external cron hitting the same URL with `Authorization: Bearer <CRON_SECRET>`) will materialize new occurrences. **Opening the leader or member dashboard** triggers the same logic via `GET /api/leader/flow` so missed slots catch up on the next visit.
+- Recurrence date/time math in `lib/recurrence.ts` uses the **Node runtime’s default timezone** (typically **UTC** on Vercel). For household-local wall times, keep the household `timezone` field accurate; full “evaluate rules in household TZ” is not implemented yet—if results look offset by hours, compare rule times to UTC.
 
 ## Native Mobile App (Capacitor)
 
