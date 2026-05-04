@@ -24,6 +24,14 @@ Optional existing web push vars remain in use for browser push:
 - [ ] `WEB_PUSH_VAPID_PRIVATE_KEY`
 - [ ] `WEB_PUSH_CONTACT_EMAIL`
 
+## 2b) Test the native shell without deploying to production
+
+You do **not** need to ship to production to exercise the Android app.
+
+- **Preview / staging URL:** Deploy a branch to a **Vercel preview URL** (or a dedicated staging host). Set `CAPACITOR_SERVER_URL` to that **https** URL, run `npm run mobile:sync`, then **Run** from Android Studio. Add that hostname in **Clerk allowed domains** if sign-in should work there.
+- **Local Next.js + emulator:** Run `npm run dev` on your PC. Use `CAPACITOR_SERVER_URL=http://10.0.2.2:3000` (emulator → host), then `npm run mobile:sync`. You may need **Android cleartext** / network config for HTTP, and **Clerk** may require that origin or an **HTTPS tunnel** (ngrok, Cloudflare Tunnel) instead of raw `10.0.2.2`.
+- **After code changes:** Rebuild the **website** where `CAPACITOR_SERVER_URL` points (or use local dev). You only need `npm run mobile:sync` again when you change **Capacitor config** or **native assets**—ordinary React/Next edits on a remote URL are picked up on the next WebView load (hard-refresh / restart app if cached).
+
 ## 3) Database
 
 - [x] Run migration `database/0012_mobile_push_tokens.sql`.

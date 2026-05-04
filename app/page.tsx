@@ -1,6 +1,7 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
 import { cookies } from "next/headers"
+import { NoHouseholdNativeActions } from "@/components/no-household-native-actions"
 import { isPostgresConfigured } from "@/lib/config"
 import { getCurrentUserOrRedirect, getUserHouseholds } from "@/lib/data"
 import { resolveActiveKioskHouseholdFromCookie } from "@/lib/household-authz"
@@ -79,14 +80,7 @@ export default async function HomePage() {
       <p className="text-muted-foreground">
         You’re signed in, but you’re not part of a household yet.
       </p>
-      <div className="flex gap-3">
-        <Link className="underline" href="/leader/dashboard">
-          Create a household
-        </Link>
-        <Link className="underline" href="/auth/login">
-          Switch account
-        </Link>
-      </div>
+      <NoHouseholdNativeActions />
     </main>
   )
 }

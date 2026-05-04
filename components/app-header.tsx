@@ -9,9 +9,10 @@ import { FormEvent, useEffect, useState } from "react"
 import { NotificationBell } from "@/components/notification-bell"
 import { cn } from "@/lib/utils"
 
-function homeHrefForPath(pathname: string | null) {
+function homeHrefForPath(pathname: string | null, nativeMemberShell: boolean) {
   if (pathname?.startsWith("/member")) return "/member/dashboard"
   if (pathname?.startsWith("/join")) return "/"
+  if (nativeMemberShell) return "/member/dashboard"
   return "/leader/dashboard"
 }
 
@@ -25,14 +26,17 @@ export function AppHeader({
   canAccessManagement?: boolean
 }) {
   const [isMounted, setIsMounted] = useState(false)
+  const [nativeMemberShell, setNativeMemberShell] = useState(false)
   const pathname = usePathname()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const homeHref = homeHrefForPath(pathname)
+  const effectiveCanAccessManagement = canAccessManagement && !nativeMemberShell
+  const homeHref = homeHrefForPath(pathname, nativeMemberShell)
   const currentHousehold = searchParams.get("household")
   const currentRoutine = searchParams.get("routine")
   const currentOccurrence = searchParams.get("occurrence")
   const viewMode = pathname?.startsWith("/member") ? "member" : "management"
+  const selectValue = nativeMemberShell ? "member" : viewMode
 
   const onSearchSubmit = (e: FormEvent) => {
     e.preventDefault()
@@ -40,6 +44,12 @@ export function AppHeader({
 
   useEffect(() => {
     setIsMounted(true)
+  }, [])
+
+  useEffect(() => {
+    void import("@capacitor/core").then(({ Capacitor }) => {
+      setNativeMemberShell(Capacitor.isNativePlatform())
+    })
   }, [])
 
   return (
@@ -62,11 +72,11 @@ export function AppHeader({
         <span className="sr-only">Switch application view</span>
         <select
           aria-label="Switch application view"
-          value={viewMode}
-          disabled={lockViewSwitch && viewMode === "member"}
+          value={selectValue}
+          disabled={lockViewSwitch && selectValue === "member"}
           onChange={(event) => {
             const target =
-              event.target.value === "member" || !canAccessManagement ? "/member/dashboard" : "/leader/dashboard"
+              event.target.value === "member" || !effectiveCanAccessManagement ? "/member/dashboard" : "/leader/dashboard"
             const params = new URLSearchParams()
             if (currentHousehold) params.set("household", currentHousehold)
             if (currentRoutine) params.set("routine", currentRoutine)
@@ -76,7 +86,7 @@ export function AppHeader({
           }}
           className="h-9 rounded-lg border border-input bg-background px-2.5 text-sm shadow-inner outline-none transition-[box-shadow,background-color] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/35"
         >
-          {canAccessManagement && !(lockViewSwitch && viewMode === "member") ? (
+          {effectiveCanAccessManagement && !(lockViewSwitch && selectValue === "member") ? (
             <option value="management">Household management</option>
           ) : null}
           <option value="member">Member view</option>

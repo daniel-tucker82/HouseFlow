@@ -1,11 +1,33 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Menu } from "lucide-react"
-import { useClerk } from "@clerk/nextjs"
+import { LogOut, Menu, Settings } from "lucide-react"
+import { UserButton, useClerk } from "@clerk/nextjs"
+import { NotificationBell } from "@/components/notification-bell"
+import { cn } from "@/lib/utils"
 import type { EffectiveRole } from "@/lib/household-authz"
+
+const FAB_SIZE = 56
+const FAB_PAD = 12
+const FAB_POS_KEY = "cyntch_member_fab_pos"
+
+function clampFabPosition(left: number, top: number) {
+  if (typeof window === "undefined") return { left, top }
+  const maxLeft = window.innerWidth - FAB_SIZE - FAB_PAD
+  const maxTop = window.innerHeight - FAB_SIZE - FAB_PAD
+  return {
+    left: Math.min(Math.max(FAB_PAD, left), maxLeft),
+    top: Math.min(Math.max(FAB_PAD, top), maxTop),
+  }
+}
+
+function defaultFabPosition() {
+  if (typeof window === "undefined") return { left: 0, top: 0 }
+  return clampFabPosition(window.innerWidth - FAB_SIZE - FAB_PAD, window.innerHeight - FAB_SIZE - FAB_PAD)
+}
 
 type Member = {
   id: string
@@ -132,15 +154,72 @@ export function MemberDashboardClient({
   const [isKioskPending, setIsKioskPending] = useState(false)
   const [roleUpdatingMemberId, setRoleUpdatingMemberId] = useState<string | null>(null)
   const [hasHydrated, setHasHydrated] = useState(false)
+  const [isNativeShell, setIsNativeShell] = useState(false)
+  const [fabPos, setFabPos] = useState<{ left: number; top: number } | null>(null)
   const refreshOccurrenceStatusesRef = useRef<(occurrenceId: string) => Promise<void>>(async () => {})
+  const fabDragRef = useRef<{
+    pointerId: number
+    startX: number
+    startY: number
+    originLeft: number
+    originTop: number
+  } | null>(null)
+  const fabIsDraggingRef = useRef(false)
 
   useEffect(() => {
     setHasHydrated(true)
   }, [])
 
+  useLayoutEffect(() => {
+    void import("@capacitor/core").then(({ Capacitor }) => {
+      const native = Capacitor.isNativePlatform()
+      setIsNativeShell(native)
+      if (!native || typeof window === "undefined") return
+      try {
+        const raw = window.localStorage.getItem(FAB_POS_KEY)
+        if (raw) {
+          const p = JSON.parse(raw) as { left?: number; top?: number }
+          if (typeof p.left === "number" && typeof p.top === "number") {
+            const c = clampFabPosition(p.left, p.top)
+            setFabPos(c)
+            return
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+      setFabPos(defaultFabPosition())
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!isNativeShell || fabPos === null) return
+    const onResize = () => setFabPos((p) => (p ? clampFabPosition(p.left, p.top) : p))
+    window.addEventListener("resize", onResize)
+    return () => window.removeEventListener("resize", onResize)
+  }, [isNativeShell, fabPos])
+
+  useEffect(() => {
+    if (!selectorsOpen) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSelectorsOpen(false)
+    }
+    window.addEventListener("keydown", onKeyDown)
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => {
+      window.removeEventListener("keydown", onKeyDown)
+      document.body.style.overflow = prevOverflow
+    }
+  }, [selectorsOpen])
+
   useEffect(() => {
     setLocalTasks(tasks)
   }, [tasks])
+
+  useEffect(() => {
+    if (isKioskMode) setSelectorsOpen(false)
+  }, [isKioskMode])
 
   // Leader flow runs materializeDueRecurrences on GET /api/leader/flow; member tasks are SSR-only
   // unless we ping that route so routine occurrences catch up after the scheduled time (cron is daily on Hobby).
@@ -483,6 +562,76 @@ export function MemberDashboardClient({
     }
   }
 
+  const onFabPointerDown = useCallback(
+    (event: React.PointerEvent<HTMLButtonElement>) => {
+      if (!isNativeShell || fabPos === null) return
+      if (event.button !== 0) return
+      fabIsDraggingRef.current = false
+      event.currentTarget.setPointerCapture(event.pointerId)
+      fabDragRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        originLeft: fabPos.left,
+        originTop: fabPos.top,
+      }
+    },
+    [fabPos, isNativeShell],
+  )
+
+  const onFabPointerMove = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = fabDragRef.current
+    if (!drag || event.pointerId !== drag.pointerId) return
+    const moveDx = event.clientX - drag.startX
+    const moveDy = event.clientY - drag.startY
+    if (!fabIsDraggingRef.current && moveDx * moveDx + moveDy * moveDy > 64) {
+      fabIsDraggingRef.current = true
+    }
+    if (!fabIsDraggingRef.current) return
+    const nextLeft = drag.originLeft + moveDx
+    const nextTop = drag.originTop + moveDy
+    setFabPos(clampFabPosition(nextLeft, nextTop))
+  }, [])
+
+  const onFabPointerUp = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = fabDragRef.current
+    if (!drag || event.pointerId !== drag.pointerId) return
+    fabDragRef.current = null
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    } catch {
+      /* ignore */
+    }
+    const dragged = fabIsDraggingRef.current
+    fabIsDraggingRef.current = false
+    if (dragged) {
+      setFabPos((p) => {
+        if (!p) return p
+        const c = clampFabPosition(p.left, p.top)
+        try {
+          window.localStorage.setItem(FAB_POS_KEY, JSON.stringify(c))
+        } catch {
+          /* ignore */
+        }
+        return c
+      })
+      return
+    }
+    setSelectorsOpen((open) => !open)
+  }, [])
+
+  const onFabPointerCancel = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = fabDragRef.current
+    if (!drag || event.pointerId !== drag.pointerId) return
+    fabDragRef.current = null
+    fabIsDraggingRef.current = false
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
   const TaskRow = ({ task, currentMemberId, isEditable }: { task: Task; currentMemberId?: string; isEditable: boolean }) => (
     <li
       className={`flex min-h-[72px] items-stretch overflow-hidden rounded border ${
@@ -537,167 +686,239 @@ export function MemberDashboardClient({
     </li>
   )
 
-  return (
-    <main className="flex w-full flex-1 flex-col gap-4 p-4 md:p-6">
-      <header className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">Member dashboard</h1>
-          <p className="text-sm text-muted-foreground">
-            Toggle household members to choose visible lanes and which visible lanes are editable.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setSelectorsOpen((open) => !open)}
-          className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border bg-background hover:bg-muted"
-          aria-label="Toggle selectors menu"
-          aria-expanded={selectorsOpen}
-        >
-          <Menu className="size-5" />
-        </button>
-      </header>
+  const chipClass =
+    "inline-flex max-w-full items-center justify-center truncate rounded border px-1.5 py-0.5 text-[11px] font-medium leading-tight"
+  const sectionLabelClass = "mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"
 
-      {selectorsOpen ? (
-        <div className="space-y-4 rounded border bg-card p-4">
-          {isKioskMode ? (
+  const selectorsMenuBody = (
+    <div className="flex flex-col gap-2.5">
+      {isNativeShell && hasHydrated ? (
+        <div className="flex items-center justify-between gap-2 border-b border-border pb-2">
+          <NotificationBell />
+          <UserButton
+            appearance={{
+              elements: {
+                avatarBox: "size-8 ring-1 ring-border shadow-sm",
+              },
+            }}
+          >
+            <UserButton.MenuItems>
+              <UserButton.Link
+                label="Notification settings"
+                labelIcon={<Settings className="size-4" />}
+                href="/settings/notifications"
+              />
+            </UserButton.MenuItems>
+          </UserButton>
+        </div>
+      ) : null}
+
+      {!isKioskMode ? (
+        <>
+          {canActivateKiosk ? (
             <section>
-              <h2 className="mb-2 font-medium">Kiosk mode</h2>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => void exitKioskMode()}
-                  className="rounded border px-3 py-1 text-sm hover:bg-muted"
-                  disabled={isKioskPending}
+              <h3 className={sectionLabelClass}>Kiosk</h3>
+              <button
+                type="button"
+                onClick={() => void activateKioskMode()}
+                className="rounded bg-black px-2 py-0.5 text-[11px] font-medium text-white hover:bg-zinc-800"
+                disabled={isKioskPending}
+              >
+                Turn on
+              </button>
+            </section>
+          ) : null}
+
+          <section>
+            <h3 className={sectionLabelClass}>Household</h3>
+            <div className="grid grid-cols-2 gap-1">
+              {memberships.map((membership) => (
+                <Link
+                  key={membership.household.id}
+                  href={buildDashboardHref(membership.household.id, selectedMemberIds, editableMemberIds)}
+                  onClick={() => setSelectorsOpen(false)}
+                  className={`${chipClass} ${
+                    membership.household.id === selectedHouseholdId ? "bg-black text-white" : "bg-background"
+                  }`}
                 >
-                  Exit kiosk mode
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void forgotKioskPin()}
-                  className="rounded border px-3 py-1 text-sm text-red-700 hover:bg-red-50"
-                  disabled={isKioskPending}
+                  {membership.household.name}
+                </Link>
+              ))}
+            </div>
+          </section>
+
+          <section>
+            <h3 className={sectionLabelClass}>Visible members</h3>
+            <div className="grid grid-cols-2 gap-1">
+              {members.map((member) => (
+                <Link
+                  key={member.id}
+                  href={buildDashboardHref(
+                    selectedHouseholdId,
+                    toggleMemberSelection(member.id),
+                    toggleMemberSelection(member.id).filter((id) => effectiveEditableMemberIds.includes(id)),
+                  )}
+                  onClick={() => setSelectorsOpen(false)}
+                  className={`${chipClass} ${selectedMemberSet.has(member.id) ? "bg-black text-white" : "bg-background"}`}
                 >
-                  Forgot PIN
-                </button>
+                  {member.name}
+                </Link>
+              ))}
+            </div>
+          </section>
+
+          {canConfigureView ? (
+            <section>
+              <h3 className={sectionLabelClass}>Editable</h3>
+              <div className="grid grid-cols-2 gap-1">
+                {selectedMembers.map((member) => (
+                  <Link
+                    key={`editable:${member.id}`}
+                    href={buildDashboardHref(
+                      selectedHouseholdId,
+                      selectedMemberIds,
+                      toggleEditableSelection(member.id),
+                    )}
+                    onClick={() => setSelectorsOpen(false)}
+                    className={`${chipClass} ${editableMemberSet.has(member.id) ? "bg-green-700 text-white" : "bg-background"}`}
+                  >
+                    {member.name}
+                  </Link>
+                ))}
               </div>
             </section>
           ) : null}
 
-          {!isKioskMode ? (
-            <>
-              {canActivateKiosk ? (
-                <section>
-                  <h2 className="mb-2 font-medium">Kiosk mode</h2>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => void activateKioskMode()}
-                      className="rounded bg-black px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800"
-                      disabled={isKioskPending}
+          {canActivateKiosk ? (
+            <section>
+              <h3 className={sectionLabelClass}>Member roles</h3>
+              <div className="space-y-1">
+                {members.map((member) => {
+                  const normalizedRole = member.role === "leader" ? "manager" : member.role
+                  const canChangeRole = member.id !== leaderId
+                  const nextRole = normalizedRole === "supervisor" ? "member" : "supervisor"
+                  return (
+                    <div
+                      key={`role:${member.id}`}
+                      className="flex items-center justify-between gap-1 rounded border border-border/80 px-1.5 py-1 text-[11px]"
                     >
-                      Turn on kiosk mode
-                    </button>
-                  </div>
-                </section>
-              ) : null}
-              {canActivateKiosk ? (
-                <section>
-                  <h2 className="mb-2 font-medium">Member roles</h2>
-                  <div className="space-y-2">
-                    {members.map((member) => {
-                      const normalizedRole = member.role === "leader" ? "manager" : member.role
-                      const canChangeRole = member.id !== leaderId
-                      const nextRole = normalizedRole === "supervisor" ? "member" : "supervisor"
-                      return (
-                        <div key={`role:${member.id}`} className="flex items-center justify-between gap-2 rounded border p-2 text-sm">
-                          <div>
-                            <p className="font-medium">{member.name}</p>
-                            <p className="text-xs text-muted-foreground">Role: {normalizedRole}</p>
-                          </div>
-                          {canChangeRole ? (
-                            <button
-                              type="button"
-                              onClick={() => void updateMemberRole(member.id, nextRole)}
-                              className="rounded border px-2 py-1 text-xs hover:bg-muted"
-                              disabled={roleUpdatingMemberId === member.id}
-                            >
-                              {roleUpdatingMemberId === member.id
-                                ? "Saving..."
-                                : `Set ${nextRole === "supervisor" ? "Supervisor" : "Member"}`}
-                            </button>
-                          ) : (
-                            <span className="rounded bg-muted px-2 py-1 text-xs">Manager</span>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                </section>
-              ) : null}
-
-              <section>
-                <h2 className="mb-2 font-medium">Household selector</h2>
-                <div className="flex flex-wrap gap-2">
-                  {memberships.map((membership) => (
-                    <Link
-                      key={membership.household.id}
-                      href={buildDashboardHref(membership.household.id, selectedMemberIds, editableMemberIds)}
-                      className={`rounded border px-3 py-1 text-sm ${
-                        membership.household.id === selectedHouseholdId ? "bg-black text-white" : ""
-                      }`}
-                    >
-                      {membership.household.name}
-                    </Link>
-                  ))}
-                </div>
-              </section>
-
-              <section>
-                <h2 className="mb-2 font-medium">Member selector</h2>
-                <div className="flex flex-wrap gap-2">
-                  {members.map((member) => (
-                    <Link
-                      key={member.id}
-                      href={buildDashboardHref(
-                        selectedHouseholdId,
-                        toggleMemberSelection(member.id),
-                        toggleMemberSelection(member.id).filter((id) => effectiveEditableMemberIds.includes(id)),
+                      <span className="min-w-0 truncate font-medium">
+                        {member.name}{" "}
+                        <span className="font-normal text-muted-foreground">({normalizedRole})</span>
+                      </span>
+                      {canChangeRole ? (
+                        <button
+                          type="button"
+                          onClick={() => void updateMemberRole(member.id, nextRole)}
+                          className="shrink-0 rounded border px-1 py-0.5 text-[10px] hover:bg-muted"
+                          disabled={roleUpdatingMemberId === member.id}
+                        >
+                          {roleUpdatingMemberId === member.id ? "…" : nextRole === "supervisor" ? "→Sup" : "→Mem"}
+                        </button>
+                      ) : (
+                        <span className="shrink-0 rounded bg-muted px-1 py-0.5 text-[10px]">Mgr</span>
                       )}
-                      className={`rounded border px-3 py-1 text-sm ${selectedMemberSet.has(member.id) ? "bg-black text-white" : ""}`}
-                    >
-                      {member.name}
-                    </Link>
-                  ))}
-                </div>
-              </section>
-              {canConfigureView ? (
-                <section>
-                  <h2 className="mb-2 font-medium">Editable members</h2>
-                  <div className="flex flex-wrap gap-2">
-                    {selectedMembers.map((member) => (
-                      <Link
-                        key={`editable:${member.id}`}
-                        href={buildDashboardHref(
-                          selectedHouseholdId,
-                          selectedMemberIds,
-                          toggleEditableSelection(member.id),
-                        )}
-                        className={`rounded border px-3 py-1 text-sm ${editableMemberSet.has(member.id) ? "bg-green-700 text-white" : ""}`}
-                      >
-                        {member.name}
-                      </Link>
-                    ))}
-                  </div>
-                </section>
-              ) : null}
-            </>
+                    </div>
+                  )
+                })}
+              </div>
+            </section>
           ) : null}
-        </div>
+        </>
+      ) : null}
+    </div>
+  )
+
+  const selectorsMenuPortal =
+    selectorsOpen && typeof document !== "undefined"
+      ? createPortal(
+          <div className="fixed inset-0 z-[460] flex items-end justify-center sm:items-center sm:p-4">
+            <button
+              type="button"
+              className="absolute inset-0 bg-black/45"
+              aria-label="Close menu"
+              onClick={() => setSelectorsOpen(false)}
+            />
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="member-selectors-menu-title"
+              className="relative z-[1] isolate mb-[max(0px,env(safe-area-inset-bottom))] flex max-h-[min(88dvh,calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-0.5rem))] w-full max-w-sm flex-col overflow-hidden border border-border bg-card shadow-2xl sm:mb-0 sm:rounded-2xl rounded-t-2xl"
+            >
+              <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border bg-card px-2.5 py-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
+                <h2 id="member-selectors-menu-title" className="text-base font-semibold leading-tight">
+                  View & household
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setSelectorsOpen(false)}
+                  className="rounded-md border border-input bg-background px-2.5 py-1.5 text-xs font-medium hover:bg-muted"
+                >
+                  Close
+                </button>
+              </div>
+              <div className="min-h-0 shrink overflow-hidden px-2.5 py-2">{selectorsMenuBody}</div>
+            </div>
+          </div>,
+          document.body,
+        )
+      : null
+
+  return (
+    <>
+    <main
+      className={cn(
+        "flex w-full flex-1 flex-col",
+        isNativeShell ? "min-h-0 gap-2 p-2" : "gap-4 p-4 md:p-6",
+      )}
+    >
+      {!isNativeShell ? (
+        <header className="flex items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-semibold">Member dashboard</h1>
+            <p className="text-sm text-muted-foreground">
+              Toggle household members to choose visible lanes and which visible lanes are editable.
+            </p>
+          </div>
+          {isKioskMode ? (
+            <div className="flex shrink-0 flex-col items-end gap-1.5">
+              <button
+                type="button"
+                onClick={() => void exitKioskMode()}
+                disabled={isKioskPending}
+                className="inline-flex items-center justify-center gap-2 rounded-lg border border-red-800 bg-red-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-red-700 disabled:opacity-50"
+              >
+                <LogOut className="size-4 shrink-0" aria-hidden />
+                Exit kiosk mode
+              </button>
+              <button
+                type="button"
+                onClick={() => void forgotKioskPin()}
+                disabled={isKioskPending}
+                className="text-xs text-red-700 underline hover:text-red-800 disabled:opacity-50"
+              >
+                Forgot PIN
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setSelectorsOpen((open) => !open)}
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border bg-background hover:bg-muted"
+              aria-label="Toggle selectors menu"
+              aria-expanded={selectorsOpen}
+            >
+              <Menu className="size-5" />
+            </button>
+          )}
+        </header>
       ) : null}
 
-      <section className="min-h-0 rounded border p-4">
-        <h2 className="mb-3 font-medium">Task lanes ({selectedMembers.length} selected)</h2>
-        <div className="flex gap-3 overflow-x-auto pb-1">
+      <section className={cn("min-h-0 rounded border", isNativeShell ? "flex flex-1 flex-col p-2" : "p-4")}>
+        <h2 className={cn("mb-3 font-medium", isNativeShell && "sr-only")}>
+          Task lanes ({selectedMembers.length} selected)
+        </h2>
+        <div className={cn("flex gap-3 overflow-x-auto pb-1", isNativeShell && "min-h-0 flex-1")}>
           {selectedMembers.map((member) => {
             const laneTasks = tasksByMember.get(member.id) ?? []
             const laneIsEditable = editableMemberSet.has(member.id)
@@ -732,7 +953,7 @@ export function MemberDashboardClient({
       </section>
 
       {activeTask ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
+        <div className="fixed inset-0 z-[480] flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
           <div className="w-full max-w-lg rounded-xl bg-background p-5 shadow-xl">
             <div className="mb-3 flex items-start justify-between gap-4">
               <h3 className="text-lg font-semibold">{activeTask.title}</h3>
@@ -765,5 +986,47 @@ export function MemberDashboardClient({
         </div>
       ) : null}
     </main>
+    {isNativeShell && fabPos !== null ? (
+      isKioskMode ? (
+        <>
+          <button
+            type="button"
+            style={{ left: fabPos.left, top: fabPos.top, width: FAB_SIZE, height: FAB_SIZE }}
+            className="fixed z-[430] flex items-center justify-center rounded-full border border-red-900 bg-red-600 text-white shadow-lg ring-1 ring-black/15 hover:bg-red-700 active:scale-95 disabled:opacity-50"
+            aria-label="Exit kiosk mode"
+            disabled={isKioskPending}
+            onClick={() => void exitKioskMode()}
+          >
+            <LogOut className="size-6" aria-hidden />
+          </button>
+          <div className="pointer-events-auto fixed bottom-[max(0.5rem,env(safe-area-inset-bottom))] left-0 right-0 z-[425] flex justify-center px-4">
+            <button
+              type="button"
+              onClick={() => void forgotKioskPin()}
+              disabled={isKioskPending}
+              className="text-xs font-medium text-red-700 underline decoration-red-700/60 underline-offset-2 hover:text-red-900 disabled:opacity-50"
+            >
+              Forgot PIN
+            </button>
+          </div>
+        </>
+      ) : (
+        <button
+          type="button"
+          style={{ left: fabPos.left, top: fabPos.top, width: FAB_SIZE, height: FAB_SIZE }}
+          className="fixed z-[430] flex touch-none items-center justify-center rounded-full border border-border bg-primary text-primary-foreground shadow-lg ring-1 ring-black/10 active:scale-95"
+          aria-label={selectorsOpen ? "Close menu" : "Open menu"}
+          aria-expanded={selectorsOpen}
+          onPointerDown={onFabPointerDown}
+          onPointerMove={onFabPointerMove}
+          onPointerUp={onFabPointerUp}
+          onPointerCancel={onFabPointerCancel}
+        >
+          <Menu className="size-6" aria-hidden />
+        </button>
+      )
+    ) : null}
+    {selectorsMenuPortal}
+    </>
   )
 }
