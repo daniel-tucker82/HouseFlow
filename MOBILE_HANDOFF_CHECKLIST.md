@@ -33,14 +33,14 @@ Optional existing web push vars remain in use for browser push:
 
 ### Android app in Firebase
 
-- [ ] Create Android app in Firebase using package ID `com.houseflow.app` (or your chosen final ID).
+- [ ] Create Android app in Firebase using package ID `com.cyntch.app` (or your chosen final ID).
 - [ ] Download `google-services.json`.
 - [ ] Place `google-services.json` in `android/app/`.
 - [ ] Ensure Firebase Cloud Messaging is enabled.
 
 ### iOS app in Firebase
 
-- [ ] Create iOS app in Firebase using bundle ID `com.houseflow.app` (or your chosen final ID).
+- [ ] Create iOS app in Firebase using bundle ID `com.cyntch.app` (or your chosen final ID).
 - [ ] Download `GoogleService-Info.plist`.
 - [ ] Add `GoogleService-Info.plist` to `ios/App/App/` in Xcode.
 - [ ] Configure APNs key/certificate in Firebase project settings.

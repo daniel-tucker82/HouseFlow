@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "433982711249",
+    "project_id": "cyntch-2358a",
+    "storage_bucket": "cyntch-2358a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:433982711249:android:58d9d4e8ade6a3ff522cf0",
+        "android_client_info": {
+          "package_name": "com.cyntch.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCmFwLg6LnQD909z9EchcXY8CuRl5xS-X8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

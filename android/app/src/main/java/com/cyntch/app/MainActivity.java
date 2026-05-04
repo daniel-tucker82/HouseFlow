@@ -1,4 +1,4 @@
-package com.houseflow.app;
+package com.cyntch.app;
 
 import com.getcapacitor.BridgeActivity;
 

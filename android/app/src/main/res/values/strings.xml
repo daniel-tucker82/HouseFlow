@@ -2,6 +2,6 @@
 <resources>
     <string name="app_name">Cyntch</string>
     <string name="title_activity_main">Cyntch</string>
-    <string name="package_name">com.houseflow.app</string>
-    <string name="custom_url_scheme">com.houseflow.app</string>
+    <string name="package_name">com.cyntch.app</string>
+    <string name="custom_url_scheme">com.cyntch.app</string>
 </resources>

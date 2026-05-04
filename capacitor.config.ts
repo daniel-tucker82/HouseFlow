@@ -3,7 +3,7 @@ import type { CapacitorConfig } from "@capacitor/cli"
 const serverUrl = process.env.CAPACITOR_SERVER_URL?.trim()
 
 const config: CapacitorConfig = {
-  appId: "com.houseflow.app",
+  appId: "com.cyntch.app",
   appName: "Cyntch",
   webDir: "mobile-shell",
   server: serverUrl
