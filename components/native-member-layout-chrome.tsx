@@ -2,6 +2,7 @@
 
 import { Suspense, useLayoutEffect, useState } from "react"
 import { AppHeader } from "@/components/app-header"
+import { isCapacitorNativeShellSync } from "@/lib/native-shell-detect"
 
 export function NativeMemberLayoutChrome({
   children,
@@ -12,7 +13,7 @@ export function NativeMemberLayoutChrome({
   lockViewSwitch: boolean
   canAccessManagement: boolean
 }) {
-  const [hideAppChrome, setHideAppChrome] = useState(false)
+  const [hideAppChrome, setHideAppChrome] = useState(isCapacitorNativeShellSync)
 
   useLayoutEffect(() => {
     void import("@capacitor/core").then(({ Capacitor }) => {

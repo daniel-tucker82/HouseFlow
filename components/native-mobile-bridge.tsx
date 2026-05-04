@@ -2,9 +2,25 @@
 
 import { useEffect } from "react"
 import { useAuth } from "@clerk/nextjs"
+import { isCapacitorNativeShellSync } from "@/lib/native-shell-detect"
 
 export function NativeMobileBridge() {
   const { isSignedIn } = useAuth()
+
+  useEffect(() => {
+    if (!isCapacitorNativeShellSync()) return
+    void (async () => {
+      const { Capacitor } = await import("@capacitor/core")
+      if (!Capacitor.isNativePlatform()) return
+      if (!("serviceWorker" in navigator)) return
+      try {
+        const registrations = await navigator.serviceWorker.getRegistrations()
+        await Promise.all(registrations.map((registration) => registration.unregister()))
+      } catch {
+        /* ignore */
+      }
+    })()
+  }, [])
 
   useEffect(() => {
     const tokenStorageKey = "houseflow_native_push_token"

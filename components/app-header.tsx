@@ -7,6 +7,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { FormEvent, useEffect, useState } from "react"
 
 import { NotificationBell } from "@/components/notification-bell"
+import { isCapacitorNativeShellSync } from "@/lib/native-shell-detect"
 import { cn } from "@/lib/utils"
 
 function homeHrefForPath(pathname: string | null, nativeMemberShell: boolean) {
@@ -26,7 +27,7 @@ export function AppHeader({
   canAccessManagement?: boolean
 }) {
   const [isMounted, setIsMounted] = useState(false)
-  const [nativeMemberShell, setNativeMemberShell] = useState(false)
+  const [nativeMemberShell, setNativeMemberShell] = useState(isCapacitorNativeShellSync)
   const pathname = usePathname()
   const router = useRouter()
   const searchParams = useSearchParams()

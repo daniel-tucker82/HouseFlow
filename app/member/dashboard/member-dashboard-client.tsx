@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation"
 import { LogOut, Menu, Settings } from "lucide-react"
 import { UserButton, useClerk } from "@clerk/nextjs"
 import { NotificationBell } from "@/components/notification-bell"
+import { isCapacitorNativeShellSync } from "@/lib/native-shell-detect"
 import { cn } from "@/lib/utils"
 import type { EffectiveRole } from "@/lib/household-authz"
 
@@ -154,7 +155,7 @@ export function MemberDashboardClient({
   const [isKioskPending, setIsKioskPending] = useState(false)
   const [roleUpdatingMemberId, setRoleUpdatingMemberId] = useState<string | null>(null)
   const [hasHydrated, setHasHydrated] = useState(false)
-  const [isNativeShell, setIsNativeShell] = useState(false)
+  const [isNativeShell, setIsNativeShell] = useState(isCapacitorNativeShellSync)
   const [fabPos, setFabPos] = useState<{ left: number; top: number } | null>(null)
   const refreshOccurrenceStatusesRef = useRef<(occurrenceId: string) => Promise<void>>(async () => {})
   const fabDragRef = useRef<{
