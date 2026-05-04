@@ -635,6 +635,8 @@ const nodeTypes = { taskNode: TaskNode, dayDivider: DayDividerNode }
 
 type Props = {
   households: Household[]
+  /** Clerk user id; used for household owner checks in the UI. */
+  currentUserId: string
   selectedHouseholdId: string
   selectedRoutineId: string | null
   routines: Routine[]
@@ -946,6 +948,7 @@ function findInsertHoverEdgeId(
 
 export function LeaderFlowEditor({
   households,
+  currentUserId,
   selectedHouseholdId,
   selectedRoutineId: initialSelectedRoutineId,
   routines,
@@ -1042,10 +1045,14 @@ export function LeaderFlowEditor({
     {},
   )
   const [isHouseholdPanelOpen, setIsHouseholdPanelOpen] = useState(false)
+  const [localHouseholds, setLocalHouseholds] = useState<Household[]>(households)
+  useEffect(() => {
+    setLocalHouseholds(households)
+  }, [households])
   const memberTokenColorMap = useMemo(() => buildMemberTokenColorMap(localMembers), [localMembers])
   const selectedHouseholdLeaderId = useMemo(
-    () => households.find((household) => household.id === selectedHouseholdId)?.leader_id ?? "",
-    [households, selectedHouseholdId],
+    () => localHouseholds.find((household) => household.id === selectedHouseholdId)?.leader_id ?? "",
+    [localHouseholds, selectedHouseholdId],
   )
   const routineNameById = useMemo(
     () => new Map(localRoutines.map((routine) => [routine.id, routine.name])),
@@ -1250,10 +1257,10 @@ export function LeaderFlowEditor({
     if (typeof window !== "undefined") {
       const currentHref = `${window.location.pathname}${window.location.search}`
       if (currentHref === nextHref) return
-      window.history.replaceState(window.history.state, "", nextHref)
-      return
     }
-    router.replace(nextHref, { scroll: false })
+    // Use the App Router so `searchParams` and server props (e.g. `selectedHouseholdId`) update.
+    // `history.replaceState` alone leaves the controlled household `<select>` stuck on stale props.
+    void router.replace(nextHref, { scroll: false })
   }
 
   const applyOccurrenceTaskStatusesSnapshot = useCallback(
@@ -2545,10 +2552,72 @@ export function LeaderFlowEditor({
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC",
       }),
     })
-    const json = await response.json()
-    if (json.household?.id) {
-      startTransition(() => syncRoute(json.household.id))
+    let json: {
+      household?: { id?: string; name?: string; timezone?: string; leader_id?: string }
+      error?: string
+    } = {}
+    try {
+      json = (await response.json()) as typeof json
+    } catch {
+      window.alert("Failed to create household")
+      return
     }
+    if (!response.ok) {
+      window.alert(String(json?.error ?? "Failed to create household"))
+      return
+    }
+    const created = json.household
+    if (created?.id) {
+      const row: Household = {
+        id: String(created.id),
+        name: String(created.name ?? ""),
+        leader_id: String(created.leader_id ?? currentUserId),
+        timezone: created.timezone != null ? String(created.timezone) : undefined,
+      }
+      setLocalHouseholds((prev) => (prev.some((h) => h.id === row.id) ? prev : [...prev, row]))
+      startTransition(() => {
+        syncRoute(String(created.id), null)
+        void router.refresh()
+      })
+    }
+  }
+
+  const deleteHousehold = async () => {
+    if (selectedHouseholdLeaderId !== currentUserId) return
+    const label = localHouseholds.find((h) => h.id === selectedHouseholdId)?.name?.trim() || "this household"
+    if (
+      !window.confirm(
+        `Delete "${label}" and all routines, tasks, boards, and members in it? This cannot be undone.`,
+      )
+    ) {
+      return
+    }
+    const res = await fetch("/api/leader/flow", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "deleteHousehold", householdId: selectedHouseholdId }),
+    })
+    let body: { error?: string } = {}
+    try {
+      body = (await res.json()) as { error?: string }
+    } catch {
+      /* ignore */
+    }
+    if (!res.ok) {
+      window.alert(String(body?.error ?? "Could not delete household"))
+      return
+    }
+    const deletedId = selectedHouseholdId
+    const nextHouseholds = localHouseholds.filter((h) => h.id !== deletedId)
+    setLocalHouseholds(nextHouseholds)
+    startTransition(() => {
+      if (deletedId === selectedHouseholdId) {
+        const nextId = nextHouseholds[0]?.id
+        if (nextId) syncRoute(nextId, null)
+        else router.replace("/leader/dashboard")
+      }
+      void router.refresh()
+    })
   }
 
   const createRoutine = async () => {
@@ -3413,13 +3482,27 @@ export function LeaderFlowEditor({
               startTransition(() => syncRoute(value, null))
             }}
           >
-            {households.map((household) => (
+            {localHouseholds.map((household) => (
               <option key={household.id} value={household.id}>
                 {household.name}
               </option>
             ))}
             <option value="__create__">+ Create new household</option>
           </select>
+          {selectedHouseholdLeaderId === currentUserId ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              className="mt-2 w-full gap-1 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+              onClick={() => {
+                void deleteHousehold()
+              }}
+            >
+              <Trash2 className="size-3.5" aria-hidden />
+              Delete household…
+            </Button>
+          ) : null}
         </div>
 
         <div className="flex items-center justify-between border-b border-sidebar-border px-3 py-2.5">

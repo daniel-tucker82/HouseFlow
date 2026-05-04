@@ -928,7 +928,7 @@ export async function POST(request: Request) {
     const create = await db.query(
       `insert into households (name, leader_id, timezone)
        values ($1, $2, $3)
-       returning id, name, timezone`,
+       returning id, name, timezone, leader_id`,
       [name, userId, timezone],
     )
     const householdId = create.rows[0].id
@@ -940,6 +940,28 @@ export async function POST(request: Request) {
       [householdId, userId],
     )
     return NextResponse.json({ household: create.rows[0] })
+  }
+
+  if (action === "deleteHousehold") {
+    const deleteHouseholdId = String(body?.householdId ?? "").trim()
+    if (!deleteHouseholdId) {
+      return NextResponse.json({ error: "householdId is required" }, { status: 400 })
+    }
+    const ownerCheck = await db.query<{ leader_id: string }>(
+      `select leader_id from households where id = $1::uuid`,
+      [deleteHouseholdId],
+    )
+    if (!ownerCheck.rows[0]) {
+      return NextResponse.json({ error: "Household not found" }, { status: 404 })
+    }
+    if (ownerCheck.rows[0].leader_id !== userId) {
+      return NextResponse.json(
+        { error: "Only the household owner can delete it." },
+        { status: 403 },
+      )
+    }
+    await db.query(`delete from households where id = $1::uuid`, [deleteHouseholdId])
+    return NextResponse.json({ ok: true, deletedHouseholdId: deleteHouseholdId })
   }
 
   const householdId = String(body?.householdId ?? "")

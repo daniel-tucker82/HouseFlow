@@ -4,17 +4,44 @@ import { UserButton } from "@clerk/nextjs"
 import { Search, Settings, Workflow } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import { FormEvent, useEffect, useState } from "react"
+import { FormEvent, useEffect, useMemo, useState } from "react"
 
 import { NotificationBell } from "@/components/notification-bell"
 import { isCapacitorNativeShellSync } from "@/lib/native-shell-detect"
 import { cn } from "@/lib/utils"
 
-function homeHrefForPath(pathname: string | null, nativeMemberShell: boolean) {
-  if (pathname?.startsWith("/member")) return "/member/dashboard"
+function buildAppHomeHref(
+  pathname: string | null,
+  nativeMemberShell: boolean,
+  searchParams: { get: (key: string) => string | null },
+) {
+  const memberQuery = () => {
+    const p = new URLSearchParams()
+    const h = searchParams.get("household")
+    const m = searchParams.get("members")
+    const e = searchParams.get("editableMembers")
+    if (h) p.set("household", h)
+    if (m) p.set("members", m)
+    if (e) p.set("editableMembers", e)
+    const q = p.toString()
+    return q ? `/member/dashboard?${q}` : "/member/dashboard"
+  }
+  if (pathname?.startsWith("/member")) return memberQuery()
   if (pathname?.startsWith("/join")) return "/"
-  if (nativeMemberShell) return "/member/dashboard"
-  return "/leader/dashboard"
+  if (nativeMemberShell) return memberQuery()
+  const p = new URLSearchParams()
+  const h = searchParams.get("household")
+  const r = searchParams.get("routine")
+  const o = searchParams.get("occurrence")
+  const m = searchParams.get("members")
+  const e = searchParams.get("editableMembers")
+  if (h) p.set("household", h)
+  if (r) p.set("routine", r)
+  if (o) p.set("occurrence", o)
+  if (m) p.set("members", m)
+  if (e) p.set("editableMembers", e)
+  const q = p.toString()
+  return q ? `/leader/dashboard?${q}` : "/leader/dashboard"
 }
 
 export function AppHeader({
@@ -32,10 +59,15 @@ export function AppHeader({
   const router = useRouter()
   const searchParams = useSearchParams()
   const effectiveCanAccessManagement = canAccessManagement && !nativeMemberShell
-  const homeHref = homeHrefForPath(pathname, nativeMemberShell)
+  const homeHref = useMemo(
+    () => buildAppHomeHref(pathname, nativeMemberShell, searchParams),
+    [pathname, nativeMemberShell, searchParams],
+  )
   const currentHousehold = searchParams.get("household")
   const currentRoutine = searchParams.get("routine")
   const currentOccurrence = searchParams.get("occurrence")
+  const currentMembers = searchParams.get("members")
+  const currentEditableMembers = searchParams.get("editableMembers")
   const viewMode = pathname?.startsWith("/member") ? "member" : "management"
   const selectValue = nativeMemberShell ? "member" : viewMode
 
@@ -82,6 +114,8 @@ export function AppHeader({
             if (currentHousehold) params.set("household", currentHousehold)
             if (currentRoutine) params.set("routine", currentRoutine)
             if (currentOccurrence) params.set("occurrence", currentOccurrence)
+            if (currentMembers) params.set("members", currentMembers)
+            if (currentEditableMembers) params.set("editableMembers", currentEditableMembers)
             const query = params.toString()
             router.push(query ? `${target}?${query}` : target)
           }}

@@ -1,5 +1,10 @@
 import { redirect } from "next/navigation"
-import { getCurrentUserOrRedirect, getHouseholdMemberViewData, getUserHouseholds } from "@/lib/data"
+import {
+  getCurrentUserOrRedirect,
+  getHouseholdMemberViewData,
+  getMemberViewLanePreferences,
+  getUserHouseholds,
+} from "@/lib/data"
 import { MemberDashboardClient } from "@/app/member/dashboard/member-dashboard-client"
 import { cookies } from "next/headers"
 import { constantTimeEqual, getHouseholdKioskSettings, normalizeRole, sha256 } from "@/lib/household-authz"
@@ -27,29 +32,10 @@ export default async function MemberDashboard({ searchParams }: MemberDashboardP
   const viewerRole = normalizeRole(selectedMembership.role)
 
   const memberViewData = await getHouseholdMemberViewData(selectedHousehold.id, user.id)
-  const rawSelectedMembers =
-    typeof params.members === "string"
-      ? params.members
-          .split(",")
-          .map((id) => id.trim())
-          .filter(Boolean)
-      : memberViewData.members.map((member) => member.id)
   const validMemberIds = new Set(memberViewData.members.map((member) => member.id))
-  const selectedMemberIds = rawSelectedMembers.filter((id) => validMemberIds.has(id))
-  const normalizedSelectedMemberIds =
-    selectedMemberIds.length > 0 ? selectedMemberIds : memberViewData.members.map((member) => member.id)
-  const selectedMemberIdSet = new Set(normalizedSelectedMemberIds)
-  const rawEditableMembers =
-    typeof params.editableMembers === "string"
-      ? params.editableMembers
-          .split(",")
-          .map((id) => id.trim())
-          .filter(Boolean)
-      : normalizedSelectedMemberIds
-  const normalizedEditableMemberIds = rawEditableMembers.filter((id) => selectedMemberIdSet.has(id))
-  let editableMemberIds =
-    normalizedEditableMemberIds.length > 0 ? normalizedEditableMemberIds : normalizedSelectedMemberIds
-  let selectedIds = normalizedSelectedMemberIds
+  const allMemberIds = memberViewData.members.map((member) => member.id)
+  let selectedIds = allMemberIds
+  let editableMemberIds = [...allMemberIds]
   let kioskModeActive = false
 
   const cookieStore = await cookies()
@@ -68,6 +54,17 @@ export default async function MemberDashboard({ searchParams }: MemberDashboardP
     if (kioskVisible.length > 0) selectedIds = kioskVisible
     if (kioskEditable.length > 0) editableMemberIds = kioskEditable
     kioskModeActive = true
+  } else if (viewerRole === "manager" || viewerRole === "supervisor") {
+    const prefs = await getMemberViewLanePreferences(user.id, selectedHousehold.id)
+    if (prefs) {
+      const visible = prefs.visibleMemberIds.filter((id) => validMemberIds.has(id))
+      if (visible.length > 0) {
+        selectedIds = visible
+      }
+      const selectedSet = new Set(selectedIds)
+      const editable = prefs.editableMemberIds.filter((id) => selectedSet.has(id))
+      editableMemberIds = editable.length > 0 ? editable : [...selectedIds]
+    }
   }
 
   return (

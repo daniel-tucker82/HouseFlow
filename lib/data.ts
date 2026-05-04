@@ -476,3 +476,30 @@ export async function getHouseholdMemberViewData(
     kioskEditableMemberIds: kioskSettings?.editable_member_ids ?? [],
   }
 }
+
+export async function getMemberViewLanePreferences(
+  userId: string,
+  householdId: string,
+): Promise<{ visibleMemberIds: string[]; editableMemberIds: string[] } | null> {
+  try {
+    const result = await db.query<{
+      visible_member_ids: string[] | null
+      editable_member_ids: string[] | null
+    }>(
+      `select visible_member_ids, editable_member_ids
+       from member_dashboard_lane_preferences
+       where user_id = $1 and household_id = $2::uuid`,
+      [userId, householdId],
+    )
+    const row = result.rows[0]
+    if (!row) return null
+    const visible = Array.isArray(row.visible_member_ids) ? row.visible_member_ids : []
+    const editable = Array.isArray(row.editable_member_ids) ? row.editable_member_ids : []
+    if (visible.length === 0) return null
+    return { visibleMemberIds: visible, editableMemberIds: editable }
+  } catch (error) {
+    const code = (error as { code?: string }).code
+    if (code === "42P01") return null
+    throw error
+  }
+}

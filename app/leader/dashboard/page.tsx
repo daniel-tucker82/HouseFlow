@@ -222,6 +222,7 @@ export default async function LeaderDashboard({ searchParams }: LeaderDashboardP
     <div className="flex min-h-0 flex-1 flex-col px-3 pb-3 pt-2">
       <LeaderFlowEditor
         households={leaderMemberships.map((membership) => membership.household)}
+        currentUserId={user.id}
         selectedHouseholdId={selectedHousehold.id}
         selectedRoutineId={selectedRoutineId || null}
         routines={routines}

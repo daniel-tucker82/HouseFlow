@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
-import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { LogOut, Menu, Settings } from "lucide-react"
 import { UserButton, useClerk } from "@clerk/nextjs"
+import { saveMemberDashboardLanePreferences } from "@/lib/actions/member-dashboard"
+import { MemberLanesDraftPicker } from "@/components/member-lanes-draft-picker"
 import { NotificationBell } from "@/components/notification-bell"
 import { isCapacitorNativeShellSync } from "@/lib/native-shell-detect"
 import { cn } from "@/lib/utils"
@@ -29,6 +30,23 @@ function defaultFabPosition() {
   if (typeof window === "undefined") return { left: 0, top: 0 }
   return clampFabPosition(window.innerWidth - FAB_SIZE - FAB_PAD, window.innerHeight - FAB_SIZE - FAB_PAD)
 }
+
+function memberIdsOrderEqual(a: string[], b: string[]) {
+  return a.length === b.length && a.every((id, i) => id === b[i])
+}
+
+function editableIdsOrderedLikeBoard(memberIds: string[], editableIds: string[]) {
+  const set = new Set(editableIds)
+  return memberIds.filter((id) => set.has(id))
+}
+
+type MenuDraft = {
+  householdId: string
+  memberIds: string[]
+  editableIds: string[]
+}
+
+type SelectorsModalState = { open: false } | { open: true; draft: MenuDraft }
 
 type Member = {
   id: string
@@ -150,7 +168,9 @@ export function MemberDashboardClient({
   const [localTasks, setLocalTasks] = useState<Task[]>(tasks)
   const [activeTask, setActiveTask] = useState<Task | null>(null)
   const [isToggling, setIsToggling] = useState<string | null>(null)
-  const [selectorsOpen, setSelectorsOpen] = useState(false)
+  const [selectorsModal, setSelectorsModal] = useState<SelectorsModalState>({ open: false })
+  const selectorsModalRef = useRef<SelectorsModalState>({ open: false })
+  const selectorsOpen = selectorsModal.open === true
   const [isKioskMode, setIsKioskMode] = useState(kioskActive)
   const [isKioskPending, setIsKioskPending] = useState(false)
   const [roleUpdatingMemberId, setRoleUpdatingMemberId] = useState<string | null>(null)
@@ -168,7 +188,7 @@ export function MemberDashboardClient({
   const fabIsDraggingRef = useRef(false)
 
   useEffect(() => {
-    setHasHydrated(true)
+    queueMicrotask(() => setHasHydrated(true))
   }, [])
 
   useLayoutEffect(() => {
@@ -201,26 +221,8 @@ export function MemberDashboardClient({
   }, [isNativeShell, fabPos])
 
   useEffect(() => {
-    if (!selectorsOpen) return
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setSelectorsOpen(false)
-    }
-    window.addEventListener("keydown", onKeyDown)
-    const prevOverflow = document.body.style.overflow
-    document.body.style.overflow = "hidden"
-    return () => {
-      window.removeEventListener("keydown", onKeyDown)
-      document.body.style.overflow = prevOverflow
-    }
-  }, [selectorsOpen])
-
-  useEffect(() => {
-    setLocalTasks(tasks)
+    queueMicrotask(() => setLocalTasks(tasks))
   }, [tasks])
-
-  useEffect(() => {
-    if (isKioskMode) setSelectorsOpen(false)
-  }, [isKioskMode])
 
   // Leader flow runs materializeDueRecurrences on GET /api/leader/flow; member tasks are SSR-only
   // unless we ping that route so routine occurrences catch up after the scheduled time (cron is daily on Hobby).
@@ -239,7 +241,6 @@ export function MemberDashboardClient({
   }, [router, selectedHouseholdId])
 
   const memberNameById = useMemo(() => new Map(members.map((member) => [member.id, member.name])), [members])
-  const selectedMemberSet = useMemo(() => new Set(selectedMemberIds), [selectedMemberIds])
   const editableMemberSet = useMemo(() => {
     if (viewerRole !== "member") return new Set(editableMemberIds)
     return new Set(selectedMemberIds.filter((id) => id === viewerUserId))
@@ -247,10 +248,10 @@ export function MemberDashboardClient({
   const effectiveEditableMemberIds = useMemo(() => [...editableMemberSet], [editableMemberSet])
   const canConfigureView = viewerRole === "manager" || viewerRole === "supervisor"
   const canActivateKiosk = viewerRole === "manager"
-  const selectedMembers = useMemo(
-    () => members.filter((member) => selectedMemberSet.has(member.id)),
-    [members, selectedMemberSet],
-  )
+  const selectedMembers = useMemo(() => {
+    const byId = new Map(members.map((member) => [member.id, member]))
+    return selectedMemberIds.map((id) => byId.get(id)).filter(Boolean) as Member[]
+  }, [members, selectedMemberIds])
   const orderedTasks = useMemo(() => {
     const byId = new Map(localTasks.map((task) => [task.id, task]))
     const createdAtMs = (task: Task) => new Date(task.created_at).getTime()
@@ -346,28 +347,73 @@ export function MemberDashboardClient({
     }
   }, [localTasks])
 
-  const buildDashboardHref = (householdId: string, memberIds: string[], editableIds: string[]) => {
-    const params = new URLSearchParams()
-    params.set("household", householdId)
-    params.set("members", memberIds.join(","))
-    params.set("editableMembers", editableIds.join(","))
-    return `/member/dashboard?${params.toString()}`
-  }
-  const toggleMemberSelection = (memberId: string) => {
-    if (selectedMemberSet.has(memberId)) {
-      if (selectedMemberIds.length <= 1) return selectedMemberIds
-      return selectedMemberIds.filter((id) => id !== memberId)
+  const openSelectors = useCallback(() => {
+    setSelectorsModal({
+      open: true,
+      draft: {
+        householdId: selectedHouseholdId,
+        memberIds: [...selectedMemberIds],
+        editableIds: [...editableMemberIds],
+      },
+    })
+  }, [selectedHouseholdId, selectedMemberIds, editableMemberIds])
+
+  const closeSelectors = useCallback(async () => {
+    const snap = selectorsModalRef.current
+    if (snap.open !== true) return
+    const { draft } = snap
+    const same =
+      draft.householdId === selectedHouseholdId &&
+      memberIdsOrderEqual(draft.memberIds, selectedMemberIds) &&
+      memberIdsOrderEqual(
+        editableIdsOrderedLikeBoard(draft.memberIds, draft.editableIds),
+        editableIdsOrderedLikeBoard(selectedMemberIds, editableMemberIds),
+      )
+    if (same) {
+      setSelectorsModal({ open: false })
+      return
     }
-    return [...selectedMemberIds, memberId]
-  }
-  const toggleEditableSelection = (memberId: string) => {
-    if (editableMemberSet.has(memberId)) {
-      if (editableMemberIds.length <= 1) return editableMemberIds
-      return editableMemberIds.filter((id) => id !== memberId)
+    const editableForSave = editableIdsOrderedLikeBoard(draft.memberIds, draft.editableIds)
+    if (canConfigureView) {
+      const result = await saveMemberDashboardLanePreferences(
+        draft.householdId,
+        draft.memberIds,
+        editableForSave,
+      )
+      if (!result.ok) {
+        window.alert(result.error)
+        return
+      }
     }
-    if (!selectedMemberSet.has(memberId)) return editableMemberIds
-    return [...editableMemberIds, memberId]
-  }
+    setSelectorsModal({ open: false })
+    const next = `/member/dashboard?household=${encodeURIComponent(draft.householdId)}`
+    router.replace(next)
+    router.refresh()
+  }, [
+    router,
+    selectedHouseholdId,
+    selectedMemberIds,
+    editableMemberIds,
+    canConfigureView,
+  ])
+
+  useEffect(() => {
+    if (!selectorsOpen) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeSelectors()
+    }
+    window.addEventListener("keydown", onKeyDown)
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => {
+      window.removeEventListener("keydown", onKeyDown)
+      document.body.style.overflow = prevOverflow
+    }
+  }, [selectorsOpen, closeSelectors])
+
+  useEffect(() => {
+    if (isKioskMode) closeSelectors()
+  }, [isKioskMode, closeSelectors])
 
   const refreshOccurrenceStatuses = useCallback(async (occurrenceId: string) => {
     const response = await fetch("/api/leader/flow", {
@@ -398,7 +444,14 @@ export function MemberDashboardClient({
       }),
     )
   }, [selectedHouseholdId])
-  refreshOccurrenceStatusesRef.current = refreshOccurrenceStatuses
+
+  useLayoutEffect(() => {
+    selectorsModalRef.current = selectorsModal
+  }, [selectorsModal])
+
+  useLayoutEffect(() => {
+    refreshOccurrenceStatusesRef.current = refreshOccurrenceStatuses
+  }, [refreshOccurrenceStatuses])
 
   const toggleTaskCompleted = async (task: Task, actingMemberId: string) => {
     if (task.status === "locked" || isToggling || !editableMemberSet.has(actingMemberId)) return
@@ -459,6 +512,11 @@ export function MemberDashboardClient({
     if (isKioskPending) return
     const pin = window.prompt("Set a new kiosk PIN")
     if (!pin) return
+    const modal = selectorsModalRef.current
+    const draft = modal.open === true ? modal.draft : null
+    const kioskHouseholdId = draft?.householdId ?? selectedHouseholdId
+    const kioskVisibleIds = draft?.memberIds ?? selectedMemberIds
+    const kioskEditableIds = draft?.editableIds ?? editableMemberIds
     setIsKioskPending(true)
     try {
       const response = await fetch("/api/leader/flow", {
@@ -466,10 +524,10 @@ export function MemberDashboardClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "activateKioskMode",
-          householdId: selectedHouseholdId,
+          householdId: kioskHouseholdId,
           pin,
-          visibleMemberIds: selectedMemberIds,
-          editableMemberIds,
+          visibleMemberIds: kioskVisibleIds,
+          editableMemberIds: kioskEditableIds,
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC",
         }),
       })
@@ -546,7 +604,10 @@ export function MemberDashboardClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "updateMemberRole",
-          householdId: selectedHouseholdId,
+          householdId:
+            (selectorsModalRef.current.open === true
+              ? selectorsModalRef.current.draft.householdId
+              : selectedHouseholdId),
           memberUserId: memberId,
           role,
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC",
@@ -618,8 +679,9 @@ export function MemberDashboardClient({
       })
       return
     }
-    setSelectorsOpen((open) => !open)
-  }, [])
+    if (selectorsOpen) closeSelectors()
+    else openSelectors()
+  }, [selectorsOpen, closeSelectors, openSelectors])
 
   const onFabPointerCancel = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
     const drag = fabDragRef.current
@@ -687,14 +749,27 @@ export function MemberDashboardClient({
     </li>
   )
 
-  const chipClass =
-    "inline-flex max-w-full items-center justify-center truncate rounded border px-1.5 py-0.5 text-[11px] font-medium leading-tight"
   const sectionLabelClass = "mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"
 
+  const draftForMenu =
+    selectorsModal.open === true
+      ? selectorsModal.draft
+      : {
+          householdId: selectedHouseholdId,
+          memberIds: selectedMemberIds,
+          editableIds: editableMemberIds,
+        }
+
+  const singleHouseholdHeaderName = useMemo(() => {
+    if (memberships.length !== 1) return null
+    const id =
+      selectorsModal.open === true ? selectorsModal.draft.householdId : selectedHouseholdId
+    return memberships.find((m) => m.household.id === id)?.household.name ?? "Household"
+  }, [memberships, selectorsModal, selectedHouseholdId])
   const selectorsMenuBody = (
-    <div className="flex flex-col gap-2.5">
+    <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-hidden">
       {isNativeShell && hasHydrated ? (
-        <div className="flex items-center justify-between gap-2 border-b border-border pb-2">
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border pb-1.5">
           <NotificationBell />
           <UserButton
             appearance={{
@@ -717,12 +792,12 @@ export function MemberDashboardClient({
       {!isKioskMode ? (
         <>
           {canActivateKiosk ? (
-            <section>
+            <section className="shrink-0">
               <h3 className={sectionLabelClass}>Kiosk</h3>
               <button
                 type="button"
                 onClick={() => void activateKioskMode()}
-                className="rounded bg-black px-2 py-0.5 text-[11px] font-medium text-white hover:bg-zinc-800"
+                className="rounded bg-black px-2 py-1 text-[11px] font-medium text-white hover:bg-zinc-800"
                 disabled={isKioskPending}
               >
                 Turn on
@@ -730,70 +805,31 @@ export function MemberDashboardClient({
             </section>
           ) : null}
 
-          <section>
-            <h3 className={sectionLabelClass}>Household</h3>
-            <div className="grid grid-cols-2 gap-1">
-              {memberships.map((membership) => (
-                <Link
-                  key={membership.household.id}
-                  href={buildDashboardHref(membership.household.id, selectedMemberIds, editableMemberIds)}
-                  onClick={() => setSelectorsOpen(false)}
-                  className={`${chipClass} ${
-                    membership.household.id === selectedHouseholdId ? "bg-black text-white" : "bg-background"
-                  }`}
-                >
-                  {membership.household.name}
-                </Link>
-              ))}
-            </div>
+          <section className="flex min-h-0 flex-1 flex-col">
+            <h3 className={sectionLabelClass}>Board lanes</h3>
+            <MemberLanesDraftPicker
+              members={members.map((m) => ({ id: m.id, name: m.name }))}
+              boardMemberIds={draftForMenu.memberIds}
+              editableMemberIds={draftForMenu.editableIds}
+              canConfigureEdit={canConfigureView}
+              editableGrantableMemberIds={canConfigureView ? members.map((m) => m.id) : []}
+              onChange={({ memberIds, editableMemberIds }) =>
+                setSelectorsModal((prev) =>
+                  prev.open === true
+                    ? {
+                        open: true,
+                        draft: { ...prev.draft, memberIds, editableIds: editableMemberIds },
+                      }
+                    : prev,
+                )
+              }
+            />
           </section>
-
-          <section>
-            <h3 className={sectionLabelClass}>Visible members</h3>
-            <div className="grid grid-cols-2 gap-1">
-              {members.map((member) => (
-                <Link
-                  key={member.id}
-                  href={buildDashboardHref(
-                    selectedHouseholdId,
-                    toggleMemberSelection(member.id),
-                    toggleMemberSelection(member.id).filter((id) => effectiveEditableMemberIds.includes(id)),
-                  )}
-                  onClick={() => setSelectorsOpen(false)}
-                  className={`${chipClass} ${selectedMemberSet.has(member.id) ? "bg-black text-white" : "bg-background"}`}
-                >
-                  {member.name}
-                </Link>
-              ))}
-            </div>
-          </section>
-
-          {canConfigureView ? (
-            <section>
-              <h3 className={sectionLabelClass}>Editable</h3>
-              <div className="grid grid-cols-2 gap-1">
-                {selectedMembers.map((member) => (
-                  <Link
-                    key={`editable:${member.id}`}
-                    href={buildDashboardHref(
-                      selectedHouseholdId,
-                      selectedMemberIds,
-                      toggleEditableSelection(member.id),
-                    )}
-                    onClick={() => setSelectorsOpen(false)}
-                    className={`${chipClass} ${editableMemberSet.has(member.id) ? "bg-green-700 text-white" : "bg-background"}`}
-                  >
-                    {member.name}
-                  </Link>
-                ))}
-              </div>
-            </section>
-          ) : null}
 
           {canActivateKiosk ? (
-            <section>
+            <section className="shrink-0">
               <h3 className={sectionLabelClass}>Member roles</h3>
-              <div className="space-y-1">
+              <div className="space-y-0.5">
                 {members.map((member) => {
                   const normalizedRole = member.role === "leader" ? "manager" : member.role
                   const canChangeRole = member.id !== leaderId
@@ -801,7 +837,7 @@ export function MemberDashboardClient({
                   return (
                     <div
                       key={`role:${member.id}`}
-                      className="flex items-center justify-between gap-1 rounded border border-border/80 px-1.5 py-1 text-[11px]"
+                      className="flex items-center justify-between gap-1 rounded border border-border/80 px-1.5 py-0.5 text-[10px] leading-tight"
                     >
                       <span className="min-w-0 truncate font-medium">
                         {member.name}{" "}
@@ -838,27 +874,66 @@ export function MemberDashboardClient({
               type="button"
               className="absolute inset-0 bg-black/45"
               aria-label="Close menu"
-              onClick={() => setSelectorsOpen(false)}
+              onClick={() => closeSelectors()}
             />
             <div
               role="dialog"
               aria-modal="true"
               aria-labelledby="member-selectors-menu-title"
-              className="relative z-[1] isolate mb-[max(0px,env(safe-area-inset-bottom))] flex max-h-[min(88dvh,calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-0.5rem))] w-full max-w-sm flex-col overflow-hidden border border-border bg-card shadow-2xl sm:mb-0 sm:rounded-2xl rounded-t-2xl"
+              className="relative z-[1] isolate mb-[max(0px,env(safe-area-inset-bottom))] flex max-h-[min(92dvh,calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-0.5rem))] w-full max-w-lg flex-col overflow-hidden border border-border bg-card shadow-2xl sm:mb-0 sm:rounded-2xl rounded-t-2xl"
+              onClick={(event) => event.stopPropagation()}
             >
-              <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border bg-card px-2.5 py-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
-                <h2 id="member-selectors-menu-title" className="text-base font-semibold leading-tight">
+              <div className="flex shrink-0 items-center gap-2 border-b border-border bg-card px-2.5 py-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
+                <h2
+                  id="member-selectors-menu-title"
+                  className="min-w-0 shrink text-sm font-semibold leading-tight sm:text-base"
+                >
                   View & household
                 </h2>
-                <button
-                  type="button"
-                  onClick={() => setSelectorsOpen(false)}
-                  className="rounded-md border border-input bg-background px-2.5 py-1.5 text-xs font-medium hover:bg-muted"
-                >
-                  Close
-                </button>
+                <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
+                  {!isKioskMode ? (
+                    memberships.length <= 1 ? (
+                      <span
+                        className="min-w-0 max-w-[min(14rem,48vw)] shrink-0 truncate px-1 py-1.5 text-xs font-medium text-foreground"
+                        title={singleHouseholdHeaderName ?? undefined}
+                      >
+                        {singleHouseholdHeaderName}
+                      </span>
+                    ) : (
+                      <select
+                        aria-label="Household"
+                        className="min-w-[10rem] max-w-[min(14rem,48vw)] shrink-0 truncate rounded-md border border-input bg-background px-2 py-1.5 text-xs font-medium text-foreground shadow-sm"
+                        value={
+                          selectorsModal.open === true
+                            ? selectorsModal.draft.householdId
+                            : selectedHouseholdId
+                        }
+                        onChange={(e) =>
+                          setSelectorsModal((prev) =>
+                            prev.open === true
+                              ? { open: true, draft: { ...prev.draft, householdId: e.target.value } }
+                              : prev,
+                          )
+                        }
+                      >
+                        {memberships.map((membership) => (
+                          <option key={membership.household.id} value={membership.household.id}>
+                            {membership.household.name}
+                          </option>
+                        ))}
+                      </select>
+                    )
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => closeSelectors()}
+                    className="shrink-0 rounded-md border border-input bg-background px-2.5 py-1.5 text-xs font-medium hover:bg-muted"
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
-              <div className="min-h-0 shrink overflow-hidden px-2.5 py-2">{selectorsMenuBody}</div>
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-2 pb-2 pt-1">{selectorsMenuBody}</div>
             </div>
           </div>,
           document.body,
@@ -904,7 +979,7 @@ export function MemberDashboardClient({
           ) : (
             <button
               type="button"
-              onClick={() => setSelectorsOpen((open) => !open)}
+              onClick={() => (selectorsOpen ? closeSelectors() : openSelectors())}
               className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border bg-background hover:bg-muted"
               aria-label="Toggle selectors menu"
               aria-expanded={selectorsOpen}
