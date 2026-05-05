@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "db:migrate": "node scripts/migrate-database.cjs",
+    "db:seed:kids-chores": "node scripts/seed-weekly-kids-chores.cjs",
     "mobile:sync": "cap sync",
     "mobile:copy": "cap copy",
     "mobile:add:android": "cap add android",

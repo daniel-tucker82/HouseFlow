@@ -1010,6 +1010,12 @@ export function LeaderFlowEditor({
   const [editingRoutineValue, setEditingRoutineValue] = useState("")
   const [editingBoardId, setEditingBoardId] = useState<string | null>(null)
   const [editingBoardValue, setEditingBoardValue] = useState("")
+  const [isAddingHouseholdMember, setIsAddingHouseholdMember] = useState(false)
+  const [newMemberName, setNewMemberName] = useState("")
+  const [newMemberRole, setNewMemberRole] = useState<"member" | "supervisor">("member")
+  const [newMemberTokenColor, setNewMemberTokenColor] = useState<(typeof TOKEN_COLOR_OPTIONS)[number]["id"]>("sky")
+  const [newMemberSaveError, setNewMemberSaveError] = useState<string | null>(null)
+  const [newMemberSaving, setNewMemberSaving] = useState(false)
   const [editingMemberNameId, setEditingMemberNameId] = useState<string | null>(null)
   const [editingMemberNameValue, setEditingMemberNameValue] = useState("")
   const [serverClockOffsetMs, setServerClockOffsetMs] = useState(0)
@@ -1026,6 +1032,8 @@ export function LeaderFlowEditor({
   const coalescedFlowReloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const scheduleCoalescedFlowReloadRef = useRef<() => void>(() => {})
   const taskSettingsSaveRequestIdRef = useRef(0)
+  const taskSettingsDirtyVersionRef = useRef(0)
+  const taskSettingsSavedVersionRef = useRef(0)
   const activeTaskForSettingsRef = useRef<Task | null>(null)
   activeTaskForSettingsRef.current = activeTask
   const flushTaskSettingsIfDirtyRef = useRef<() => Promise<void>>(async () => {})
@@ -1812,8 +1820,12 @@ export function LeaderFlowEditor({
         markerEnd: { type: MarkerType.ArrowClosed },
       })),
     )
-    setActiveTask(null)
-    setSelectedTaskId(null)
+    setActiveTask((prev) => {
+      if (!prev) return null
+      const nextTask = tasks.find((task) => task.id === prev.id)
+      return nextTask ? { ...prev, ...nextTask } : null
+    })
+    setSelectedTaskId((prev) => (prev && tasks.some((task) => task.id === prev) ? prev : null))
     setEdgeMenu(null)
     setEditingGuideId(null)
   }, [
@@ -2982,32 +2994,44 @@ export function LeaderFlowEditor({
   }
 
   const createHouseholdMember = async () => {
-    const name = window.prompt("Member name")
-    if (!name?.trim()) return
-    const roleInput = window.prompt("Profile type: member or supervisor", "member")
-    const role = String(roleInput ?? "").trim().toLowerCase() === "supervisor" ? "supervisor" : "member"
-    const colorInput = window.prompt("Token color (optional)", "sky")
-    const tokenColor = String(colorInput ?? "").trim() || null
-
-    const response = await fetch("/api/leader/flow", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "createHouseholdMember",
-        householdId: selectedHouseholdId,
-        name: name.trim(),
-        role,
-        tokenColor,
-      }),
-    })
-    const payload = (await response.json().catch(() => null)) as
-      | { error?: string; member?: Member }
-      | null
-    if (!response.ok || !payload?.member) {
-      window.alert(payload?.error ?? "Unable to add household member.")
+    const name = newMemberName.trim()
+    if (!name) {
+      setNewMemberSaveError("Member name is required.")
       return
     }
-    setLocalMembers((prev) => [...prev, payload.member as Member])
+    setNewMemberSaving(true)
+    setNewMemberSaveError(null)
+
+    try {
+      const response = await fetch("/api/leader/flow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "createHouseholdMember",
+          householdId: selectedHouseholdId,
+          name,
+          role: newMemberRole,
+          tokenColor: newMemberTokenColor,
+        }),
+      })
+      const payload = (await response.json().catch(() => null)) as
+        | { error?: string; member?: Member }
+        | null
+      if (!response.ok || !payload?.member) {
+        setNewMemberSaveError(payload?.error ?? "Unable to add household member.")
+        setNewMemberSaving(false)
+        return
+      }
+      setLocalMembers((prev) => [...prev, payload.member as Member])
+      setNewMemberName("")
+      setNewMemberRole("member")
+      setNewMemberTokenColor("sky")
+      setIsAddingHouseholdMember(false)
+    } catch {
+      setNewMemberSaveError("Unable to add household member.")
+    } finally {
+      setNewMemberSaving(false)
+    }
   }
 
   /** Merge POST /api/leader/flow task payload into canvas state so UI updates without waiting for a full GET. */
@@ -3302,15 +3326,21 @@ export function LeaderFlowEditor({
     return serverTask
   }
 
-  const runTaskSettingsAutosave = async (formData: FormData, taskForSave?: Task | null) => {
+  const runTaskSettingsAutosave = async (
+    formData: FormData,
+    taskForSave?: Task | null,
+    dirtyVersion = taskSettingsDirtyVersionRef.current,
+  ) => {
     const task = taskForSave ?? activeTaskForSettingsRef.current
     if (!task) return
+    if (dirtyVersion <= taskSettingsSavedVersionRef.current) return
     const requestId = ++taskSettingsSaveRequestIdRef.current
     setTaskSettingsSaveState("saving")
     setTaskSettingsSaveError(null)
     try {
       await saveTaskSettings(formData, task)
       if (requestId !== taskSettingsSaveRequestIdRef.current) return
+      taskSettingsSavedVersionRef.current = Math.max(taskSettingsSavedVersionRef.current, dirtyVersion)
       setTaskSettingsSaveState("saved")
     } catch (error) {
       if (requestId !== taskSettingsSaveRequestIdRef.current) return
@@ -3326,14 +3356,17 @@ export function LeaderFlowEditor({
     }
     const form = taskSettingsFormRef.current
     const task = activeTaskForSettingsRef.current
-    if (!form || !task) return
-    await runTaskSettingsAutosave(new FormData(form), task)
+    const dirtyVersion = taskSettingsDirtyVersionRef.current
+    if (!form || !task || dirtyVersion <= taskSettingsSavedVersionRef.current) return
+    await runTaskSettingsAutosave(new FormData(form), task, dirtyVersion)
   }
   flushTaskSettingsIfDirtyRef.current = flushTaskSettingsIfDirty
 
   const scheduleTaskSettingsAutosave = (immediate = false) => {
     if (!activeTaskForSettingsRef.current) return
     if (!taskSettingsFormRef.current) return
+    const dirtyVersion = taskSettingsDirtyVersionRef.current
+    if (dirtyVersion <= taskSettingsSavedVersionRef.current) return
     if (taskSettingsAutosaveTimerRef.current) {
       clearTimeout(taskSettingsAutosaveTimerRef.current)
       taskSettingsAutosaveTimerRef.current = null
@@ -3342,16 +3375,23 @@ export function LeaderFlowEditor({
       const form = taskSettingsFormRef.current
       const task = activeTaskForSettingsRef.current
       if (!form || !task) return
-      void runTaskSettingsAutosave(new FormData(form), task)
+      void runTaskSettingsAutosave(new FormData(form), task, dirtyVersion)
     }
     if (immediate) {
       save()
       return
     }
-    taskSettingsAutosaveTimerRef.current = setTimeout(save, 120)
+    taskSettingsAutosaveTimerRef.current = setTimeout(save, 900)
+  }
+
+  const markTaskSettingsDirty = () => {
+    taskSettingsDirtyVersionRef.current += 1
+    scheduleTaskSettingsAutosave(false)
   }
 
   useEffect(() => {
+    taskSettingsDirtyVersionRef.current = 0
+    taskSettingsSavedVersionRef.current = 0
     if (!activeTask) {
       if (taskSettingsAutosaveTimerRef.current) {
         clearTimeout(taskSettingsAutosaveTimerRef.current)
@@ -3363,7 +3403,7 @@ export function LeaderFlowEditor({
     }
     setTaskSettingsSaveState("idle")
     setTaskSettingsSaveError(null)
-  }, [activeTask])
+  }, [activeTask?.id])
 
   useEffect(() => {
     return () => {
@@ -4560,13 +4600,86 @@ export function LeaderFlowEditor({
                 size="xs"
                 className="shrink-0 gap-1"
                 onClick={() => {
-                  void createHouseholdMember()
+                  setIsAddingHouseholdMember((prev) => !prev)
+                  setNewMemberSaveError(null)
                 }}
               >
                 <Plus className="size-3.5" aria-hidden />
                 Add household member
               </Button>
             </div>
+            {isAddingHouseholdMember ? (
+              <form
+                className="mb-2 space-y-2 rounded-lg border border-border/70 bg-background/90 p-2"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  void createHouseholdMember()
+                }}
+              >
+                <label className="block text-xs font-medium text-muted-foreground">
+                  Name
+                  <input
+                    value={newMemberName}
+                    onChange={(event) => setNewMemberName(event.target.value)}
+                    className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                    autoFocus
+                  />
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="block text-xs font-medium text-muted-foreground">
+                    Role
+                    <select
+                      value={newMemberRole}
+                      onChange={(event) =>
+                        setNewMemberRole(event.target.value === "supervisor" ? "supervisor" : "member")
+                      }
+                      className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm text-foreground"
+                    >
+                      <option value="member">Member</option>
+                      <option value="supervisor">Supervisor</option>
+                    </select>
+                  </label>
+                  <label className="block text-xs font-medium text-muted-foreground">
+                    Token color
+                    <select
+                      value={newMemberTokenColor}
+                      onChange={(event) =>
+                        setNewMemberTokenColor(
+                          event.target.value as (typeof TOKEN_COLOR_OPTIONS)[number]["id"],
+                        )
+                      }
+                      className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm text-foreground"
+                    >
+                      {TOKEN_COLOR_OPTIONS.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.id}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                {newMemberSaveError ? (
+                  <p className="text-xs text-red-600">{newMemberSaveError}</p>
+                ) : null}
+                <div className="flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    onClick={() => {
+                      setIsAddingHouseholdMember(false)
+                      setNewMemberSaveError(null)
+                    }}
+                    disabled={newMemberSaving}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit" size="xs" disabled={newMemberSaving}>
+                    {newMemberSaving ? "Adding..." : "Add member"}
+                  </Button>
+                </div>
+              </form>
+            ) : null}
             <ul className="max-h-[min(24rem,calc(100dvh-19rem))] space-y-1.5 overflow-y-auto overflow-x-hidden rounded-lg border border-border/60 bg-muted/20 p-2 text-sm">
               {localMembers.map((member) => {
                 const normalizedRole = member.role === "leader" ? "manager" : member.role ?? "member"
@@ -4809,9 +4922,18 @@ export function LeaderFlowEditor({
             id="task-settings-form"
             ref={taskSettingsFormRef}
             key={activeTask.id}
-            onInput={() => scheduleTaskSettingsAutosave(false)}
-            onChange={() => scheduleTaskSettingsAutosave(false)}
-            onBlur={() => scheduleTaskSettingsAutosave(true)}
+            onInput={markTaskSettingsDirty}
+            onChange={markTaskSettingsDirty}
+            onBlur={(event) => {
+              const nextFocusedElement = event.relatedTarget
+              if (
+                nextFocusedElement instanceof Node &&
+                event.currentTarget.contains(nextFocusedElement)
+              ) {
+                return
+              }
+              void flushTaskSettingsIfDirty()
+            }}
             className="flex min-h-0 flex-1 flex-col"
           >
             <div className="space-y-3 overflow-y-auto pr-1">
