@@ -370,6 +370,7 @@ type TaskNodeData = {
   status: string
   isReward: boolean
   highlighted: boolean
+  justCreated?: boolean
   assignees: Member[]
   occurrenceView: boolean
   occurrenceStatus: string
@@ -408,6 +409,9 @@ function TaskNode({ data, selected }: NodeProps<Node<TaskNodeData>>) {
         : "border-zinc-300 bg-white",
     data.occurrenceView ? "pr-9" : "",
     data.highlighted || selected ? "ring-2 ring-blue-500 ring-offset-2" : "",
+    data.justCreated
+      ? "ring-4 ring-emerald-400/80 ring-offset-2 shadow-[0_0_0_8px_rgba(52,211,153,0.18),0_18px_45px_rgba(15,118,110,0.22)] transition-shadow animate-pulse"
+      : "",
   )
 
   return (
@@ -1031,6 +1035,8 @@ export function LeaderFlowEditor({
   const taskSettingsAutosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const coalescedFlowReloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const scheduleCoalescedFlowReloadRef = useRef<() => void>(() => {})
+  const recentlyCreatedTaskIdsRef = useRef<Set<string>>(new Set())
+  const recentlyCreatedTaskGlowTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
   const taskSettingsSaveRequestIdRef = useRef(0)
   const taskSettingsDirtyVersionRef = useRef(0)
   const taskSettingsSavedVersionRef = useRef(0)
@@ -1471,6 +1477,7 @@ export function LeaderFlowEditor({
             status: occurrenceStatus,
             isReward: task.is_reward,
             highlighted: selectedTaskId === task.id,
+            justCreated: recentlyCreatedTaskIdsRef.current.has(task.id),
             assignees: (json.taskAssignees ?? [])
               .filter((assignment: TaskAssignee) => assignment.task_id === task.id)
               .map((assignment: TaskAssignee) => {
@@ -1790,6 +1797,7 @@ export function LeaderFlowEditor({
             status: occurrenceStatus,
             isReward: task.is_reward,
             highlighted: false,
+            justCreated: recentlyCreatedTaskIdsRef.current.has(task.id),
             assignees: taskAssignees
               .filter((assignment) => assignment.task_id === task.id)
               .map((assignment) => {
@@ -1842,7 +1850,6 @@ export function LeaderFlowEditor({
     selectedHouseholdId,
     selectedOccurrenceId,
     selectedRoutineId,
-    handleOccurrenceToggle,
   ])
 
   useEffect(() => {
@@ -1892,6 +1899,7 @@ export function LeaderFlowEditor({
             status: occurrenceStatus,
             isReward: task.is_reward,
             highlighted: selectedTaskId === task.id,
+            justCreated: recentlyCreatedTaskIdsRef.current.has(task.id),
             assignees: localTaskAssignees
               .filter((assignment) => assignment.task_id === task.id)
               .map((assignment) => {
@@ -1937,10 +1945,78 @@ export function LeaderFlowEditor({
     [localDeps],
   )
 
+  const dependencyToEdge = (dep: Dependency): Edge => ({
+    id: `${dep.source_task_id}-${dep.target_task_id}`,
+    source: dep.source_task_id,
+    target: dep.target_task_id,
+    markerEnd: { type: MarkerType.ArrowClosed },
+  })
+
+  const refreshDependencyDerivedState = async () => {
+    if (selectedOccurrenceId) {
+      await fetchOccurrenceTaskStatusesSnapshot(selectedHouseholdId, selectedOccurrenceId)
+    }
+  }
+
   const [flowNodes, setFlowNodes] = useState<Node[]>(nodes)
   const [flowEdges, setFlowEdges] = useState(initialEdges)
+  const flowEdgesRef = useRef<Edge[]>(initialEdges)
   const [insertHoverEdgeId, setInsertHoverEdgeId] = useState<string | null>(null)
   const insertHoverEdgeIdRef = useRef<string | null>(null)
+
+  const pulseNewTask = (taskId: string) => {
+    recentlyCreatedTaskIdsRef.current.add(taskId)
+    if (recentlyCreatedTaskGlowTimersRef.current[taskId]) {
+      clearTimeout(recentlyCreatedTaskGlowTimersRef.current[taskId])
+    }
+    recentlyCreatedTaskGlowTimersRef.current[taskId] = setTimeout(() => {
+      recentlyCreatedTaskIdsRef.current.delete(taskId)
+      delete recentlyCreatedTaskGlowTimersRef.current[taskId]
+      setFlowNodes((prev) =>
+        prev.map((node) =>
+          node.id === taskId && node.type === "taskNode"
+            ? {
+                ...node,
+                data: {
+                  ...(node.data as TaskNodeData),
+                  justCreated: false,
+                },
+              }
+            : node,
+        ),
+      )
+    }, 2200)
+  }
+
+  useEffect(
+    () => () => {
+      Object.values(recentlyCreatedTaskGlowTimersRef.current).forEach((timer) => clearTimeout(timer))
+      recentlyCreatedTaskGlowTimersRef.current = {}
+      recentlyCreatedTaskIdsRef.current.clear()
+    },
+    [],
+  )
+
+  useEffect(() => {
+    flowEdgesRef.current = flowEdges
+  }, [flowEdges])
+
+  useEffect(() => {
+    setFlowEdges((prev) => {
+      const previousById = new Map(prev.map((edge) => [edge.id, edge]))
+      return initialEdges.map((edge) => {
+        const previous = previousById.get(edge.id)
+        return previous
+          ? {
+              ...edge,
+              selected: previous.selected,
+              style: previous.style,
+              zIndex: previous.zIndex,
+            }
+          : edge
+      })
+    })
+  }, [initialEdges])
 
   useEffect(() => {
     setFlowNodes((prevNodes) => {
@@ -2083,8 +2159,26 @@ export function LeaderFlowEditor({
     })
   }
 
-  const onEdgesChange: OnEdgesChange = (changes) =>
-    setFlowEdges((eds) => applyEdgeChanges(changes, eds))
+  const onEdgesChange: OnEdgesChange = (changes) => {
+    const liveEdges = reactFlowRef.current?.getEdges() ?? []
+    const removedEdges = changes
+      .filter((change) => change.type === "remove")
+      .map(
+        (change) =>
+          liveEdges.find((edge) => edge.id === change.id) ??
+          flowEdgesRef.current.find((edge) => edge.id === change.id) ??
+          flowEdges.find((edge) => edge.id === change.id),
+      )
+      .filter(Boolean) as Edge[]
+    const removedIds = new Set(removedEdges.map((edge) => edge.id))
+    setFlowEdges((eds) =>
+      applyEdgeChanges(changes, eds).filter((edge) => !removedIds.has(edge.id)),
+    )
+    for (const edge of removedEdges) {
+      if (!edge.source || !edge.target) continue
+      void deleteDependency(edge.source, edge.target, edge.id, { localAlreadyRemoved: true })
+    }
+  }
 
   const clearTaskSelection = useCallback(() => {
     void (async () => {
@@ -2285,14 +2379,18 @@ export function LeaderFlowEditor({
 
   const onConnect = async (connection: Connection) => {
     if (!connection.source || !connection.target) return
-    setFlowEdges((eds) =>
-      addEdge({ ...connection, markerEnd: { type: MarkerType.ArrowClosed } }, eds),
+    const dep = { source_task_id: connection.source, target_task_id: connection.target }
+    const edge = dependencyToEdge(dep)
+    setFlowEdges((eds) => (eds.some((existing) => existing.id === edge.id) ? eds : addEdge(edge, eds)))
+    setLocalDeps((prev) =>
+      prev.some(
+        (existing) =>
+          existing.source_task_id === dep.source_task_id && existing.target_task_id === dep.target_task_id,
+      )
+        ? prev
+        : [...prev, dep],
     )
-    setLocalDeps((prev) => [
-      ...prev,
-      { source_task_id: connection.source!, target_task_id: connection.target! },
-    ])
-    await fetch("/api/leader/flow", {
+    const response = await fetch("/api/leader/flow", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -2303,7 +2401,17 @@ export function LeaderFlowEditor({
         occurrenceId: selectedOccurrenceId,
       }),
     })
-    await reloadFlow(selectedHouseholdId, selectedRoutineId, selectedOccurrenceId)
+    if (!response.ok) {
+      setFlowEdges((eds) => eds.filter((existing) => existing.id !== edge.id))
+      setLocalDeps((prev) =>
+        prev.filter(
+          (existing) =>
+            !(existing.source_task_id === dep.source_task_id && existing.target_task_id === dep.target_task_id),
+        ),
+      )
+      return
+    }
+    await refreshDependencyDerivedState()
   }
 
   const onNodeDragStop = async (_: unknown, node: Node, draggedNodes: Node[]) => {
@@ -2387,7 +2495,38 @@ export function LeaderFlowEditor({
           }),
         })
         if (res.ok) {
-          await reloadFlow(selectedHouseholdId, selectedRoutineId, selectedOccurrenceId)
+          const nextDeps = [
+            {
+              source_task_id: String(edgeForInsert.source),
+              target_task_id: String(node.id),
+            },
+            {
+              source_task_id: String(node.id),
+              target_task_id: String(edgeForInsert.target),
+            },
+          ]
+          setLocalDeps((prev) => [
+            ...prev.filter(
+              (dep) =>
+                !(
+                  dep.source_task_id === edgeForInsert.source &&
+                  dep.target_task_id === edgeForInsert.target
+                ),
+            ),
+            ...nextDeps.filter(
+              (nextDep) =>
+                !prev.some(
+                  (dep) =>
+                    dep.source_task_id === nextDep.source_task_id &&
+                    dep.target_task_id === nextDep.target_task_id,
+                ),
+            ),
+          ])
+          setFlowEdges((prev) => [
+            ...prev.filter((edge) => edge.id !== edgeForInsert.id),
+            ...nextDeps.map(dependencyToEdge),
+          ])
+          await refreshDependencyDerivedState()
         }
       }
     }
@@ -2425,8 +2564,28 @@ export function LeaderFlowEditor({
     await reloadFlow(selectedHouseholdId, selectedRoutineId, selectedOccurrenceId)
   }
 
-  const deleteDependency = async (sourceTaskId: string, targetTaskId: string, edgeId: string) => {
-    await fetch("/api/leader/flow", {
+  const deleteDependency = async (
+    sourceTaskId: string,
+    targetTaskId: string,
+    edgeId: string,
+    options?: { localAlreadyRemoved?: boolean },
+  ) => {
+    if (!options?.localAlreadyRemoved) {
+      setFlowEdges((prev) =>
+        prev.filter(
+          (edge) =>
+            edge.id !== edgeId &&
+            !(edge.source === sourceTaskId && edge.target === targetTaskId),
+        ),
+      )
+      setLocalDeps((prev) =>
+        prev.filter(
+          (dep) => !(dep.source_task_id === sourceTaskId && dep.target_task_id === targetTaskId),
+        ),
+      )
+      setEdgeMenu(null)
+    }
+    const response = await fetch("/api/leader/flow", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -2437,14 +2596,19 @@ export function LeaderFlowEditor({
         occurrenceId: selectedOccurrenceId,
       }),
     })
-    setFlowEdges((prev) => prev.filter((edge) => edge.id !== edgeId))
-    setLocalDeps((prev) =>
-      prev.filter(
-        (dep) => !(dep.source_task_id === sourceTaskId && dep.target_task_id === targetTaskId),
-      ),
-    )
+    if (!response.ok) {
+      await reloadFlow(selectedHouseholdId, selectedRoutineId, selectedOccurrenceId)
+      return
+    }
+    if (options?.localAlreadyRemoved) {
+      setLocalDeps((prev) =>
+        prev.filter(
+          (dep) => !(dep.source_task_id === sourceTaskId && dep.target_task_id === targetTaskId),
+        ),
+      )
+    }
     setEdgeMenu(null)
-    await reloadFlow(selectedHouseholdId, selectedRoutineId, selectedOccurrenceId)
+    await refreshDependencyDerivedState()
   }
 
   const deleteOccurrence = async (occurrenceId: string, routineId?: string) => {
@@ -2804,6 +2968,63 @@ export function LeaderFlowEditor({
     }, 300)
   }
 
+  const findOpenTaskPosition = () => {
+    const rf = reactFlowRef.current
+    const sectionRect = flowSectionRef.current?.getBoundingClientRect()
+    const viewportCenter =
+      rf && sectionRect
+        ? rf.screenToFlowPosition({
+            x: sectionRect.left + sectionRect.width / 2,
+            y: sectionRect.top + sectionRect.height / 2,
+          })
+        : taskClusterCenter
+    const existingRects = flowNodes
+      .filter((node) => node.type === "taskNode")
+      .map((node) => {
+        const size = taskNodeMeasuredSize(node)
+        return {
+          left: node.position.x - 32,
+          right: node.position.x + size.w + 32,
+          top: node.position.y - 32,
+          bottom: node.position.y + size.h + 32,
+        }
+      })
+    const overlaps = (x: number, y: number) =>
+      existingRects.some(
+        (rect) =>
+          x < rect.right &&
+          x + TASK_NODE_FALLBACK_W > rect.left &&
+          y < rect.bottom &&
+          y + TASK_NODE_FALLBACK_H > rect.top,
+      )
+
+    const baseX = viewportCenter.x - TASK_NODE_FALLBACK_W / 2
+    const baseY = viewportCenter.y - TASK_NODE_FALLBACK_H / 2
+    const candidates: Array<{ x: number; y: number; score: number }> = []
+    for (let ring = 0; ring <= 6; ring += 1) {
+      for (let row = -ring; row <= ring; row += 1) {
+        for (let col = -ring; col <= ring; col += 1) {
+          if (Math.max(Math.abs(row), Math.abs(col)) !== ring) continue
+          const x = Math.round(baseX + col * 280)
+          const y = Math.round(baseY + row * 180)
+          candidates.push({
+            x,
+            y,
+            score: Math.abs(col) + Math.abs(row) + (row < 0 ? 0.35 : 0) + (col < 0 ? 0.1 : 0),
+          })
+        }
+      }
+    }
+    const open = candidates
+      .filter((candidate) => !overlaps(candidate.x, candidate.y))
+      .sort((a, b) => a.score - b.score)[0]
+    if (open) return { x: open.x, y: open.y }
+    return {
+      x: Math.round(baseX + (flowNodes.length % 4) * 280),
+      y: Math.round(baseY + Math.floor(flowNodes.length / 4) * 180),
+    }
+  }
+
   const createTaskBoard = async () => {
     const response = await fetch("/api/leader/flow", {
       method: "POST",
@@ -2833,6 +3054,7 @@ export function LeaderFlowEditor({
       selectedOccurrenceId
         ? (localOccurrences.find((occ) => occ.id === selectedOccurrenceId)?.routine_id ?? null)
         : selectedRoutineId
+    const newTaskPosition = findOpenTaskPosition()
     const response = await fetch("/api/leader/flow", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -2843,19 +3065,34 @@ export function LeaderFlowEditor({
         occurrenceId: selectedOccurrenceId,
         title: "New task",
         isReward: false,
+        positionX: newTaskPosition.x,
+        positionY: newTaskPosition.y,
       }),
     })
     const json = (await response.json().catch(() => null)) as {
+      error?: string
       task?: Task
       occurrenceTaskStatus?: { task_id: string; status: string } | null
     } | null
-    if (response.ok && json?.task) {
-      applyTaskPersistToLocalState(json.task, [], {
+    if (!response.ok || !json?.task) {
+      window.alert(json?.error ?? "Failed to add task.")
+      return
+    }
+    pulseNewTask(json.task.id)
+    applyTaskPersistToLocalState(
+      {
+        ...json.task,
+        position_x: json.task.position_x ?? newTaskPosition.x,
+        position_y: json.task.position_y ?? newTaskPosition.y,
+      },
+      [],
+      {
         isNewTask: true,
         occurrenceTaskStatus: json.occurrenceTaskStatus ?? null,
-      })
-      scheduleCoalescedFlowReload()
-    }
+      },
+    )
+    setSelectedTaskId(json.task.id)
+    scheduleCoalescedFlowReload()
   }
 
   const createInvite = async () => {
@@ -3159,6 +3396,7 @@ export function LeaderFlowEditor({
         status: occurrenceNodeStatus,
         isReward: serverTask.is_reward,
         highlighted: selectedTaskId === serverTask.id,
+        justCreated: recentlyCreatedTaskIdsRef.current.has(serverTask.id),
         assignees: assigneesForNode,
         occurrenceView: isOcc,
         occurrenceStatus: occurrenceNodeStatus,
