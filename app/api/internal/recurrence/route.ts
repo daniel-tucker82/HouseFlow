@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import type { PoolClient } from "pg"
+import { timingSafeEqual } from "node:crypto"
 import { db } from "@/lib/db"
 import { ensureRoutineSchemaColumns } from "@/lib/schema-ensure"
 import { parseExpiryRule, parseUnlockRule, resolveExpiryAt, resolveUnlockAt, type UnlockCombiner } from "@/lib/time-rules"
@@ -9,14 +10,17 @@ import {
   recurrenceRuleSummary,
   serializeRoutineRecurrenceRules,
 } from "@/lib/recurrence"
-import { createManagerNotificationEventInTransaction } from "@/lib/notifications"
+import { createManagerNotificationEventInTransaction, createUnlockNotifications } from "@/lib/notifications"
 import { dispatchPushForNotificationIds } from "@/lib/push"
 
 function authorizedByCronSecret(request: Request) {
   const secret = process.env.CRON_SECRET?.trim()
-  if (!secret) return process.env.NODE_ENV !== "production"
+  if (!secret) return false
   const bearer = request.headers.get("authorization") ?? ""
-  return bearer === `Bearer ${secret}`
+  const expected = `Bearer ${secret}`
+  const bearerBuffer = Buffer.from(bearer)
+  const expectedBuffer = Buffer.from(expected)
+  return bearerBuffer.length === expectedBuffer.length && timingSafeEqual(bearerBuffer, expectedBuffer)
 }
 
 function toFixedRuleFromInstant(
@@ -497,16 +501,106 @@ async function materializeDueRecurrences(
   return createdNotificationIds
 }
 
+async function processActiveOccurrenceTimers(
+  client: PoolClient,
+  householdId: string,
+  actorUserId: string | null,
+) {
+  const occurrences = await client.query<{ id: string }>(
+    `select id
+     from routine_occurrences
+     where household_id = $1::uuid
+       and status = 'active'::occurrence_status
+     for update`,
+    [householdId],
+  )
+  const notificationIds: string[] = []
+  let tasksUnlocked = 0
+  let tasksCompleted = 0
+
+  for (const occurrence of occurrences.rows) {
+    const before = await client.query<{
+      task_id: string
+      status: "locked" | "unlocked" | "completed"
+    }>(
+      `select task_id, status
+       from occurrence_tasks
+       where occurrence_id = $1::uuid`,
+      [occurrence.id],
+    )
+    const beforeByTask = new Map(before.rows.map((row) => [row.task_id, row.status]))
+
+    await recomputeOccurrenceStatuses(client, occurrence.id)
+    await materializeDeferredExpiryForUnlockedTasks(client, occurrence.id)
+    await recomputeOccurrenceStatuses(client, occurrence.id)
+    await applyRewardAutoCompletion(client, occurrence.id)
+
+    const after = await client.query<{
+      task_id: string
+      status: "locked" | "unlocked" | "completed"
+      title: string
+      is_reward: boolean
+      unlock_at: string | null
+      assignee_ids: string[]
+    }>(
+      `select ot.task_id,
+              ot.status,
+              t.title,
+              t.is_reward,
+              t.unlock_at,
+              coalesce(
+                array_agg(ta.user_id) filter (where ta.user_id is not null),
+                '{}'::text[]
+              ) as assignee_ids
+       from occurrence_tasks ot
+       join tasks t on t.id = ot.task_id
+       left join task_assignees ta on ta.task_id = t.id
+       where ot.occurrence_id = $1::uuid
+       group by ot.task_id, ot.status, t.title, t.is_reward, t.unlock_at`,
+      [occurrence.id],
+    )
+
+    for (const task of after.rows) {
+      const previousStatus = beforeByTask.get(task.task_id)
+      if (task.status === "unlocked" && previousStatus === "locked") {
+        tasksUnlocked += 1
+        if (actorUserId) {
+          notificationIds.push(...(await createUnlockNotifications(client, {
+            householdId,
+            actorUserId,
+            occurrenceId: occurrence.id,
+            taskId: task.task_id,
+            taskTitle: task.title,
+            isReward: task.is_reward,
+            assigneeIds: task.assignee_ids ?? [],
+            unlockCause: "other",
+            unlockAt: task.unlock_at,
+            url: `/member/dashboard?household=${encodeURIComponent(householdId)}`,
+          })))
+        }
+      }
+      if (task.status === "completed" && previousStatus !== "completed") {
+        tasksCompleted += 1
+      }
+    }
+  }
+
+  return {
+    notificationIds,
+    occurrencesProcessed: occurrences.rows.length,
+    tasksUnlocked,
+    tasksCompleted,
+  }
+}
+
 export async function GET(request: Request) {
   const secretConfigured = Boolean(process.env.CRON_SECRET?.trim())
+  if (!secretConfigured) {
+    console.error("[cron] rejected: CRON_SECRET is not configured")
+    return NextResponse.json({ error: "Cron is not configured" }, { status: 503 })
+  }
   if (!authorizedByCronSecret(request)) {
-    if (process.env.NODE_ENV === "production" && !secretConfigured) {
-      console.error(
-        "[cron][recurrence] rejected: CRON_SECRET is not set in production. Add it in Vercel env and redeploy so cron can authorize.",
-      )
-    } else {
-      console.warn("[cron][recurrence] unauthorized (wrong Authorization bearer or CRON_SECRET mismatch)")
-    }
+    console.warn("[cron] unauthorized (wrong Authorization bearer or CRON_SECRET mismatch)")
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
@@ -524,12 +618,24 @@ export async function GET(request: Request) {
   const pushNotificationIds: string[] = []
   let householdsProcessed = 0
   let householdsFailed = 0
+  let occurrencesProcessed = 0
+  let tasksUnlocked = 0
+  let tasksCompleted = 0
 
   for (const household of households.rows) {
     const client = await db.connect()
     try {
       await client.query("BEGIN")
       pushNotificationIds.push(...(await materializeDueRecurrences(client, household.id, household.leader_id ?? null)))
+      const timerResult = await processActiveOccurrenceTimers(
+        client,
+        household.id,
+        household.leader_id ?? null,
+      )
+      pushNotificationIds.push(...timerResult.notificationIds)
+      occurrencesProcessed += timerResult.occurrencesProcessed
+      tasksUnlocked += timerResult.tasksUnlocked
+      tasksCompleted += timerResult.tasksCompleted
       await client.query("COMMIT")
       householdsProcessed += 1
     } catch (error) {
@@ -550,6 +656,9 @@ export async function GET(request: Request) {
     ok: householdsFailed === 0,
     householdsProcessed,
     householdsFailed,
+    occurrencesProcessed,
+    tasksUnlocked,
+    tasksCompleted,
     notificationsDispatched: pushNotificationIds.length,
   }
   console.info("[cron][recurrence] run complete", { ...body, atIso: new Date().toISOString() })

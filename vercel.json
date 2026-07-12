@@ -1,7 +1,7 @@
 {
   "crons": [
     {
-      "path": "/api/internal/recurrence",
+      "path": "/api/cron",
       "schedule": "0 6 * * *"
     }
   ]

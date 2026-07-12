@@ -35,14 +35,17 @@ The easiest way to deploy your Next.js app is to use the [Vercel Platform](https
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
 
-## Recurrence Background Processing
+## Background Processing
 
-Recurring routine occurrences are materialized by the internal endpoint `GET /api/internal/recurrence`.
+Time-based jobs are run by the endpoint `GET /api/cron`. The legacy
+`GET /api/internal/recurrence` URL invokes the same runner.
 
-- In production, this endpoint requires `Authorization: Bearer <CRON_SECRET>`.
-- Configure `CRON_SECRET` in your deployment environment.
+- The endpoint always requires `Authorization: Bearer <CRON_SECRET>`.
+- Configure a long, random `CRON_SECRET` in every environment where the runner is polled.
+- Each run materializes due recurring workflows, unlocks due tasks, completes expired tasks,
+  materializes deferred expiry times, and dispatches the resulting notifications.
 - `vercel.json` schedules this endpoint once daily at **06:00 UTC** via Vercel Cron (Hobby-compatible). On **Vercel Pro**, you can use a tighter schedule (for example every five minutes) if you need faster materialization.
-- With the app **closed**, only that cron (or an external cron hitting the same URL with `Authorization: Bearer <CRON_SECRET>`) will materialize new occurrences. **Opening the leader or member dashboard** triggers the same logic via `GET /api/leader/flow` so missed slots catch up on the next visit.
+- With the app **closed**, only that cron (or an external cron hitting the same URL with `Authorization: Bearer <CRON_SECRET>`) runs these jobs. **Opening the leader or member dashboard** still catches up relevant state on the next visit.
 - Recurrence date/time math in `lib/recurrence.ts` uses the **Node runtime’s default timezone** (typically **UTC** on Vercel). For household-local wall times, keep the household `timezone` field accurate; full “evaluate rules in household TZ” is not implemented yet—if results look offset by hours, compare rule times to UTC.
 
 ## Native Mobile App (Capacitor)
