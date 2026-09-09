@@ -23,6 +23,23 @@ function authorizedByCronSecret(request: Request) {
   return bearerBuffer.length === expectedBuffer.length && timingSafeEqual(bearerBuffer, expectedBuffer)
 }
 
+function isConnectionFailure(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error)
+  return /connection (?:terminated|error|closed)|ECONNRESET|EPIPE|ETIMEDOUT/i.test(message)
+}
+
+async function connectWithRetry() {
+  try {
+    return await db.connect()
+  } catch (error) {
+    if (!isConnectionFailure(error)) throw error
+    console.warn("[cron][recurrence] transient database connection failure; retrying once", {
+      error,
+    })
+    return db.connect()
+  }
+}
+
 function toFixedRuleFromInstant(
   instant: Date,
   timeZone = "UTC",
@@ -623,8 +640,10 @@ export async function GET(request: Request) {
   let tasksCompleted = 0
 
   for (const household of households.rows) {
-    const client = await db.connect()
+    let client: PoolClient | null = null
+    let destroyClient = false
     try {
+      client = await connectWithRetry()
       await client.query("BEGIN")
       pushNotificationIds.push(...(await materializeDueRecurrences(client, household.id, household.leader_id ?? null)))
       const timerResult = await processActiveOccurrenceTimers(
@@ -639,14 +658,25 @@ export async function GET(request: Request) {
       await client.query("COMMIT")
       householdsProcessed += 1
     } catch (error) {
-      await client.query("ROLLBACK")
+      destroyClient = isConnectionFailure(error)
+      if (client) {
+        try {
+          await client.query("ROLLBACK")
+        } catch (rollbackError) {
+          destroyClient = true
+          console.error("[cron][recurrence] rollback failed", {
+            householdId: household.id,
+            rollbackError,
+          })
+        }
+      }
       householdsFailed += 1
       console.error("[cron][recurrence] household materialization failed", {
         householdId: household.id,
         error,
       })
     } finally {
-      client.release()
+      client?.release(destroyClient)
     }
   }
 

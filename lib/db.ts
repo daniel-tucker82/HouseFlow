@@ -10,14 +10,25 @@ function createPool(): Pool {
     throw new Error("Missing POSTGRES_URL environment variable.")
   }
 
-  return new Pool({
+  const pool = new Pool({
     connectionString,
+    max: 5,
+    connectionTimeoutMillis: 10_000,
+    idleTimeoutMillis: 10_000,
+    maxLifetimeSeconds: 300,
+    allowExitOnIdle: true,
     ssl: connectionString.includes("localhost")
       ? undefined
       : {
           rejectUnauthorized: false,
         },
   })
+
+  pool.on("error", (error) => {
+    console.error("[db] idle PostgreSQL client error", { error })
+  })
+
+  return pool
 }
 
 /** Production pool: module singleton (original behavior without touching `global`). */
