@@ -10,6 +10,7 @@ import {
   getUserHouseholds,
 } from "@/lib/data"
 import { resolveActiveKioskHouseholdFromCookie } from "@/lib/household-authz"
+import { getHideCompletedTasksPreference } from "@/lib/leader-dashboard-preferences"
 
 type LeaderDashboardProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>
@@ -77,7 +78,10 @@ export default async function LeaderDashboard({ searchParams }: LeaderDashboardP
     leaderMemberships.find((m) => m.household.id === selectedHouseholdId)?.household ??
     leaderMemberships[0].household
 
-  const routines = await getHouseholdRoutines(selectedHousehold.id)
+  const [routines, hideCompletedTasks] = await Promise.all([
+    getHouseholdRoutines(selectedHousehold.id),
+    getHideCompletedTasksPreference(user.id),
+  ])
   const tasks = selectedOccurrenceId
     ? (
         await db.query(
@@ -223,6 +227,7 @@ export default async function LeaderDashboard({ searchParams }: LeaderDashboardP
       <LeaderFlowEditor
         households={leaderMemberships.map((membership) => membership.household)}
         currentUserId={user.id}
+        initialHideCompletedTasks={hideCompletedTasks}
         selectedHouseholdId={selectedHousehold.id}
         selectedRoutineId={selectedRoutineId || null}
         routines={routines}

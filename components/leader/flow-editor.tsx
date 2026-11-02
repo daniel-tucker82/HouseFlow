@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useOptimistic,
   useRef,
   useState,
   useTransition,
@@ -45,6 +46,7 @@ import {
 } from "@/lib/recurrence"
 import { cn } from "@/lib/utils"
 import { isRenderableUserProfilePhotoUrl } from "@/lib/clerk-profile-image-url"
+import { saveHideCompletedTasksPreference } from "@/lib/actions/leader-dashboard"
 
 type Member = {
   id: string
@@ -641,6 +643,7 @@ type Props = {
   households: Household[]
   /** Clerk user id; used for household owner checks in the UI. */
   currentUserId: string
+  initialHideCompletedTasks: boolean
   selectedHouseholdId: string
   selectedRoutineId: string | null
   routines: Routine[]
@@ -953,6 +956,7 @@ function findInsertHoverEdgeId(
 export function LeaderFlowEditor({
   households,
   currentUserId,
+  initialHideCompletedTasks,
   selectedHouseholdId,
   selectedRoutineId: initialSelectedRoutineId,
   routines,
@@ -995,7 +999,9 @@ export function LeaderFlowEditor({
   const [expandedOccurrenceTaskSectionIds, setExpandedOccurrenceTaskSectionIds] = useState<
     Record<string, boolean>
   >({})
-  const [hideCompletedTasks, setHideCompletedTasks] = useState(false)
+  const [hideCompletedTasks, setHideCompletedTasks] = useOptimistic(initialHideCompletedTasks)
+  const [isSavingHideCompletedTasks, startSavingHideCompletedTasks] = useTransition()
+  const [hideCompletedTasksSaveError, setHideCompletedTasksSaveError] = useState<string | null>(null)
   const [occurrenceTaskLists, setOccurrenceTaskLists] = useState<Record<string, OccurrenceTaskListItem[]>>({})
   const [occurrenceTaskListsLoading, setOccurrenceTaskListsLoading] = useState<Record<string, boolean>>({})
   const [occurrenceDeleteConfirm, setOccurrenceDeleteConfirm] = useState<{
@@ -4125,10 +4131,29 @@ export function LeaderFlowEditor({
               <input
                 type="checkbox"
                 checked={hideCompletedTasks}
-                onChange={(event) => setHideCompletedTasks(event.target.checked)}
+                disabled={isSavingHideCompletedTasks}
+                aria-describedby={hideCompletedTasksSaveError ? "hide-completed-tasks-error" : undefined}
+                onChange={(event) => {
+                  const checked = event.target.checked
+                  setHideCompletedTasksSaveError(null)
+                  startSavingHideCompletedTasks(async () => {
+                    setHideCompletedTasks(checked)
+                    try {
+                      const result = await saveHideCompletedTasksPreference(checked)
+                      if (!result.ok) setHideCompletedTasksSaveError(result.error)
+                    } catch {
+                      setHideCompletedTasksSaveError("Couldn't save your preference. Please try again.")
+                    }
+                  })
+                }}
               />
               Hide completed tasks
             </label>
+            {hideCompletedTasksSaveError ? (
+              <p id="hide-completed-tasks-error" role="alert" className="px-2 text-xs text-destructive">
+                {hideCompletedTasksSaveError}
+              </p>
+            ) : null}
           </div>
         </div>
       </aside>
