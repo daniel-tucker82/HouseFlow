@@ -3,7 +3,7 @@ import type { PoolClient } from "pg"
 import { db } from "@/lib/db"
 import { householdLimits, retainedTaskLimit, type HouseholdTier } from "@/lib/billing-policy"
 import { paidHouseholdAccessSql } from "@/lib/billing-access"
-import { lockActiveAccount } from "@/lib/account-access"
+import { accountAccessDatabaseError, lockActiveAccount } from "@/lib/account-access"
 
 const OWNER_EMAIL = "daniel@nexusaspyre.com"
 
@@ -22,12 +22,16 @@ export async function ensurePermanentOwnerGrant(userId: string, client: PoolClie
   const verified = user.emailAddresses.some(address =>
     address.emailAddress.toLowerCase() === OWNER_EMAIL && address.verification?.status === "verified")
   if (!verified) return false
-  await lockActiveAccount(client,userId)
-  await client.query(
-    `insert into owner_entitlements (user_id, verified_email, verification_source)
-     values ($1, $2, 'clerk_verified_email') on conflict (user_id) do nothing`,
-    [userId, OWNER_EMAIL],
-  )
+  // Some read callers use autocommit. Keep admission and insertion in the same
+  // statement so deletion cannot begin between a separate check and the write.
+  try {
+    await client.query(
+      `insert into owner_entitlements (user_id, verified_email, verification_source)
+       select $1, $2, 'clerk_verified_email' from cyntch_require_active_account($1)
+       on conflict (user_id) do nothing`,
+      [userId, OWNER_EMAIL],
+    )
+  } catch(error) {throw accountAccessDatabaseError(error) ?? error}
   return true
 }
 

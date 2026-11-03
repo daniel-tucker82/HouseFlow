@@ -144,3 +144,19 @@ test('joining a household commits membership, invite use and notifications toget
  await assert.rejects(web.acceptInviteByCode(code,f.owner),{status:410})
  assert.equal((await f.db.query('select 1 from household_members where household_id=$1 and user_id=$2',[household,f.owner])).rowCount,0)
 })
+
+test('an autocommit entitlement grant delayed after identity verification cannot recreate personal data',options,async t=>{
+ const f=await fixture(t),email='daniel@nexusaspyre.com'
+ await f.db.query('update users set email=$2 where id=$1',[f.owner,email])
+ const lib=f.load(['lib/entitlements.ts'],{'@clerk/nextjs/server':{clerkClient:async()=>({users:{getUser:async()=>({emailAddresses:[{emailAddress:email,verification:{status:'verified'}}]})}})}})
+ const client=await f.db.connect(),entered=deferred(),release=deferred()
+ const delayed={query:async(...args)=>{
+  if(typeof args[0]==='string'&&args[0].includes('insert into owner_entitlements')){entered.resolve();await release.promise}
+  return client.query(...args)
+ }}
+ const grant=lib.ensurePermanentOwnerGrant(f.owner,delayed)
+ const rejection=assert.rejects(grant,{status:410})
+ await entered.promise
+ try {await f.accept(await f.intent())}finally{release.resolve();try{await rejection}finally{client.release()}}
+ assert.equal((await f.db.query('select 1 from owner_entitlements where user_id=$1',[f.owner])).rowCount,0)
+})

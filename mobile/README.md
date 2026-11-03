@@ -1009,11 +1009,11 @@ flows are implemented and verified. Shared authored content, notification
 snapshots, orphan profiles, store subscription handling, out-of-band identity
 deletion and local queues must all be covered by the completed workflow.
 
-Verification on 2026-11-04: 330 general tests and 19 isolated web billing tests
+Verification on 2026-11-04: 331 general tests and 19 isolated web billing tests
 passed with no skips. Coverage includes transaction rollback, lost receipt
 acknowledgements, stale reviews, role changes during successor verification,
 kiosk/revoked-session rejection, concurrent admission, late web writes,
-identity resurrection, atomic joining, durable retries, expired leases and
+identity resurrection, atomic joining, delayed entitlement grants, durable retries, expired leases and
 processing budgets. Root/mobile lint and type checks and the Next.js production
 build passed. Native code and
 native modules are unchanged by this addition.
