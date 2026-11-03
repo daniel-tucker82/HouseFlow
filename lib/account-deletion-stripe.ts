@@ -1,7 +1,7 @@
 import type Stripe from "stripe"
 import type { Pool } from "pg"
 import { accountHash } from "@/lib/account-access"
-import { AccountDeletionProcessingError, type AccountDeletionJob } from "@/lib/account-deletion-processing"
+import { AccountDeletionDeferred, AccountDeletionProcessingError, type AccountDeletionJob } from "@/lib/account-deletion-processing"
 import type { AccountDeletionWork } from "@/lib/account-deletion-requests"
 import { stripeClient } from "@/lib/stripe-billing"
 import { inventoryAccountStripeCustomers } from "@/lib/account-deletion-stripe-inventory"
@@ -18,9 +18,9 @@ function configured(): Provider {
  * removes saved payment details. Stripe retains financial history; the app
  * keeps the transferred household's verified paid period and risk linkage.
  * Nothing is exposed as an HTTP action until all deletion phases are ready. */
-export async function deleteAccountStripeData(pool: Pool, job: AccountDeletionJob, provider?: Provider, budgetMs=20_000) {
+export async function deleteAccountStripeData(pool: Pool, job: AccountDeletionJob, provider?: Provider, budgetMs=20_000,now=()=>performance.now()) {
   if(!Number.isFinite(budgetMs) || budgetMs<1 || budgetMs>40_000) throw failed()
-  const deadline=performance.now()+budgetMs
+  const deadline=now()+budgetMs
   const current=async()=>{
     const row=(await pool.query<{account_id:string|null;account_hash:string;work:AccountDeletionWork;state:string;current:boolean}>(`select *,
       lease_id=$2 and lease_until>clock_timestamp() as current from account_deletion_requests where id=$1`,[job.id,job.leaseId])).rows[0]
@@ -32,8 +32,8 @@ export async function deleteAccountStripeData(pool: Pool, job: AccountDeletionJo
   }
   const options=async()=>{
     if(!await current()) throw failed()
-    const remaining=Math.floor(deadline-performance.now())
-    if(remaining<1) throw failed()
+    const remaining=Math.floor(deadline-now())
+    if(remaining<1) throw new AccountDeletionDeferred(1)
     return {timeout:Math.min(8_000,remaining),maxNetworkRetries:0}
   }
   try {
@@ -111,5 +111,5 @@ export async function deleteAccountStripeData(pool: Pool, job: AccountDeletionJo
       }
       await connection.query("commit")
     } catch(error) {await connection.query("rollback");throw error} finally {connection.release()}
-  } catch {throw failed()}
+  } catch(error) {if(error instanceof AccountDeletionDeferred) throw error;throw failed()}
 }

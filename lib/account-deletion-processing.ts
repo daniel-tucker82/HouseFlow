@@ -14,6 +14,15 @@ export type AccountDeletionAdapters = Record<Phase,(job: AccountDeletionJob) => 
 export class AccountDeletionProcessingError extends Error {
   constructor(public code: "data_cleanup_failed" | "stripe_cleanup_failed" | "native_cleanup_failed" | "identity_cleanup_failed") {super(code)}
 }
+/** A saved checkpoint or asynchronous provider operation needs another visit,
+ * not failure backoff. Nothing waits in memory while the provider finishes. */
+export class AccountDeletionDeferred extends Error {
+  readonly code="cleanup_pending"
+  constructor(public retryAfterSeconds=5) {
+    super("cleanup_pending")
+    if(!Number.isInteger(retryAfterSeconds) || retryAfterSeconds<1 || retryAfterSeconds>3600) throw new RangeError("Invalid cleanup retry delay")
+  }
+}
 interface LeaseRow {id:string;account_id:string;work:AccountDeletionWork;lease_id:string}
 
 /** No process-local timers or promises own the job. Pending work, phase
@@ -56,6 +65,13 @@ export async function processAccountDeletions(pool: Pool, adapters: AccountDelet
           and work->'phases' @> '{"data":true,"stripe":true,"native":true,"identity":true}'::jsonb`,[job.id,leaseId])
       if(completed.rowCount) result.completed++;else result.interrupted++
     } catch(error) {
+      if(error instanceof AccountDeletionDeferred) {
+        const saved=await pool.query(`update account_deletion_requests set last_error_code=null,lease_id=null,lease_until=null,attempts=0,
+          next_attempt_at=clock_timestamp()+make_interval(secs=>$3::int)
+          where id=$1 and lease_id=$2 and lease_until>clock_timestamp() and state='pending'`,[job.id,leaseId,error.retryAfterSeconds])
+        if(saved.rowCount) result.retrying++;else result.interrupted++
+        continue
+      }
       // Never persist an arbitrary provider exception: it can include private
       // request content, provider customer IDs, or authentication credentials.
       const code=error instanceof AccountDeletionProcessingError ? error.code : "cleanup_failed"

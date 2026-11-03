@@ -59,3 +59,31 @@ test('processing yields at a phase boundary when its time budget is spent',optio
  assert.equal((await f.lib.processAccountDeletions(f.db,adapters(calls))).completed,1)
  assert.deepEqual(calls.map(call=>call[0]),['data','stripe','native','identity'])
 })
+
+test('planned provider waits persist a bounded retry without advancing phases or escalating failure backoff',options,async t=>{
+ const f=await fixture(t);await f.accept(await f.intent())
+ await f.db.query("update account_deletion_requests set attempts=20,last_error_code='old_failure'")
+ const calls=[]
+ const result=await f.lib.processAccountDeletions(f.db,adapters(calls,{native:async()=>{throw new f.lib.AccountDeletionDeferred(5)}}),1)
+ assert.equal(result.retrying,1);assert.equal(result.completed,0)
+ const row=(await f.db.query('select *,extract(epoch from next_attempt_at-clock_timestamp()) as delay from account_deletion_requests')).rows[0]
+ assert.deepEqual(row.work.phases,{data:true,stripe:true,native:false,identity:false})
+ assert.equal(row.last_error_code,null);assert.equal(row.attempts,0);assert.equal(row.lease_id,null)
+ assert.ok(Number(row.delay)>0&&Number(row.delay)<=5)
+ assert.equal((await f.lib.processAccountDeletions(f.db,adapters(calls),1)).claimed,0)
+ await f.db.query('update account_deletion_requests set next_attempt_at=now()')
+ assert.equal((await f.lib.processAccountDeletions(f.db,adapters(calls),1)).completed,1)
+ assert.deepEqual(calls.map(call=>call[0]),['data','stripe','native','identity'])
+})
+
+test('a stale worker cannot replace the current lease with a planned wait',options,async t=>{
+ const f=await fixture(t);await f.accept(await f.intent())
+ const result=await f.lib.processAccountDeletions(f.db,adapters([],{data:async()=>{
+  await f.db.query("update account_deletion_requests set lease_until=now()-interval '1 second'")
+  throw new f.lib.AccountDeletionDeferred(5)
+ }}),1)
+ assert.equal(result.interrupted,1);assert.equal(result.retrying,0)
+ const row=(await f.db.query('select lease_id,work,attempts from account_deletion_requests')).rows[0]
+ assert.ok(row.lease_id);assert.equal(row.work.phases.data,false);assert.equal(row.attempts,1)
+ for(const delay of [0,-1,0.1,3601,NaN])assert.throws(()=>new f.lib.AccountDeletionDeferred(delay),RangeError)
+})

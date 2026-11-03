@@ -1164,3 +1164,20 @@ the household was its Cyntch metadata, and it lived under a test clock. Inventor
 found it and deletion cancelled all three subscriptions. Customers and clock
 were deleted, product/price were archived, and the isolated schema was dropped.
 No production database or live billing state was changed.
+
+Cleanup adapters can now raise `AccountDeletionDeferred` after a durable
+checkpoint or while an asynchronous provider operation is pending. The
+coordinator saves a bounded next-attempt time, releases the lease, leaves the
+phase unacknowledged and clears failure backoff. It never waits in memory or
+marks a queued provider deletion complete. Expired workers cannot save a
+deferred retry. Stripe inventory uses this path when its invocation budget is
+spent, preserving its page cursor rather than escalating normal progress into
+an increasingly delayed failure retry. RevenueCat's deletion confirmation still
+needs to be connected to this mechanism as part of its unfinished adapter.
+
+Deferred-job verification: all 357 general checks passed with no skips or
+cancellations. Root lint, standalone TypeScript checks and the production build
+passed. Tests verify a durable scheduled retry, unchanged phase acknowledgement,
+reset failure backoff, stale-worker rejection and a Stripe page checkpoint
+resuming after its processing budget is exhausted. No native module or public
+deletion endpoint is introduced by this follow-up.

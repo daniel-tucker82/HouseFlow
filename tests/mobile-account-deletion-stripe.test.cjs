@@ -275,3 +275,17 @@ test('an account with no owned households completes Stripe cleanup without provi
  assert.equal((await f.db.query('select work from account_deletion_requests where id=$1',[job.id])).rows[0].work.stripeDiscovery.finalized,true)
  assert.equal((await f.db.query('select stripe_customer_retired from household_billing where household_id=$1',[f.transfer])).rows[0].stripe_customer_retired,false)
 })
+
+test('inventory checkpoints yield when their invocation budget ends and resume without losing the saved cursor',options,async t=>{
+ const f=await setup(t),first=f.job.work.stripe[0].customerId
+ let now=0
+ f.provider.client.customers.list=async params=>{
+  now=100
+  return {object:'list',data:params.starting_after?[...f.customers.values()].filter(item=>item.id!==first):[f.customers.get(first)],has_more:!params.starting_after}
+ }
+ await assert.rejects(f.adapter(f.db,f.job,f.provider,50,()=>now),{code:'cleanup_pending',retryAfterSeconds:1})
+ assert.equal(f.calls.length,0)
+ const work=(await f.db.query('select work from account_deletion_requests where id=$1',[f.job.id])).rows[0].work
+ assert.equal(work.stripeDiscovery.scans[0].cursor,first);assert.equal(work.stripeDiscovery.complete,false)
+ await f.cleanup();assert.equal(f.calls.filter(call=>call[0]==='delete').length,2)
+})
