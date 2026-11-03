@@ -1,6 +1,7 @@
 import { currentUser } from "@clerk/nextjs/server"
 import { db } from "@/lib/db"
 import { isClerkGeneratedDefaultProfileImageUrl } from "@/lib/clerk-profile-image-url"
+import { accountAccessDatabaseError } from "@/lib/account-access"
 
 export async function ensureCurrentUserRecord() {
   const clerkUser = await currentUser()
@@ -28,7 +29,9 @@ export async function ensureCurrentUserRecord() {
       [clerkUser.id, email, fullName, avatarUrl],
     )
   } catch (error) {
-    console.error("Unable to sync Clerk user into PostgreSQL.", error)
+    const accessError=accountAccessDatabaseError(error)
+    if (accessError) throw accessError
+    console.error("Unable to sync Clerk user into PostgreSQL.", {name:error instanceof Error ? error.name : "UnknownError",code:(error as {code?:string})?.code})
   }
 
   return clerkUser

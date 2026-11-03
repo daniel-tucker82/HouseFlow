@@ -5,6 +5,7 @@ import { KioskError } from "@/shared/mobile/kiosk"
 import { NotificationSettingsError } from "@/shared/mobile/notification-settings"
 import { enforceRequestLimit } from "@/lib/usage-controls"
 import { EntitlementError } from "@/lib/entitlements"
+import { AccountAccessError } from "@/lib/account-access"
 
 export const dynamic = "force-dynamic"
 async function handle(request: Request, write: boolean) {
@@ -24,7 +25,8 @@ async function handle(request: Request, write: boolean) {
     } else result = await readNativeKiosk(db, userId, sessionId, deviceId, secret)
     return Response.json(result, { headers: { "Cache-Control": "no-store" } })
   } catch (error) {
-    if (error instanceof KioskError || error instanceof NotificationSettingsError || error instanceof EntitlementError) return Response.json({ error: error.message }, { status: error.status, headers: { "Cache-Control": "no-store" } })
+    if (error instanceof KioskError || error instanceof NotificationSettingsError || error instanceof EntitlementError || error instanceof AccountAccessError) return Response.json({ error: error.message,
+      ...(error instanceof AccountAccessError ? {code:error.code} : {}) }, { status: error.status, headers: { "Cache-Control": "no-store" } })
     console.error("[native-kiosk] Unable to update device lock", { name: error instanceof Error ? error.name : "UnknownError", code: (error as { code?: string })?.code })
     return Response.json({ error: "Kiosk mode could not sync. The device must remain protected until this finishes." }, { status: 503 })
   }

@@ -3,6 +3,7 @@ import type { PoolClient } from "pg"
 import { db } from "@/lib/db"
 import { householdLimits, retainedTaskLimit, type HouseholdTier } from "@/lib/billing-policy"
 import { paidHouseholdAccessSql } from "@/lib/billing-access"
+import { lockActiveAccount } from "@/lib/account-access"
 
 const OWNER_EMAIL = "daniel@nexusaspyre.com"
 
@@ -21,6 +22,7 @@ export async function ensurePermanentOwnerGrant(userId: string, client: PoolClie
   const verified = user.emailAddresses.some(address =>
     address.emailAddress.toLowerCase() === OWNER_EMAIL && address.verification?.status === "verified")
   if (!verified) return false
+  await lockActiveAccount(client,userId)
   await client.query(
     `insert into owner_entitlements (user_id, verified_email, verification_source)
      values ($1, $2, 'clerk_verified_email') on conflict (user_id) do nothing`,
@@ -49,6 +51,7 @@ export async function withHouseholdWrite<T>(householdId: string, userId: string,
   const client = await db.connect()
   try {
     await client.query("begin")
+    await lockActiveAccount(client,userId)
     const lock = await client.query("select pg_try_advisory_xact_lock(hashtextextended($1, 0)) as acquired", [householdId])
     if (!lock.rows[0].acquired) throw new EntitlementError("Another household change is in progress. Please retry.", 429)
     const household = await client.query("select id from households where id = $1::uuid for update", [householdId])

@@ -909,9 +909,10 @@ database migration or native module change.
 
 ## Account deletion preparation
 
-The account deletion workflow is **not complete**. The current addition is a
-read-only review API at `/api/mobile/account-deletion`, shared contracts and a
-native `MobileApi.accountDeletionReview()` method. There is no deletion endpoint
+The account deletion workflow is **not complete**. The public API is still a
+read-only review at `/api/mobile/account-deletion`, with shared contracts and a
+native `MobileApi.accountDeletionReview()` method. Internal request acceptance
+and durable processing are implemented below. There is no deletion endpoint
 or deletion button yet, and Clerk profile management alone does not remove
 Cyntch data.
 
@@ -926,9 +927,10 @@ former household contributes only to account-level counts.
 
 The review uses one repeatable-read transaction. Its fingerprint binds the
 account/session/device to household ownership, member roles, content identity,
-subscription state and pending purchases. Future acceptance must recompute the
-review under the relevant write locks, validate explicit choices for every
-owned household, and check recent identity verification. The fingerprint is
+subscription state, provider customer bindings and pending purchases. Internal
+acceptance recomputes the review under the relevant write locks and validates
+explicit choices for every owned household. Its future HTTP caller must check
+recent identity verification. The fingerprint is
 not authorization or consent. Transfer candidates exclude members without
 management access and profiles without independent sign-in.
 
@@ -953,10 +955,65 @@ provider state was changed.
 The final general regression run passed 295 checks. Root/mobile lint and type
 checks, the Next.js production build and Android/iOS JavaScript exports passed.
 
-Next work is the durable deletion processor, current-session/reverification
-checks at confirmation, safe handling of ownership and subscriptions, personal
-data removal at Cyntch and its providers, rejection of late uploads, local data
-cleanup, native confirmation UI, and the web deletion path. Account deletion
+Next work is the cleanup adapters, current-session/reverification checks at the
+HTTP confirmation boundary, safe handling of subscriptions, personal data
+removal at Cyntch and its providers, local data cleanup, native confirmation UI,
+and the web deletion path. Account deletion
 must be available in-app under [Apple's guidance](https://developer.apple.com/help/app-review/guideline-reference/5-1-1-account-deletion);
 [Google also requires a web request path](https://support.google.com/googleplay/android-developer/answer/13327111?hl=en-EN).
 Provider deletion and interrupted recovery still need end-to-end verification.
+
+### Durable acceptance and processing
+
+Apply `database/0034_account_deletion_requests.sql` before deploying this
+backend revision. Existing web/mobile admission checks now depend on that table
+and its account guard function. The migration is additive and has been applied
+only to the local test database; production has not been changed.
+
+`acceptAccountDeletion()` is an internal transaction boundary, not an HTTP
+endpoint. It checks the account/session/device, installation secret, session
+revocations and kiosk lock. The caller must supply Clerk's actual strict
+reverification result and verify that each selected successor still has an
+active identity. Client-supplied verification flags are never sufficient.
+
+Acceptance locks the account, kiosk session, installation and affected households
+in that order, rechecks the review, saves a durable request, applies explicitly
+chosen household transfers/removals, removes the departing memberships and
+invites, and stops all three push-registration types. These changes either
+commit together or roll back together. Retrying the same operation and intent
+returns its original receipt; another operation cannot repeat its effects.
+Provider cleanup identifiers stay on the server.
+
+The request blocks subsequent account access. Database guards prevent a delayed
+identity upsert, new membership or new ownership from recreating the account.
+HTTP requests, kiosk changes, web preferences, household admission and household
+writes participate in account admission. Invitation acceptance now commits
+membership, invite usage and notification events in one transaction, so a
+failure cannot leave a partial join. An admitted write finishes before deletion
+can be accepted; contention returns a retryable response.
+
+`processAccountDeletions()` claims durable leases and runs data, Stripe, native
+billing and identity cleanup in order. Every phase requires a real, idempotent
+adapter with bounded provider timeouts. Acknowledged phases survive restarts;
+expired workers cannot acknowledge or complete a newer lease. Failures persist
+a retry time and an allowlisted error code. Processing yields between phases
+when its budget is spent. Only after all phases succeed does it clear raw
+account/provider identifiers, retaining the opaque account hash and outcome to
+prevent resurrection.
+
+**The cleanup adapters and scheduler wiring are not implemented.** Phase tests
+substitute provider effects to verify coordination; they do not prove that any
+live identity, billing customer or personal data has been erased. Do not expose
+acceptance until those adapters, status recovery, disclosures and confirmation
+flows are implemented and verified. Shared authored content, notification
+snapshots, orphan profiles, store subscription handling, out-of-band identity
+deletion and local queues must all be covered by the completed workflow.
+
+Verification on 2026-11-04: 330 general tests and 19 isolated web billing tests
+passed with no skips. Coverage includes transaction rollback, lost receipt
+acknowledgements, stale reviews, role changes during successor verification,
+kiosk/revoked-session rejection, concurrent admission, late web writes,
+identity resurrection, atomic joining, durable retries, expired leases and
+processing budgets. Root/mobile lint and type checks and the Next.js production
+build passed. Native code and
+native modules are unchanged by this addition.

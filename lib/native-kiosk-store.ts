@@ -3,6 +3,7 @@ import type { Pool, PoolClient } from "pg"
 import { normalizeRole } from "@/lib/household-authz"
 import { verifyInstallation } from "@/lib/native-notification-settings"
 import { KioskError, parseKioskOperation, validateKioskIdentity, type NativeKioskSession } from "@/shared/mobile/kiosk"
+import { accountAccessKey, AccountAccessError, assertAccountActive } from "@/lib/account-access"
 
 export interface KioskRow {
   id: string; user_id: string; session_id: string; device_id: string; household_id: string;
@@ -25,23 +26,29 @@ export async function readNativeKiosk(pool: Pool, accountId: string, sessionId: 
   validateKioskIdentity(deviceId, sessionId)
   const client = await pool.connect()
   try {
+    await client.query("begin")
+    if (!(await client.query("select pg_try_advisory_xact_lock_shared(hashtextextended($1,0)) as acquired",[accountAccessKey(accountId)])).rows[0].acquired) throw new AccountAccessError(429,"account_access_changing")
+    await assertAccountActive(client,accountId)
     await verifyInstallation(client, deviceId, secret)
     const previous = await readKioskForSession(client, accountId, sessionId)
     if (previous?.state === "recovered") throw new KioskError("This sign-in session has ended. Sign in again.", 401)
     const row = (await client.query<KioskRow>("select * from native_kiosk_sessions where device_id=$1 and state='locked'", [deviceId])).rows[0]
       ?? previous
     if (row && (row.user_id !== accountId || row.device_id !== deviceId)) throw new KioskError("Sign in with the parent account that enabled kiosk mode.", 403)
+    await client.query("commit")
     return { kiosk: row ? kioskSnapshot(row) : null }
-  } finally { client.release() }
+  } catch (error) {await client.query("rollback");throw error} finally { client.release() }
 }
 
-/** Session lock precedes operation, device and household locks. */
+/** Account admission precedes session, operation, device and household locks. */
 export async function saveNativeKiosk(pool: Pool, accountId: string, sessionId: string, deviceId: string, secret: string, input: unknown) {
   validateKioskIdentity(deviceId, sessionId)
   const operation = parseKioskOperation(input), client = await pool.connect()
   try {
     await client.query("begin")
     await client.query("set local lock_timeout='5s'")
+    if (!(await client.query("select pg_try_advisory_xact_lock_shared(hashtextextended($1,0)) as acquired",[accountAccessKey(accountId)])).rows[0].acquired) throw new AccountAccessError(429,"account_access_changing")
+    await assertAccountActive(client,accountId)
     // Recovery retires the old authenticated session. Lock that session before
     // the installation so an earlier task request finishes before recovery.
     const protectedSession = operation.action === "recover" ? operation.previousSessionId : sessionId

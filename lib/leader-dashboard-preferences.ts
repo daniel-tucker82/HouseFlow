@@ -1,4 +1,5 @@
-import { db } from "@/lib/db"
+import { db, kioskGateDb } from "@/lib/db"
+import { withActiveAccount } from "@/lib/account-access"
 
 export async function getHideCompletedTasksPreference(userId: string): Promise<boolean> {
   const result = await db.query<{ hide_completed_tasks: boolean }>(
@@ -11,12 +12,12 @@ export async function getHideCompletedTasksPreference(userId: string): Promise<b
 }
 
 export async function setHideCompletedTasksPreference(userId: string, hideCompletedTasks: boolean) {
-  await db.query(
+  await withActiveAccount(kioskGateDb,userId,async()=>db.query(
     `insert into leader_dashboard_preferences (user_id, hide_completed_tasks)
      values ($1, $2)
      on conflict (user_id)
      do update set hide_completed_tasks = excluded.hide_completed_tasks,
                    updated_at = now()`,
     [userId, hideCompletedTasks],
-  )
+  ))
 }

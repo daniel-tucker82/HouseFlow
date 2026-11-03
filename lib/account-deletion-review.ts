@@ -52,6 +52,12 @@ export async function reviewAccountDeletion(client: PoolClient, scope: AccountDe
   const purchases = (await client.query<{ household_id: string; id: string; provider: string; state: string }>(`select household_id,id,provider,state
     from billing_purchase_attempts where household_id=any($1::uuid[]) and state in ('reserved','submitted') and expires_at>now()
     order by household_id,id`, [owned])).rows
+  // Cleanup also concerns customer records without a subscription. Freeze their
+  // bindings without exposing provider/customer IDs to the client.
+  const bindings=(await client.query(`select household_id,'stripe' as provider,stripe_customer_id as id,'' as project,'' as environment
+    from household_billing where household_id=any($1::uuid[]) and stripe_customer_id is not null
+    union all select household_id,'native',id::text,project_id,environment from native_billing_accounts where household_id=any($1::uuid[])
+    order by household_id,provider,id`,[owned])).rows
   const permanentOwnerAccess = Boolean((await client.query("select 1 from owner_entitlements where user_id=$1", [scope.accountId])).rowCount)
   const authoredContent = emptyCounts()
   for (const row of content) authoredContent[row.kind] += row.authored
@@ -73,7 +79,7 @@ export async function reviewAccountDeletion(client: PoolClient, scope: AccountDe
         purchasePending: purchases.some(purchase => purchase.household_id === household.id),
       } : null }
   })
-  const revision = createHash("sha256").update(JSON.stringify([scope,households,members,content,billing,purchases,permanentOwnerAccess])).digest("hex")
+  const revision = createHash("sha256").update(JSON.stringify([scope,households,members,content,billing,purchases,bindings,permanentOwnerAccess])).digest("hex")
   return { ...scope,revision,reviewedAt:new Date().toISOString(),households:result,authoredContent,permanentOwnerAccess }
 }
 

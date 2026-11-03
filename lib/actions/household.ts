@@ -5,11 +5,13 @@ import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { auth } from "@clerk/nextjs/server"
 import { db } from "@/lib/db"
+import { lockActiveAccount } from "@/lib/account-access"
 import { createHouseholdWithAdmission } from "@/lib/household-admission"
 import { EntitlementError, withHouseholdWrite } from "@/lib/entitlements"
 import { enforceRequestLimit } from "@/lib/usage-controls"
 import { ensureCurrentUserRecord } from "@/lib/user-sync"
-import { createManagerNotificationEvent } from "@/lib/notifications"
+import { createManagerNotificationEventInTransaction } from "@/lib/notifications"
+import { dispatchPushForNotificationIds } from "@/lib/push"
 
 function makeInviteCode() {
   return randomUUID().replaceAll("-", "").slice(0, 12)
@@ -82,63 +84,79 @@ export async function acceptInviteByCode(code: string, userId: string) {
     throw new Error("Invite code is required.")
   }
 
-  const inviteResult = await db.query(
-    `select id, household_id, expires_at, max_uses, uses_count, is_active
-     from household_invites
-     where code = $1
-     limit 1`,
-    [inviteCode],
-  )
-  const invite = inviteResult.rows[0]
-  if (!invite) {
-    throw new Error("Invite not found.")
-  }
-
-  const isExpired = new Date(invite.expires_at).getTime() < Date.now()
-  const limitReached = invite.max_uses !== null && invite.uses_count >= invite.max_uses
-  if (!invite.is_active || isExpired || limitReached) {
-    throw new Error("Invite has expired or is inactive.")
-  }
-
-  const insertResult = await db.query(
-    `insert into household_members (household_id, user_id, role)
-     values ($1, $2, 'member')
-     on conflict (household_id, user_id)
-     do nothing`,
-    [invite.household_id, userId],
-  )
-
-  // Only consume an invite use when this actually creates a new membership.
-  if ((insertResult.rowCount ?? 0) > 0) {
-    await db.query(
-      `update household_invites
-       set uses_count = uses_count + 1
-       where id = $1`,
-      [invite.id],
+  const client=await db.connect()
+  let notificationIds: string[]=[]
+  try {
+    await client.query("begin")
+    await client.query("set local lock_timeout='2s'")
+    await lockActiveAccount(client,userId)
+    const binding=(await client.query<{household_id:string}>("select household_id from household_invites where code=$1",[inviteCode])).rows[0]
+    if(!binding) throw new Error("Invite not found.")
+    const lock=await client.query<{acquired:boolean}>("select pg_try_advisory_xact_lock(hashtextextended($1,0)) as acquired",[binding.household_id])
+    if(!lock.rows[0].acquired) throw new EntitlementError("Another household change is in progress. Please retry.",429)
+    const inviteResult = await client.query(
+      `select id, household_id, expires_at, max_uses, uses_count, is_active
+       from household_invites
+       where code = $1 and household_id=$2
+       for update`,
+      [inviteCode,binding.household_id],
     )
-    const memberInfo = await db.query<{ member_name: string; household_name: string }>(
-      `select
-          coalesce(u.full_name, u.email, u.id) as member_name,
-          h.name as household_name
-       from users u
-       join households h on h.id = $2::uuid
-       where u.id = $1
-       limit 1`,
-      [userId, invite.household_id],
+    const invite = inviteResult.rows[0]
+    if (!invite) {
+      throw new Error("Invite not found.")
+    }
+
+    const isExpired = new Date(invite.expires_at).getTime() < Date.now()
+    const limitReached = invite.max_uses !== null && invite.uses_count >= invite.max_uses
+    if (!invite.is_active || isExpired || limitReached) {
+      throw new Error("Invite has expired or is inactive.")
+    }
+
+    const insertResult = await client.query(
+      `insert into household_members (household_id, user_id, role)
+       values ($1, $2, 'member')
+       on conflict (household_id, user_id)
+       do nothing`,
+      [invite.household_id, userId],
     )
-    const memberName = String(memberInfo.rows[0]?.member_name ?? "A household member")
-    const householdName = String(memberInfo.rows[0]?.household_name ?? "household")
-    await createManagerNotificationEvent({
-      householdId: String(invite.household_id),
-      actorUserId: userId,
-      kind: "member_joined_via_link",
-      title: "New member joined",
-      body: `${memberName} has joined your ${householdName} household via link.`,
-      metadata: {
-        memberName,
-        householdName,
-        url: `/leader/dashboard?household=${encodeURIComponent(String(invite.household_id))}`,
-      },
-    })
-  }
+
+    // Only consume an invite use when this actually creates a new membership.
+    if ((insertResult.rowCount ?? 0) > 0) {
+      await client.query(
+        `update household_invites
+         set uses_count = uses_count + 1
+         where id = $1`,
+        [invite.id],
+      )
+      const memberInfo = await client.query<{ member_name: string; household_name: string }>(
+        `select
+            coalesce(u.full_name, u.email, u.id) as member_name,
+            h.name as household_name
+         from users u
+         join households h on h.id = $2::uuid
+         where u.id = $1
+         limit 1`,
+        [userId, invite.household_id],
+      )
+      const memberName = String(memberInfo.rows[0]?.member_name ?? "A household member")
+      const householdName = String(memberInfo.rows[0]?.household_name ?? "household")
+      notificationIds=await createManagerNotificationEventInTransaction(client,{
+        householdId: String(invite.household_id),
+        actorUserId: userId,
+        kind: "member_joined_via_link",
+        title: "New member joined",
+        body: `${memberName} has joined your ${householdName} household via link.`,
+        metadata: {
+          memberName,
+          householdName,
+          url: `/leader/dashboard?household=${encodeURIComponent(String(invite.household_id))}`,
+        },
+      })
+    }
+    await client.query("commit")
+  } catch(error) {
+    await client.query("rollback")
+    throw error
+  } finally {client.release()}
+  await dispatchPushForNotificationIds(notificationIds)
 }

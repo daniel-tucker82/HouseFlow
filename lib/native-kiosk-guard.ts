@@ -6,6 +6,7 @@ import { normalizeRole } from "@/lib/household-authz"
 import { KioskError, restrictKioskBoard } from "@/shared/mobile/kiosk"
 import { notificationUuid } from "@/shared/mobile/notification-settings"
 import type { BoardSnapshot, CompletionResult } from "@/shared/mobile/contracts"
+import { accountAccessKey, AccountAccessError, assertAccountActive } from "@/lib/account-access"
 
 async function restrictRequest(client: PoolClient, request: Request, row: KioskRow) {
   if (row.state === "recovered") throw new KioskError("This sign-in session has ended. Sign in again.", 401)
@@ -65,8 +66,11 @@ export async function recheckNativeKioskFlow(client: PoolClient, accountId: stri
 export async function guardNativeKioskRequest(pool: Pool, request: Request, accountId: string, sessionId: string,
   work: (request: Request) => Promise<Response>) {
   const client = await pool.connect(), key = kioskSessionKey(sessionId)
-  let locked = false
+  let locked = false, accountLocked = false
   try {
+    accountLocked = (await client.query<{ locked: boolean }>("select pg_try_advisory_lock_shared(hashtextextended($1,0)) as locked", [accountAccessKey(accountId)])).rows[0].locked
+    if (!accountLocked) throw new AccountAccessError(429,"account_access_changing")
+    await assertAccountActive(client,accountId)
     locked = (await client.query<{ locked: boolean }>("select pg_try_advisory_lock_shared(hashtextextended($1,0)) as locked", [key])).rows[0].locked
     if (!locked) throw new KioskError("Kiosk mode is changing. Please try again.", 429)
     const row = await readKioskForSession(client, accountId, sessionId)
@@ -80,7 +84,11 @@ export async function guardNativeKioskRequest(pool: Pool, request: Request, acco
     const responseRequest = restricted.clone()
     return await restrictResponse(client, responseRequest, await work(restricted), row)
   } finally {
-    try { if (locked) await client.query("select pg_advisory_unlock_shared(hashtextextended($1,0))", [key]); client.release() }
+    try {
+      if (locked) await client.query("select pg_advisory_unlock_shared(hashtextextended($1,0))", [key])
+      if (accountLocked) await client.query("select pg_advisory_unlock_shared(hashtextextended($1,0))", [accountAccessKey(accountId)])
+      client.release()
+    }
     catch { client.release(true) }
   }
 }
@@ -91,7 +99,7 @@ export async function withNativeKioskRequest(request: Request, work: (request: R
   if (expectedSession && expectedSession !== sessionId) return Response.json({ error: "Your sign-in changed. Please try again." }, { status: 403 })
   try { return await guardNativeKioskRequest(kioskGateDb, request, userId, sessionId, work) }
   catch (error) {
-    if (error instanceof KioskError) return Response.json({ error: error.message, ...(error.code ? { code: error.code } : {}) }, { status: error.status, headers: { "Cache-Control": "no-store" } })
+    if (error instanceof KioskError || error instanceof AccountAccessError) return Response.json({ error: error.message, ...(error.code ? { code: error.code } : {}) }, { status: error.status, headers: { "Cache-Control": "no-store" } })
     console.error("[native-kiosk] Unable to check device restrictions", { name: error instanceof Error ? error.name : "UnknownError", code: (error as { code?: string })?.code })
     return Response.json({ error: "Unable to verify device access. Please try again." }, { status: 503 })
   }

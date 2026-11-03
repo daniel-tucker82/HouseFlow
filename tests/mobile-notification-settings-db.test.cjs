@@ -17,16 +17,17 @@ test('native notification settings isolate devices/households/accounts and safel
   const db = new Pool({ connectionString: url, options: `-c search_path=${schema}`, max: 6 })
   const kioskGateDb = new Pool({ connectionString: url, options: `-c search_path=${schema}`, max: 2 })
   t.after(async () => { await Promise.all([db.end(), kioskGateDb.end()]); await admin.query(`drop schema ${schema} cascade`); await admin.end() })
-  await db.query(`create table users(id text primary key); create table households(id uuid primary key,timezone text);
+  await db.query(`create table users(id text primary key); create table households(id uuid primary key,timezone text,leader_id text);
     create table household_members(household_id uuid,user_id text,role text,primary key(household_id,user_id))`)
   const migration = readFileSync(path.resolve(__dirname, '../database/0024_native_notification_settings.sql'), 'utf8')
   await db.query(migration); await db.query(migration)
   await db.query(readFileSync(path.resolve(__dirname, '../database/0027_native_notification_sessions.sql'), 'utf8'))
   await db.query(readFileSync(path.resolve(__dirname, '../database/0028_native_kiosk_sessions.sql'), 'utf8'))
   await db.query(readFileSync(path.resolve(__dirname, '../database/0029_native_kiosk_recovery_receipts.sql'), 'utf8'))
+  await db.query(readFileSync(path.resolve(__dirname, '../database/0034_account_deletion_requests.sql'), 'utf8'))
   await db.query("insert into users values('parent'),('other'),('daughter'),('son')")
   const household = randomUUID(), secondHousehold = randomUUID(), privateHousehold = randomUUID(), phone = randomUUID(), tablet = randomUUID()
-  await db.query("insert into households values($1,'Australia/Sydney'),($2,'UTC'),($3,'UTC')", [household, secondHousehold, privateHousehold])
+  await db.query("insert into households(id,timezone) values($1,'Australia/Sydney'),($2,'UTC'),($3,'UTC')", [household, secondHousehold, privateHousehold])
   await db.query("insert into household_members values($1,'parent','manager'),($1,'daughter','member'),($1,'son','member'),($2,'parent','manager'),($3,'other','manager')", [household, secondHousehold, privateHousehold])
   let userId = 'parent'
   let sessionId = 'sess_parent'

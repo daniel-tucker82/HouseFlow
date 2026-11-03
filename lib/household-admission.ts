@@ -2,6 +2,7 @@ import { db } from "@/lib/db"
 import { ensurePermanentOwnerGrant, EntitlementError } from "@/lib/entitlements"
 import { clerkClient } from "@clerk/nextjs/server"
 import { paidHouseholdAccessSql } from "@/lib/billing-access"
+import { lockActiveAccount } from "@/lib/account-access"
 
 export async function createHouseholdWithAdmission(userId: string, name: string, timezone: string) {
   if (name.length < 2 || name.length > 120) throw new EntitlementError("Household name must be 2–120 characters.", 400)
@@ -13,6 +14,7 @@ export async function createHouseholdWithAdmission(userId: string, name: string,
   const client = await db.connect()
   try {
     await client.query("begin")
+    await lockActiveAccount(client,userId)
     // One admission lock makes global and per-account limits atomic across both write paths.
     const lock = await client.query("select pg_try_advisory_xact_lock(hashtextextended('cyntch-free-admission', 0)) as acquired")
     if (!lock.rows[0].acquired) throw new EntitlementError("Please retry household creation shortly.", 429)
