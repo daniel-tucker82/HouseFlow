@@ -13,7 +13,13 @@ export default clerkMiddleware(
       await auth.protect()
     }
   },
-  { signInUrl: "/auth/login", signUpUrl: "/auth/signup" },
+  {
+    signInUrl: "/auth/login",
+    signUpUrl: "/auth/signup",
+    // Preview Clerk requests use /__clerk; the SDK forwards them with its
+    // authenticated proxy headers while production retains its existing DNS setup.
+    frontendApiProxy: { enabled: process.env.VERCEL_ENV === "preview" },
+  },
 )
 
 export const config = {
