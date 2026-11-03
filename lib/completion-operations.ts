@@ -39,6 +39,7 @@ export async function findCompletionReceipt(client: PoolClient, userId: string, 
     [userId, operation.version.operationId])
   if (!result.rows[0]) return null
   if (result.rows[0].request_hash !== operation.requestHash) throw new CompletionOperationError("Operation ID was already used for a different change", 409)
+  if ((result.rows[0].result as CompletionResult & {dataRemoved?:boolean}).dataRemoved) throw new CompletionOperationError("This saved response included data that has been removed. Refresh the household.",410)
   return result.rows[0].result
 }
 

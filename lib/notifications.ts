@@ -270,6 +270,7 @@ export async function createUnlockNotifications(client: PoolClient, input: Unloc
 export async function createManagerNotificationEvent(input: {
   householdId: string
   actorUserId: string | null
+  subjectMemberId?: string
   kind: "routine_occurrence_generated" | "member_joined_via_link" | "member_left_household"
   title: string
   body: string
@@ -295,6 +296,7 @@ export async function createManagerNotificationEventInTransaction(
   input: {
     householdId: string
     actorUserId: string | null
+    subjectMemberId?: string
     kind: "routine_occurrence_generated" | "member_joined_via_link" | "member_left_household"
     title: string
     body: string
@@ -304,8 +306,8 @@ export async function createManagerNotificationEventInTransaction(
   const createdNotificationIds: string[] = []
   await ensureDefaultNotificationPreferences(client, input.householdId)
   const eventRes = await client.query<{ id: string }>(
-    `insert into notification_events (household_id, kind, actor_user_id, metadata)
-     values ($1::uuid, $2::notification_kind, $3, $4::jsonb)
+    `insert into notification_events (household_id, kind, actor_user_id, metadata,subject_member_user_id)
+     values ($1::uuid, $2::notification_kind, $3, $4::jsonb,$5)
      returning id`,
     [
       input.householdId,
@@ -317,6 +319,7 @@ export async function createManagerNotificationEventInTransaction(
           (input.metadata?.url as string | undefined) ??
           `/leader/dashboard?household=${encodeURIComponent(input.householdId)}`,
       }),
+      input.subjectMemberId ?? null,
     ],
   )
   const eventId = String(eventRes.rows[0]?.id ?? "")

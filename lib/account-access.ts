@@ -23,6 +23,19 @@ export async function lockActiveAccount(client: Pick<PoolClient,"query">, accoun
   catch (error) { throw accountAccessDatabaseError(error) ?? error }
 }
 
+/** All reads/validation and writes in work use this client. */
+export async function withActiveAccountTransaction<T>(pool: Pool, accountId: string, work: (client: PoolClient) => Promise<T>) {
+  const client=await pool.connect()
+  try {
+    await client.query("begin")
+    await client.query("set local lock_timeout='2s'")
+    await lockActiveAccount(client,accountId)
+    const result=await work(client)
+    await client.query("commit")
+    return result
+  } catch(error) {await client.query("rollback");throw error} finally {client.release()}
+}
+
 /** Admission for a server action spanning multiple queries/transactions. Use
  * the separate admission pool, not the pool needed by work's own queries. */
 export async function withActiveAccount<T>(pool: Pool, accountId: string, work: () => Promise<T>): Promise<T> {

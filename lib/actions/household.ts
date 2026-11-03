@@ -143,6 +143,7 @@ export async function acceptInviteByCode(code: string, userId: string) {
       notificationIds=await createManagerNotificationEventInTransaction(client,{
         householdId: String(invite.household_id),
         actorUserId: userId,
+        subjectMemberId: userId,
         kind: "member_joined_via_link",
         title: "New member joined",
         body: `${memberName} has joined your ${householdName} household via link.`,

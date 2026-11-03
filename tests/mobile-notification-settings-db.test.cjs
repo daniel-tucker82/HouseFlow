@@ -43,6 +43,7 @@ test('native notification settings isolate devices/households/accounts and safel
   }
   mocks['@/shared/mobile/notification-catalog'] = load('shared/mobile/notification-catalog.ts', true)
   mocks['@/shared/mobile/notification-settings'] = load('shared/mobile/notification-settings.ts', true)
+  mocks['@/lib/account-access'] = load('lib/account-access.ts', true)
   mocks['@/lib/native-notification-settings'] = load('lib/native-notification-settings.ts')
   const { defaultNotificationPreferences } = mocks['@/shared/mobile/notification-catalog']
   mocks['@/lib/native-kiosk-guard'] = require('./helpers/native-kiosk.cjs').loadNativeKiosk(mocks)

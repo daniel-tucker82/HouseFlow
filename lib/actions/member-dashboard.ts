@@ -2,8 +2,8 @@
 
 import { revalidatePath } from "next/cache"
 import { auth } from "@clerk/nextjs/server"
-import { db, kioskGateDb } from "@/lib/db"
-import { withActiveAccount } from "@/lib/account-access"
+import { db } from "@/lib/db"
+import { withActiveAccountTransaction } from "@/lib/account-access"
 import { normalizeRole } from "@/lib/household-authz"
 import { ensureCurrentUserRecord } from "@/lib/user-sync"
 
@@ -22,15 +22,15 @@ export async function saveMemberDashboardLanePreferences(
     return { ok: false, error: "Unauthorized" }
   }
 
-  return withActiveAccount(kioskGateDb,userId,async():Promise<SaveMemberDashboardLanePreferencesResult>=>{
+  return withActiveAccountTransaction(db,userId,async(client):Promise<SaveMemberDashboardLanePreferencesResult>=>{
 
     const hh = householdId.trim()
     if (!hh) {
       return { ok: false, error: "householdId is required" }
     }
 
-    const membership = await db.query<{ role: string }>(
-      `select role from household_members where household_id = $1::uuid and user_id = $2`,
+    const membership = await client.query<{ role: string }>(
+      `select role from household_members where household_id = $1::uuid and user_id = $2 for share`,
       [hh, userId],
     )
     const effective = normalizeRole(membership.rows[0]?.role)
@@ -38,8 +38,8 @@ export async function saveMemberDashboardLanePreferences(
       return { ok: false, error: "Only managers and supervisors can save lane preferences." }
     }
 
-    const members = await db.query<{ user_id: string }>(
-      `select user_id from household_members where household_id = $1::uuid`,
+    const members = await client.query<{ user_id: string }>(
+      `select user_id from household_members where household_id = $1::uuid order by user_id for share`,
       [hh],
     )
     const valid = new Set(members.rows.map((r) => r.user_id))
@@ -53,7 +53,7 @@ export async function saveMemberDashboardLanePreferences(
     const editableStored = editable.length > 0 ? editable : visible
 
     try {
-      await db.query(
+      await client.query(
         `insert into member_dashboard_lane_preferences (
            user_id, household_id, visible_member_ids, editable_member_ids, updated_at
          )

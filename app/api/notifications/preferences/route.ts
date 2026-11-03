@@ -1,4 +1,5 @@
 import { withNativeKioskRequest } from "@/lib/native-kiosk-guard"
+import { withActiveAccountTransaction } from "@/lib/account-access"
 import { NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
 import { db } from "@/lib/db"
@@ -78,65 +79,71 @@ async function handlePOST(request: Request) {
     ? body.rewardUnlockedOtherMemberIds.map((id: unknown) => String(id).trim()).filter(Boolean)
     : []
 
-  const isManager = membership.role === "manager"
-  const canSeeOther = membership.role === "manager" || membership.role === "supervisor"
+  return withActiveAccountTransaction(db,userId,async client=>{
+    const members=(await client.query<{user_id:string;role:string}>("select user_id,role from household_members where household_id=$1 order by user_id for share",[householdId])).rows
+    const role=members.find(member=>member.user_id===userId)?.role
+    if(!role) return NextResponse.json({error:"Forbidden"},{status:403})
+    const memberIds=new Set(members.map(member=>member.user_id))
+    const isManager = role === "manager"
+    const canSeeOther = role === "manager" || role === "supervisor"
 
-  const result = await db.query(
-    `insert into notification_preferences (
-       user_id, household_id,
-       task_unlocked_self_enabled,
-       task_unlocked_other_enabled,
-       reward_unlocked_self_enabled,
-       reward_unlocked_other_enabled,
-       routine_occurrence_generated_enabled,
-       member_joined_via_link_enabled,
-       member_left_household_enabled,
-       task_unlocked_other_member_ids,
-       reward_unlocked_other_member_ids,
-       updated_at
-     )
-     values (
-       $1,
-       $2::uuid,
-       $3,
-       $4,
-       $5,
-       $6,
-       $7,
-       $8,
-       $9,
-       $10::jsonb,
-       $11::jsonb,
-       now()
-     )
-     on conflict (user_id, household_id)
-     do update set
-       task_unlocked_self_enabled = excluded.task_unlocked_self_enabled,
-       task_unlocked_other_enabled = excluded.task_unlocked_other_enabled,
-       reward_unlocked_self_enabled = excluded.reward_unlocked_self_enabled,
-       reward_unlocked_other_enabled = excluded.reward_unlocked_other_enabled,
-       routine_occurrence_generated_enabled = excluded.routine_occurrence_generated_enabled,
-       member_joined_via_link_enabled = excluded.member_joined_via_link_enabled,
-       member_left_household_enabled = excluded.member_left_household_enabled,
-       task_unlocked_other_member_ids = excluded.task_unlocked_other_member_ids,
-       reward_unlocked_other_member_ids = excluded.reward_unlocked_other_member_ids,
-       updated_at = now()
-     returning *`,
-    [
-      userId,
-      householdId,
-      taskUnlockedSelfEnabled,
-      canSeeOther ? taskUnlockedOtherEnabled : false,
-      rewardUnlockedSelfEnabled,
-      canSeeOther ? rewardUnlockedOtherEnabled : false,
-      isManager ? routineOccurrenceGeneratedEnabled : false,
-      isManager ? memberJoinedViaLinkEnabled : false,
-      isManager ? memberLeftHouseholdEnabled : false,
-      JSON.stringify(canSeeOther ? taskUnlockedOtherMemberIds : []),
-      JSON.stringify(canSeeOther ? rewardUnlockedOtherMemberIds : []),
-    ],
-  )
-  return NextResponse.json({ preferences: result.rows[0] ?? null })
+    const result = await client.query(
+      `insert into notification_preferences (
+         user_id, household_id,
+         task_unlocked_self_enabled,
+         task_unlocked_other_enabled,
+         reward_unlocked_self_enabled,
+         reward_unlocked_other_enabled,
+         routine_occurrence_generated_enabled,
+         member_joined_via_link_enabled,
+         member_left_household_enabled,
+         task_unlocked_other_member_ids,
+         reward_unlocked_other_member_ids,
+         updated_at
+       )
+       values (
+         $1,
+         $2::uuid,
+         $3,
+         $4,
+         $5,
+         $6,
+         $7,
+         $8,
+         $9,
+         $10::jsonb,
+         $11::jsonb,
+         now()
+       )
+       on conflict (user_id, household_id)
+       do update set
+         task_unlocked_self_enabled = excluded.task_unlocked_self_enabled,
+         task_unlocked_other_enabled = excluded.task_unlocked_other_enabled,
+         reward_unlocked_self_enabled = excluded.reward_unlocked_self_enabled,
+         reward_unlocked_other_enabled = excluded.reward_unlocked_other_enabled,
+         routine_occurrence_generated_enabled = excluded.routine_occurrence_generated_enabled,
+         member_joined_via_link_enabled = excluded.member_joined_via_link_enabled,
+         member_left_household_enabled = excluded.member_left_household_enabled,
+         task_unlocked_other_member_ids = excluded.task_unlocked_other_member_ids,
+         reward_unlocked_other_member_ids = excluded.reward_unlocked_other_member_ids,
+         updated_at = now()
+       returning *`,
+      [
+        userId,
+        householdId,
+        taskUnlockedSelfEnabled,
+        canSeeOther ? taskUnlockedOtherEnabled : false,
+        rewardUnlockedSelfEnabled,
+        canSeeOther ? rewardUnlockedOtherEnabled : false,
+        isManager ? routineOccurrenceGeneratedEnabled : false,
+        isManager ? memberJoinedViaLinkEnabled : false,
+        isManager ? memberLeftHouseholdEnabled : false,
+        JSON.stringify(canSeeOther ? taskUnlockedOtherMemberIds.filter((id:string)=>memberIds.has(id)) : []),
+        JSON.stringify(canSeeOther ? rewardUnlockedOtherMemberIds.filter((id:string)=>memberIds.has(id)) : []),
+      ],
+    )
+    return NextResponse.json({ preferences: result.rows[0] ?? null })
+  })
 }
 
 export function GET(request: Request) { return withNativeKioskRequest(request, handleGET) }

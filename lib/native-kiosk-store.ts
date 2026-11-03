@@ -91,7 +91,7 @@ export async function saveNativeKiosk(pool: Pool, accountId: string, sessionId: 
         await client.query("select pg_advisory_xact_lock(hashtextextended($1,0))", [operation.householdId])
         const membership = (await client.query<{ role: string }>("select role from household_members where household_id=$1 and user_id=$2 for share", [operation.householdId, accountId])).rows[0]
         if (!membership || normalizeRole(membership.role) !== "manager") throw new KioskError("Only a household manager can enable kiosk mode.", 403)
-        const members = (await client.query<{ user_id: string }>("select user_id from household_members where household_id=$1", [operation.householdId])).rows.map(member => member.user_id)
+        const members = (await client.query<{ user_id: string }>("select user_id from household_members where household_id=$1 order by user_id for share", [operation.householdId])).rows.map(member => member.user_id)
         if (operation.visibleMemberIds.some(id => !members.includes(id))) throw new KioskError("A selected member is no longer in this household.", 409)
         row = (await client.query<KioskRow>(`insert into native_kiosk_sessions(id,user_id,session_id,device_id,household_id,visible_member_ids,editable_member_ids,exit_secret_hash,request_hash)
           values($1,$2,$3,$4,$5,$6,$7,$8,$9) returning *`,

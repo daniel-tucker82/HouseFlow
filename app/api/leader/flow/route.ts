@@ -1478,6 +1478,7 @@ async function handleFlowPost(request: Request, context?: {
       householdId,
       actorUserId: userId,
       kind: "member_left_household",
+      subjectMemberId: memberUserId,
       title: "Household member left",
       body: `${memberName} has left your ${householdName} household.`,
       metadata: {

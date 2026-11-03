@@ -35,6 +35,7 @@ export async function findPlannerCreation(client: PoolClient, householdId: strin
     [householdId, userId, creation.id])).rows[0]
   if (!row) return null
   if (row.action !== creation.action || row.request_hash !== creation.hash) throw new PlannerCreationError("This saved request was already used for different details.", 409)
+  if (row.result.dataRemoved === true) throw new PlannerCreationError("This saved response included data that has been removed. Refresh the household.", 410)
   const exists = await client.query(creation.action === "createRoutine" || creation.action === "saveRoutineSchedule"
     ? "select id from routines where id=$1::uuid and household_id=$2::uuid"
     : creation.action === "createOccurrence"

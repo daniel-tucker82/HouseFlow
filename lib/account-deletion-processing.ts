@@ -5,7 +5,7 @@ import type { AccountDeletionWork } from "@/lib/account-deletion-requests"
 type Phase = keyof AccountDeletionWork["phases"]
 const phases: Phase[] = ["data","stripe","native","identity"]
 export interface AccountDeletionJob {
-  id: string; accountId: string; work: AccountDeletionWork
+  id: string; accountId: string; leaseId: string; work: AccountDeletionWork
 }
 /** Each adapter must be idempotent for job.id and verify its actual result.
  * Provider network calls must have bounded timeouts. An interrupted/expired
@@ -32,7 +32,7 @@ export async function processAccountDeletions(pool: Pool, adapters: AccountDelet
       from due where r.id=due.id returning r.id,r.account_id,r.work,r.lease_id`,[leaseId])).rows[0]
     if(!row) break
     result.claimed++
-    const job:AccountDeletionJob={id:row.id,accountId:row.account_id,work:row.work}
+    const job:AccountDeletionJob={id:row.id,accountId:row.account_id,leaseId,work:row.work}
     try {
       let current=true
       for(const phase of phases) {

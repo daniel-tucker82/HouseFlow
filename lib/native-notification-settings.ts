@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from "node:crypto"
 import type { PoolClient } from "pg"
 import { db } from "@/lib/db"
 import { normalizeRole } from "@/lib/household-authz"
+import { accountAccessKey, accountHash } from "@/lib/account-access"
 import { defaultNotificationPreferences, type DeviceNotificationPreferences } from "@/shared/mobile/notification-catalog"
 import { NotificationSettingsError, notificationUuid, notificationSessionId, parseNotificationSettingsOperation, restrictNotificationPreferences,
   type NativeNotificationDevice, type NotificationSettingsSnapshot, type NotificationSettingsOperation } from "@/shared/mobile/notification-settings"
@@ -25,7 +26,7 @@ async function membership(client: PoolClient, userId: string, householdId: strin
   const row = (await client.query<{ role: string; timezone: string }>(`select hm.role,h.timezone from household_members hm join households h on h.id=hm.household_id
     where hm.household_id=$1 and hm.user_id=$2${lock ? " for share of hm" : ""}`, [householdId, userId])).rows[0]
   if (!row) throw new NotificationSettingsError("Household access is no longer available.", 403)
-  const memberIds = (await client.query<{ user_id: string }>("select user_id from household_members where household_id=$1", [householdId])).rows.map(member => member.user_id)
+  const memberIds = (await client.query<{ user_id: string }>(`select user_id from household_members where household_id=$1${lock ? " order by user_id for share" : ""}`, [householdId])).rows.map(member => member.user_id)
   return { role: normalizeRole(row.role), timezone: row.timezone || "UTC", memberIds }
 }
 
@@ -124,6 +125,11 @@ export async function revokeNativeNotificationSession(deviceId: string, secret: 
   const client = await db.connect()
   try {
     await client.query("begin")
+    if(!(await client.query("select pg_try_advisory_xact_lock_shared(hashtextextended($1,0)) as acquired",[accountAccessKey(accountId)])).rows[0].acquired) throw new NotificationSettingsError("Account access is changing. Please retry.",429)
+    if((await client.query("select 1 from account_deletion_requests where account_hash=$1",[accountHash(accountId)])).rowCount) {
+      await verifyInstallation(client,deviceId,secret)
+      await client.query("commit");return {deviceId,accountId,sessionId,revoked:true}
+    }
     await client.query("select pg_advisory_xact_lock(hashtextextended($1,0))", [`native-device:${deviceId}`])
     await verifyInstallation(client, deviceId, secret, true)
     await client.query(`insert into native_notification_revocations(device_id,account_id,session_id) values($1,$2,$3) on conflict do nothing`, [deviceId, accountId, sessionId])

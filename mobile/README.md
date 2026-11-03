@@ -955,7 +955,7 @@ provider state was changed.
 The final general regression run passed 295 checks. Root/mobile lint and type
 checks, the Next.js production build and Android/iOS JavaScript exports passed.
 
-Next work is the cleanup adapters, current-session/reverification checks at the
+Next work is the provider cleanup adapters, current-session/reverification checks at the
 HTTP confirmation boundary, safe handling of subscriptions, personal data
 removal at Cyntch and its providers, local data cleanup, native confirmation UI,
 and the web deletion path. Account deletion
@@ -1001,9 +1001,10 @@ when its budget is spent. Only after all phases succeed does it clear raw
 account/provider identifiers, retaining the opaque account hash and outcome to
 prevent resurrection.
 
-**The cleanup adapters and scheduler wiring are not implemented.** Phase tests
-substitute provider effects to verify coordination; they do not prove that any
-live identity, billing customer or personal data has been erased. Do not expose
+**Provider cleanup adapters and scheduler wiring are not implemented.** The
+PostgreSQL data adapter is implemented below. Phase tests substitute provider
+effects to verify coordination; they do not prove that a live identity or
+billing customer has been erased. Do not expose
 acceptance until those adapters, status recovery, disclosures and confirmation
 flows are implemented and verified. Shared authored content, notification
 snapshots, orphan profiles, store subscription handling, out-of-band identity
@@ -1017,3 +1018,52 @@ identity resurrection, atomic joining, delayed entitlement grants, durable retri
 processing budgets. Root/mobile lint and type checks and the Next.js production
 build passed. Native code and
 native modules are unchanged by this addition.
+
+### Account data cleanup
+
+Apply `database/0035_account_data_cleanup.sql` before using the data adapter.
+It has been exercised only in disposable local test schemas. It allows an
+existing locked kiosk to retain an empty member selection after a removal;
+new kiosk activation still requires a nonempty selection. It also removes
+untraceable display-name copies from old membership notification messages,
+preserving their history entries with generic text. New membership events
+record their subject's user ID so cleanup can identify the relevant copies.
+
+`deleteAccountData()` uses the accepted request's stored scope and checks its
+current lease. One PostgreSQL transaction removes the departing account's
+authored tasks, routines and runs, personal records, notification copies,
+preferences and device records. It deletes orphan profiles without sign-in
+only after rechecking that no household still uses them. Shared installations
+remain available to their other accounts.
+
+Other authors' tasks are preserved: their template tasks move to a neutral
+one-off template, their tasks in a departing author's run move to a neutral
+manual run, and their independently started runs detach from the removed
+template. Task IDs, assignments, statuses, dependencies between surviving
+tasks and completion ordering survive. Replacement containers retain no
+departing author's names, recurrence or schedule. The confirmation flow must
+explain this consequence before accepting a deletion.
+
+Saved operation receipts retain their immutable IDs and request hashes to
+prevent duplicate execution, but erased response snapshots become a marker
+that returns HTTP 410 and requires refresh. Pending purchase reservations
+retain their protection against duplicate subscriptions while their actor,
+session and device fields are scrubbed. Provider identifiers remain only for
+the later provider cleanup phases. Exact acceptance retries and late sign-out
+retries cannot recreate erased installation or revocation records.
+
+Seven real PostgreSQL tests cover mixed authorship, private-data copies,
+lease/scope checks, rollback and durable retry, an orphan profile adopted by
+another household, late preference writes, reservation preservation, migration
+reapplication and an empty kiosk remaining locked. Cached copies on other
+devices, provider erasure, the HTTP mutation/status boundary, web/native
+confirmation and local queue/cache removal remain part of the unfinished
+end-to-end deletion workflow.
+
+Verification on 2026-11-04: all 338 general checks passed with file concurrency
+limited to four, and 19 isolated web billing checks passed. A previous run
+overlapped the build and native exports and timed out one existing planner
+test; that test passed independently and in the final complete run without
+changing its timeout or assertions. Root/mobile lint and type checks, the
+Next.js production build and Android/iOS JavaScript exports passed. No live
+account, provider or production database was changed.

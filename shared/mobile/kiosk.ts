@@ -25,12 +25,15 @@ export function parseNativeKioskSession(input: unknown): NativeKioskSession {
   if (typeof value.accountId !== "string" || !value.accountId || typeof value.deviceId !== "string" || typeof value.sessionId !== "string"
     || !["locked", "unlocked", "recovered"].includes(String(value.state))) throw new KioskError("The device lock could not be read safely.")
   validateKioskIdentity(value.deviceId, value.sessionId)
-  const settings = parseKioskOperation({ ...value, action: "activate", exitSecret: "0".repeat(64) })
+  const settings = parseKioskSettings({ ...value, action: "activate", exitSecret: "0".repeat(64) },true)
   if (settings.action !== "activate") throw new KioskError("The device lock could not be read safely.")
   return { id: settings.id, accountId: value.accountId, deviceId: value.deviceId, sessionId: value.sessionId,
     householdId: settings.householdId, visibleMemberIds: settings.visibleMemberIds, editableMemberIds: settings.editableMemberIds, state: value.state as NativeKioskSession["state"] }
 }
 export function parseKioskOperation(input: unknown): NativeKioskOperation {
+  return parseKioskSettings(input,false)
+}
+function parseKioskSettings(input: unknown, allowEmpty: boolean): NativeKioskOperation {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new KioskError("Choose valid kiosk settings.")
   const value = input as Record<string, unknown>
   if (typeof value.id !== "string" || !notificationUuid.test(value.id)) throw new KioskError("Choose a valid kiosk session.")
@@ -46,7 +49,7 @@ export function parseKioskOperation(input: unknown): NativeKioskOperation {
     return [...new Set(input as string[])].sort()
   }
   const visibleMemberIds = ids(value.visibleMemberIds), editableMemberIds = ids(value.editableMemberIds)
-  if (!visibleMemberIds.length || editableMemberIds.some(id => !visibleMemberIds.includes(id))) throw new KioskError("Choose visible members before allowing their tasks to be changed.")
+  if ((!allowEmpty && !visibleMemberIds.length) || editableMemberIds.some(id => !visibleMemberIds.includes(id))) throw new KioskError("Choose visible members before allowing their tasks to be changed.")
   return { action: "activate", id: value.id, householdId: value.householdId, visibleMemberIds, editableMemberIds, exitSecret: value.exitSecret }
 }
 

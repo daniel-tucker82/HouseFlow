@@ -15,6 +15,8 @@ export interface AccountDeletionWork {
   stripe: { householdId: string; customerId: string | null; subscriptionId: string | null; action: "delete" | "transfer" }[]
   retiredNativeAccounts: { id: string; projectId: string; environment: "production" | "sandbox" }[]
   orphanProfileIds: string[]
+  householdIds: string[]
+  deviceIds: string[]
   phases: { data: boolean; stripe: boolean; native: boolean; identity: boolean }
 }
 type RequestRow = { id: string; account_hash: string; request_hash: string; state: AccountDeletionReceipt["state"]; created_at: Date; completed_at: Date | null }
@@ -45,11 +47,13 @@ export async function acceptAccountDeletion(pool: Pool, scope: AccountDeletionSc
     if (!(await client.query("select pg_try_advisory_xact_lock(hashtextextended($1,0)) as acquired",[accountAccessKey(scope.accountId)])).rows[0].acquired) throw busy()
     if (!(await client.query("select pg_try_advisory_xact_lock_shared(hashtextextended($1,0)) as acquired",[kioskSessionKey(scope.sessionId)])).rows[0].acquired) throw busy()
     if (!(await client.query("select pg_try_advisory_xact_lock(hashtextextended($1,0)) as acquired",[`native-device:${scope.deviceId}`])).rows[0].acquired) throw busy()
-    await verifyInstallation(client,scope.deviceId,secret,true)
+    const existing=(await client.query<RequestRow>("select * from account_deletion_requests where account_hash=$1 or id=$2",[accountHash(scope.accountId),intent.operationId])).rows
+    // A lost receipt may be retried after data cleanup removed this installation.
+    // Replaying an accepted request must never recreate erased device records.
+    await verifyInstallation(client,scope.deviceId,secret,existing.length===0)
     if ((await client.query("select 1 from native_notification_revocations where account_id=$1 and device_id=$2 and session_id=$3",[scope.accountId,scope.deviceId,scope.sessionId])).rowCount) throw new AccountDeletionError("This sign-in session has ended.",403,"account_session_ended")
     const kiosk=await readKioskForSession(client,scope.accountId,scope.sessionId)
     if ((kiosk && kiosk.state!=="unlocked") || (await client.query("select 1 from native_kiosk_sessions where device_id=$1 and state='locked'",[scope.deviceId])).rowCount) throw new AccountDeletionError("Unlock kiosk mode before deleting an account.",423)
-    const existing=(await client.query<RequestRow>("select * from account_deletion_requests where account_hash=$1 or id=$2",[accountHash(scope.accountId),intent.operationId])).rows
     if (existing.length) {
       const saved=existing.find(row=>row.account_hash===accountHash(scope.accountId))
       if (!saved || saved.id!==intent.operationId || saved.request_hash!==fingerprint || existing.length!==1) throw new AccountDeletionError("A different deletion request already exists. Check its status.",409,"account_deletion_request_exists")
@@ -59,7 +63,9 @@ export async function acceptAccountDeletion(pool: Pool, scope: AccountDeletionSc
     const lockedUser=await client.query("select id from users where id=$1 for update",[scope.accountId])
     if (!lockedUser.rowCount) throw new AccountDeletionError("Your account is no longer available.",404,"account_unavailable")
     const households=(await client.query<{id:string}>(`select distinct h.id from households h left join household_members hm on hm.household_id=h.id
-      where h.leader_id=$1 or hm.user_id=$1 order by h.id`,[scope.accountId])).rows
+      where h.leader_id=$1 or hm.user_id=$1 or h.id in (
+        select household_id from routines where created_by=$1 union select household_id from tasks where created_by=$1
+        union select household_id from routine_occurrences where created_by=$1) order by h.id`,[scope.accountId])).rows
     for (const household of households) {
       if (!(await client.query("select pg_try_advisory_xact_lock(hashtextextended($1,0)) as acquired",[household.id])).rows[0].acquired) throw busy()
     }
@@ -75,7 +81,12 @@ export async function acceptAccountDeletion(pool: Pool, scope: AccountDeletionSc
     const orphanProfileIds=(await client.query<{id:string}>(`select u.id from users u where u.id like 'local\\_member\\_%' escape '\\'
       and exists(select 1 from household_members hm where hm.user_id=u.id and hm.household_id=any($1::uuid[]))
       and not exists(select 1 from household_members hm where hm.user_id=u.id and not hm.household_id=any($1::uuid[])) order by u.id`,[deleting])).rows.map(row=>row.id)
-    const work:AccountDeletionWork={stripe:stripeRows.map(row=>({householdId:row.household_id,customerId:row.stripe_customer_id,subscriptionId:row.stripe_subscription_id,
+    const deviceIds=(await client.query<{id:string}>(`select $2::uuid as id union select device_id from native_notification_devices where user_id=$1
+      union select device_id from native_kiosk_sessions where user_id=$1 union select device_id from native_kiosk_recoveries where user_id=$1
+      union select device_id from native_kiosk_cancellations where user_id=$1 union select device_id from native_notification_revocations where account_id=$1
+      union select device_id from native_notification_operations where user_id=$1 union select device_id from native_notification_history_entries where user_id=$1
+      union select device_id from native_notification_history_markers where user_id=$1`,[scope.accountId,scope.deviceId])).rows.map(row=>row.id)
+    const work:AccountDeletionWork={householdIds:households.map(row=>row.id),deviceIds,stripe:stripeRows.map(row=>({householdId:row.household_id,customerId:row.stripe_customer_id,subscriptionId:row.stripe_subscription_id,
       action:intent.ownership.find(choice=>choice.householdId===row.household_id)!.action})),retiredNativeAccounts,orphanProfileIds,phases:{data:false,stripe:false,native:false,identity:false}}
     const saved=(await client.query<RequestRow>(`insert into account_deletion_requests(id,account_hash,account_id,request_hash,work)
       values($1,$2,$3,$4,$5) returning *`,[intent.operationId,accountHash(scope.accountId),scope.accountId,fingerprint,JSON.stringify(work)])).rows[0]
