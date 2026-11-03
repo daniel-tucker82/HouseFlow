@@ -114,6 +114,25 @@ actions currently require a connection; extending interruption recovery to those
 remaining management actions is still required. Automatic cross-device refresh
 and its five-second target also remain to be implemented and measured.
 
+The native notification settings API (`/api/mobile/notifications`) is separate
+from the old web/account-wide preferences. Migration `0024_native_notification_settings.sql`
+adds registrations and preferences scoped to account, installation and household.
+The client must retain a random 32-byte hexadecimal installation secret in secure
+storage and send it as `X-Cyntch-Installation`, alongside the existing account and
+device headers. Registration and preference writes include a frozen operation ID
+and the last server revision. A replay acknowledges the original write; it must
+not replace a newer cached revision. A 409 version conflict requires fetching the
+current state before preparing another operation. Registration with a null token
+disables delivery without deleting preferences. Token rotation and account switches
+invalidate previous registrations; a device UUID alone cannot take over another
+installation. Receipts and settings commit together. Current household membership
+and role restrict both reads and writes. Expo tokens stay on the server and are
+not included in API responses or error diagnostics.
+
+This API is a foundation: the native permission prompt, durable settings editor,
+token lifecycle integration, event creation and push delivery/receipts are not yet
+wired into the app. Do not interpret a registered test fixture as delivered push.
+
 From the repository root, run `node --experimental-sqlite --test tests/mobile-*.test.cjs`.
 PostgreSQL tests additionally require `CYNTCH_TEST_DATABASE_URL` pointing to a local
 database named `cyntch_mobile_test`; their safety guard rejects other destinations.
