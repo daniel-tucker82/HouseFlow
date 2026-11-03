@@ -16,7 +16,7 @@ const creationModule = new Module(creationFile, module)
 creationModule._compile(transformSync(fs.readFileSync(creationFile, 'utf8'), { loader: 'ts', format: 'cjs' }).code, creationFile)
 function setup(options = {}) {
   const queries = [], after = []
-  let memberships = 0, profiles = 0
+  let memberships = 0, profiles = 0, nativePushes = 0
   const task = { id: taskId, title: 'Renamed', routine_occurrence_id: null }
   const client = { release() {}, async query(sql) {
     queries.push(sql.trim())
@@ -33,6 +33,7 @@ function setup(options = {}) {
     'next/server': { NextResponse: { json: Response.json }, after: callback => after.push(callback) },
     '@clerk/nextjs/server': { auth: async () => ({ userId: 'user-a' }) },
     '@/lib/db': { db: { ...client, connect: async () => client } },
+    '@/lib/run-native-notifications': { runNativeNotifications: async () => { nativePushes++ } },
     '@/lib/usage-controls': { enforceRequestLimit: async () => {}, recordHouseholdUsage: async () => {}, recordHouseholdActivity: async () => {} },
     '@/lib/flow-entitlements': { enforceFlowEntitlements: async () => { if (options.denied) throw new EntitlementError('Premium required', 402); return { tier: 'premium' } } },
     '@/lib/entitlements': { EntitlementError },
@@ -58,7 +59,7 @@ function setup(options = {}) {
   }
   loaded._compile(transformSync(fs.readFileSync(filename, 'utf8'), { loader: 'ts', format: 'cjs' }).code, filename)
   const request = new Request('http://localhost/api/leader/flow', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Task-Save-User': options.saveUser ?? 'user-a', Cookie: `houseflow_kiosk_session=${householdId}:token` }, body: JSON.stringify({ action: 'updateTask', householdId, taskId, title: 'Renamed', notes: '', assigneeIds: ['user-a'], isReward: false, saveStreamId: householdId, saveId: taskId, saveRevision: 10 }) })
-  return { run: () => loaded.exports.POST(request), queries, after, memberships: () => memberships, profiles: () => profiles }
+  return { run: () => loaded.exports.POST(request), queries, after, memberships: () => memberships, profiles: () => profiles, nativePushes: () => nativePushes }
 }
 
 test('task and assignees commit together, without profile sync or duplicate membership lookup', async () => {
@@ -81,6 +82,22 @@ test('assignment failure rolls back the entire task save', async () => {
   await assert.rejects(app.run(), /Assignment write failed/)
   assert.ok(app.queries.includes('ROLLBACK'))
   assert.ok(!app.queries.includes('COMMIT'))
+})
+
+test('enabled native push delivery is deferred until after the task response', async () => {
+  const previous = process.env.NATIVE_PUSH_ENABLED
+  process.env.NATIVE_PUSH_ENABLED = 'true'
+  try {
+    const app = setup()
+    assert.equal((await app.run()).status, 200)
+    assert.equal(app.nativePushes(), 0)
+    assert.ok(app.queries.includes('COMMIT'))
+    for (const callback of app.after) await callback()
+    assert.equal(app.nativePushes(), 1)
+  } finally {
+    if (previous === undefined) delete process.env.NATIVE_PUSH_ENABLED
+    else process.env.NATIVE_PUSH_ENABLED = previous
+  }
 })
 
 test('a late or duplicate version returns the current task without rewriting it', async () => {

@@ -41,6 +41,7 @@ import {
   createUnlockNotifications,
 } from "@/lib/notifications"
 import { dispatchPushForNotificationIds } from "@/lib/push"
+import { runNativeNotifications } from "@/lib/run-native-notifications"
 import { PlannerSaveError, savePlannerTask } from "@/lib/save-planner-task"
 import { saveRoutineSchedule } from "@/lib/save-routine-schedule"
 import { findPlannerCreation, parsePlannerCreation, PlannerCreationError, recordPlannerCreation, type PlannerCreation } from "@/lib/planner-creation"
@@ -1001,6 +1002,11 @@ export async function POST(request: Request) {
     const created = creation ? await findPlannerCreation(lockClient, householdId, userId, creation) : null
     const entitlement = created ? await getHouseholdEntitlement(lockClient, householdId) : await enforceFlowEntitlements(lockClient, householdId, body)
     const response = await handleFlowPost(request, { userId, body, membership, creation, created, automationAllowed: entitlement.limits?.automation ?? false })
+    if (response.ok && process.env.NATIVE_PUSH_ENABLED === "true") {
+      // The transaction already owns the durable event. Sending never blocks its response;
+      // the scheduled worker recovers if this post-response attempt is interrupted.
+      after(async () => { await runNativeNotifications().catch(() => {}) })
+    }
     if (body.action !== "deleteHousehold") {
       const duration = Date.now() - started
       after(async () => {

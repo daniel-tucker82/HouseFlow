@@ -1,0 +1,160 @@
+import { createHash, randomUUID } from "node:crypto"
+import type { Pool, PoolClient } from "pg"
+import { normalizeRole } from "@/lib/household-authz"
+import { defaultNotificationPreferences, shouldPushNotification, type MobileNotificationKind } from "@/shared/mobile/notification-catalog"
+import { notificationUuid, parseNotificationPreferences, restrictNotificationPreferences } from "@/shared/mobile/notification-settings"
+
+interface NativeEvent {
+  id: string; household_id: string; kind: MobileNotificationKind; member_ids: string[];
+  subject: Record<string, unknown>; occurred_at: Date; expires_at: Date;
+}
+interface Recipient {
+  user_id: string; device_id: string; platform: "android" | "ios"; permission: string;
+  expo_push_token: string | null; preferences: unknown; role: string; timezone: string;
+  member_ids: string[]; created_at: Date;
+}
+export interface NativePushMessage {
+  to: string; title: string; body: string; sound: "default"; priority: "high";
+  channelId: string; collapseId: string; tag: string; threadId: string; ttl: number;
+  data: { version: 1; deliveryId: string; accountId: string; householdId: string; eventId: string;
+    kind: MobileNotificationKind; occurrenceId?: string; taskId?: string };
+}
+export interface ClaimedNativeDelivery { id: string; leaseId: string; message: NativePushMessage }
+
+const recipientSelect = `select d.user_id,d.device_id,d.platform,d.permission,d.expo_push_token,d.created_at,
+  p.preferences,hm.role,h.timezone,
+  array(select user_id from household_members where household_id=h.id) as member_ids
+  from household_members hm join households h on h.id=hm.household_id
+  join native_notification_devices d on d.user_id=hm.user_id
+  left join native_notification_preferences p on p.user_id=d.user_id and p.device_id=d.device_id and p.household_id=hm.household_id
+  where hm.household_id=$1`
+
+/** Stale readiness/completion alerts are suppressed; history remains in the outbox. */
+async function currentEvent(client: PoolClient, event: NativeEvent): Promise<NativeEvent | null> {
+  const subject = event.subject
+  const taskEvent = event.kind.startsWith("task_") || event.kind.startsWith("reward_")
+  const routineEvent = event.kind.startsWith("routine_")
+  const primary = taskEvent || routineEvent ? subject.occurrenceId : event.household_id
+  const secondary = taskEvent ? subject.taskId : routineEvent ? "" : subject.memberId
+  if (typeof primary !== "string" || !notificationUuid.test(primary) || typeof secondary !== "string"
+    || (taskEvent && !notificationUuid.test(secondary))) return null
+  const current = (await client.query<{ state: Record<string, unknown> | null }>(
+    "select native_notification_subject_state($1,$2,$3) as state",
+    [taskEvent ? "task" : routineEvent ? "routine" : "member", primary, secondary],
+  )).rows[0]?.state
+  if (event.kind === "member_left") return current ? null : event
+  if (!current || current.householdId !== event.household_id || current.status === "cancelled" || current.occurrenceStatus === "cancelled") return null
+  const transition = (taskEvent && event.kind !== "task_assigned") || ["routine_completed", "routine_superseded", "routine_reopened"].includes(event.kind)
+  if (transition && subject.statusVersion != null && current.statusVersion != null && subject.statusVersion !== current.statusVersion) return null
+  if (taskEvent) {
+    if (["task_available", "reward_available"].includes(event.kind) && (current.status !== "unlocked" || current.occurrenceStatus !== "active")) return null
+    if (["task_completed", "reward_completed", "task_completed_automatically"].includes(event.kind) && current.status !== "completed") return null
+    if (["task_reopened", "task_assigned"].includes(event.kind) && current.status === "completed") return null
+    if (["task_available", "reward_available", "task_assigned"].includes(event.kind)) {
+      const currentMembers = Array.isArray(current.memberIds) ? current.memberIds : []
+      event = { ...event, member_ids: event.member_ids.filter(id => currentMembers.includes(id)) }
+    }
+  }
+  if (["routine_completed", "routine_superseded"].includes(event.kind) && current.status !== "completed") return null
+  if (event.kind === "routine_reopened" && current.status !== "active") return null
+  return { ...event, subject: { ...subject, name: current.name } }
+}
+
+function eligible(event: NativeEvent, recipient: Recipient, now: Date) {
+  if (!recipient.expo_push_token || !["granted", "provisional"].includes(recipient.permission)
+    || recipient.created_at > event.occurred_at || event.expires_at <= now) return null
+  try {
+    const role = normalizeRole(recipient.role)
+    const preferences = restrictNotificationPreferences(recipient.preferences
+      ? parseNotificationPreferences(recipient.preferences) : defaultNotificationPreferences(recipient.user_id, recipient.timezone || "UTC"),
+    recipient.user_id, role, recipient.member_ids)
+    const members = event.member_ids.filter(id => recipient.member_ids.includes(id))
+    return shouldPushNotification({ kind: event.kind, memberIds: members, userId: recipient.user_id, role, preferences, now }) ? preferences : null
+  } catch { return null } // Invalid stored settings fail closed, without leaking their content.
+}
+
+const genericBody: Record<MobileNotificationKind, string> = {
+  task_available: "A task is ready to start.", task_completed: "A task was marked complete.",
+  task_reopened: "A task was marked incomplete.", task_assigned: "A task was assigned.",
+  task_completed_automatically: "A task was completed by its expiry rule.",
+  reward_available: "A reward is available.", reward_completed: "A reward was marked complete.",
+  routine_generated: "A recurring routine was created.", routine_started: "A routine was started.",
+  routine_completed: "A routine was completed through its tasks.",
+  routine_superseded: "An older routine was completed because a newer copy was created.",
+  routine_reopened: "A routine has incomplete tasks again.",
+  member_joined: "A member joined your household.", member_added: "A profile was added to your household.",
+  member_left: "A member left or was removed from your household.",
+}
+
+function messageFor(id: string, event: NativeEvent, recipient: Recipient, details: boolean, now: Date): NativePushMessage {
+  // Names remain outside the data payload and are omitted entirely for private alerts.
+  const name = typeof event.subject.name === "string" ? event.subject.name.replace(/[\u0000-\u001f]/g, " ").trim().slice(0, 120) : ""
+  const occurrenceId = typeof event.subject.occurrenceId === "string" ? event.subject.occurrenceId : undefined
+  const taskId = typeof event.subject.taskId === "string" ? event.subject.taskId : undefined
+  return { to: recipient.expo_push_token!, title: "Cyntch", body: `${details && name ? `${name}: ` : ""}${genericBody[event.kind]}`,
+    sound: "default", priority: "high", channelId: `cyntch-${event.kind}`, collapseId: id, tag: id, threadId: event.household_id,
+    ttl: Math.max(1, Math.floor((event.expires_at.getTime() - now.getTime()) / 1000)),
+    data: { version: 1, deliveryId: id, accountId: recipient.user_id, householdId: event.household_id,
+      eventId: event.id, kind: event.kind, ...(occurrenceId ? { occurrenceId } : {}), ...(taskId ? { taskId } : {}) } }
+}
+
+/** Expansion and recipient rows commit together. Competing workers skip locked events. */
+export async function expandNativeNotificationEvents(pool: Pool, limit = 50) {
+  const client = await pool.connect()
+  try {
+    await client.query("begin")
+    const rows = (await client.query<NativeEvent>(`select * from native_notification_events
+      where state='pending' and next_attempt_at<=now() order by occurred_at,id limit $1 for update skip locked`,
+    [Math.max(1, Math.min(100, Math.floor(limit)))])).rows
+    let queued = 0
+    const now = (await client.query<{ now: Date }>("select clock_timestamp() as now")).rows[0].now
+    for (const event of rows) {
+      const current = event.expires_at > now ? await currentEvent(client, event) : null
+      if (current) {
+        const recipients = (await client.query<Recipient>(recipientSelect, [event.household_id])).rows
+        for (const recipient of recipients) {
+          if (!eligible(current, recipient, now)) continue
+          queued += (await client.query(`insert into native_notification_deliveries(event_id,user_id,device_id)
+            values($1,$2,$3) on conflict(event_id,user_id,device_id) do nothing`, [event.id, recipient.user_id, recipient.device_id])).rowCount ?? 0
+        }
+      }
+      await client.query("update native_notification_events set state=$2 where id=$1", [event.id, event.expires_at <= now ? "expired" : "expanded"])
+    }
+    await client.query("commit")
+    return { expanded: rows.length, queued }
+  } catch (error) { await client.query("rollback"); throw error } finally { client.release() }
+}
+
+/** Call immediately before provider I/O. No network or user-write locks are held.
+ * A crashed sender's lease expires; the same delivery ID is reused on its retry.
+ */
+export async function claimNativeNotificationDeliveries(pool: Pool, limit = 100): Promise<ClaimedNativeDelivery[]> {
+  const client = await pool.connect()
+  try {
+    await client.query("begin")
+    const jobs = (await client.query<{ id: string; event_id: string; user_id: string; device_id: string }>(`select id,event_id,user_id,device_id
+      from native_notification_deliveries where next_attempt_at<=now()
+        and (state='queued' or (state='sending' and lease_until<=now()))
+      order by next_attempt_at,created_at,id limit $1 for update skip locked`, [Math.max(1, Math.min(100, Math.floor(limit)))])).rows
+    const claimed: ClaimedNativeDelivery[] = []
+    for (const job of jobs) {
+      const now = (await client.query<{ now: Date }>("select clock_timestamp() as now")).rows[0].now
+      const event = (await client.query<NativeEvent>("select * from native_notification_events where id=$1", [job.event_id])).rows[0]
+      const current = event && event.expires_at > now ? await currentEvent(client, event) : null
+      const recipient = current ? (await client.query<Recipient>(`${recipientSelect} and d.user_id=$2 and d.device_id=$3`, [current.household_id, job.user_id, job.device_id])).rows[0] : null
+      const preferences = current && recipient ? eligible(current, recipient, now) : null
+      if (!current || !recipient || !preferences) {
+        await client.query(`update native_notification_deliveries set state=$2,completed_at=now(),lease_id=null,lease_until=null,
+          last_error_code=$3 where id=$1`, [job.id, event?.expires_at <= now ? "expired" : "suppressed", event?.expires_at <= now ? "expired" : "no_longer_eligible"])
+        continue
+      }
+      const leaseId = randomUUID()
+      await client.query(`update native_notification_deliveries set state='sending',attempts=attempts+1,lease_id=$2,
+        lease_until=now()+interval '60 seconds',token_hash=$3,last_error_code=null where id=$1`,
+      [job.id, leaseId, createHash("sha256").update(recipient.expo_push_token!).digest("hex")])
+      claimed.push({ id: job.id, leaseId, message: messageFor(job.id, current, recipient, preferences.showDetails, now) })
+    }
+    await client.query("commit")
+    return claimed
+  } catch (error) { await client.query("rollback"); throw error } finally { client.release() }
+}

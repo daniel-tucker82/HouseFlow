@@ -45,7 +45,7 @@ declare result jsonb;
 begin
   if subject_type='task' then
     select jsonb_build_object('householdId',ro.household_id,'occurrenceId',ro.id,'taskId',t.id,
-      'routineId',ro.routine_id,'name',t.title,'isReward',t.is_reward,'status',ot.status,
+      'routineId',ro.routine_id,'name',t.title,'isReward',t.is_reward,'status',ot.status,'statusVersion',ot.status_version::text,
       'completionReason',ot.completion_reason,'occurrenceStatus',ro.status,
       'memberIds',coalesce((select jsonb_agg(a.user_id order by a.user_id) from (
         select ta.user_id from task_assignees ta where ta.task_id=t.id
@@ -57,6 +57,7 @@ begin
   elsif subject_type='routine' then
     select jsonb_build_object('householdId',ro.household_id,'occurrenceId',ro.id,'routineId',ro.routine_id,
       'name',coalesce(r.name,ro.title,'Routine'),'createdVia',ro.created_via,'completionReason',ro.completion_reason,
+      'statusVersion',(select max(ot.status_version)::text from occurrence_tasks ot where ot.occurrence_id=ro.id),
       'status',case when ro.status='cancelled' then 'cancelled'
         when ro.status='completed' or (exists(select 1 from occurrence_tasks ot where ot.occurrence_id=ro.id)
           and not exists(select 1 from occurrence_tasks ot where ot.occurrence_id=ro.id and ot.status<>'completed'))

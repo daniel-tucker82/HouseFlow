@@ -37,6 +37,7 @@ test('planner creation routes recover lost replies at capacity, reject altered r
   const startMigration = readFileSync(path.resolve(__dirname, '../database/0021_routine_start_receipts.sql'), 'utf8')
   await db.query(startMigration); await db.query(startMigration)
   await db.query(readFileSync(path.resolve(__dirname, '../database/0017_task_edit_versions.sql'), 'utf8'))
+  await db.query(readFileSync(path.resolve(__dirname, '../database/0019_occurrence_status_versions.sql'), 'utf8'))
   await db.query(readFileSync(path.resolve(__dirname, '../database/0025_native_notification_events.sql'), 'utf8'))
   const householdId = randomUUID(), taskId = randomUUID()
   await db.query("insert into users(id) values ('parent'),('other'),('child'); insert into household_members values (null,'child')")

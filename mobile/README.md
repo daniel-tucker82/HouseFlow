@@ -142,7 +142,7 @@ before asking permission; iOS provisional permission is distinguished from norma
 alerts. Token refresh failures preserve existing registrations and queued tokens.
 The installation secret is retained in SecureStore. Token rotation is observed,
 but complete sign-out cleanup, background settings sync, kiosk integration and
-push delivery/receipts remain to be implemented. An EAS project ID and
+device-side push presentation/tap handling remain to be implemented. An EAS project ID and
 FCM/APNs credentials must be configured before push can register and deliver.
 This build reports their absence while allowing preference editing. A registration
 or a passing JavaScript export is not evidence of delivered push.
@@ -158,13 +158,38 @@ cancelled runs. Availability includes reopened tasks and newly assigned startabl
 tasks, with the latter targeting only newly added assignees.
 
 The outbox writes no network requests and performs no per-device delivery during
-task saving. Its pending records survive a stopped server process. Background
-fan-out, permission/preference revalidation, retries, provider receipts, expiration
-and retention are still required before delivery can be enabled. Apply this
+task saving. Its pending records survive a stopped server process. Apply this
 migration before deploying the updated task/timer writers. Local schema tests
 cover commit/rollback, concurrent completion, household deletion and 100-task
 completion. Real route tests cover routine starts, both recurrence generators,
 timer availability/expiry and task creation/editing without premature alerts.
+
+Migration `0026_native_notification_deliveries.sql` adds unique per-device delivery
+records and recoverable leases. The server worker rechecks membership, role, device
+permission, preferences, quiet hours and current task/run state before sending.
+Status versions prevent old readiness events resurfacing after a complete/reopen
+cycle. Newly registered devices do not receive earlier queued events. Private
+payloads omit names, and Android channel IDs match the native settings channels.
+
+`NATIVE_PUSH_ENABLED=true` enables post-response attempts after household writes
+and the scheduled recurrence handler. The authenticated
+`GET /api/internal/notifications` endpoint can also drain a bounded batch using
+the same `CRON_SECRET`. `EXPO_PUSH_ACCESS_TOKEN` supplies Expo enhanced-security
+authentication when configured. Keep this gate off until credentials, sign-out,
+kiosk behavior and actual device reception have been verified. No deployment or
+external scheduler settings have been changed during local development.
+
+The worker stores Expo tickets, waits 15 minutes before checking receipts, backs
+off failures, expires stale alerts and conditionally unregisters invalid tokens.
+An old receipt cannot revoke a rotated token. A successful receipt is recorded as
+`provider_accepted`, not proof that a device displayed a banner. Unknown receipts
+become an explicit failure after 24 hours without resending an accepted ticket.
+If sending succeeds but its acknowledgement is lost, a retry may occur; stable
+delivery IDs, collapse IDs and Android tags reduce duplicate presentation.
+Provider requests are bounded to 100 messages and use an eight-second timeout.
+Production queue-lag/throughput testing, monitoring and outbox retention cleanup
+remain required before launch. All current provider tests use controlled HTTP
+responses; no real push has been sent.
 
 From the repository root, run `node --experimental-sqlite --test tests/mobile-*.test.cjs`.
 PostgreSQL tests additionally require `CYNTCH_TEST_DATABASE_URL` pointing to a local
@@ -266,3 +291,13 @@ A custom-sound warning was fixed by using Android's default
 channel sound. SQLite/controller tests cover lost replies, disk rollback, coalesced
 edits, stale registration receipts, review, account isolation, household removal,
 permission failures and iOS provisional status. No real remote push was delivered.
+
+The native event outbox and server delivery worker were verified on 2026-11-04
+against isolated PostgreSQL schemas and controlled provider responses. All 127
+non-billing tests passed, including rollback, concurrent expansion, resumed leases,
+stale acknowledgements, lost replies, quiet hours, access revocation, token rotation
+and provider receipt handling. The production Next.js build, root lint/typecheck,
+and mobile lint/typecheck passed. Migrations 0025 and 0026 were applied only to the
+local emulator test database. The delivery gate remains off; this verification
+does not establish real FCM/APNs delivery, physical-device performance or production
+scheduler throughput.

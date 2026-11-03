@@ -34,6 +34,7 @@ for (const file of ['app/api/internal/recurrence/route.ts', 'app/api/leader/flow
       create table occurrence_tasks(occurrence_id uuid,task_id uuid,status task_status,completed_at timestamptz,updated_at timestamptz default now());
       create table task_assignees(task_id uuid,user_id text,primary key(task_id,user_id));
       create table task_dependencies(source_task_id uuid,target_task_id uuid,primary key(source_task_id,target_task_id));`)
+    await db.query(readFileSync(path.resolve(__dirname, '../database/0019_occurrence_status_versions.sql'), 'utf8'))
     await db.query(readFileSync(path.resolve(__dirname, '../database/0025_native_notification_events.sql'), 'utf8'))
     const householdId = randomUUID(), routineId = randomUUID()
     const schedule = { id: randomUUID(), frequency: 'daily', interval: 1, time: '02:30', startDate: '2026-03-07', lastGeneratedAt: '2026-03-07T07:30:00.000Z' }

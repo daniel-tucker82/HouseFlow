@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { after, NextResponse } from "next/server"
 import type { PoolClient } from "pg"
 import { timingSafeEqual } from "node:crypto"
 import { db } from "@/lib/db"
@@ -17,6 +17,7 @@ import {
 } from "@/lib/recurrence"
 import { createManagerNotificationEventInTransaction, createUnlockNotifications } from "@/lib/notifications"
 import { dispatchPushForNotificationIds } from "@/lib/push"
+import { runNativeNotifications } from "@/lib/run-native-notifications"
 
 function authorizedByCronSecret(request: Request) {
   const secret = process.env.CRON_SECRET?.trim()
@@ -645,6 +646,9 @@ export async function GET(request: Request) {
   if (!authorizedByCronSecret(request)) {
     console.warn("[cron] unauthorized (wrong Authorization bearer or CRON_SECRET mismatch)")
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+  if (process.env.NATIVE_PUSH_ENABLED === "true") {
+    after(async () => { await runNativeNotifications().catch(() => {}) })
   }
 
   await ensureRoutineSchemaColumns()
