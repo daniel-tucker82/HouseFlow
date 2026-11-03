@@ -14,7 +14,7 @@ export type RevenueCatConfig = {
   products: NativeBillingProduct[]
 }
 export class RevenueCatVerificationError extends Error {
-  constructor(public code: "configuration" | "response" | "identity" | "pagination" | "request", public providerStatus?: number) {
+  constructor(public code: "configuration" | "response" | "identity" | "pagination" | "request", public providerStatus?: number, public retryAfterSeconds?: number) {
     super(`Store verification failed: ${code}`)
     this.name = "RevenueCatVerificationError"
   }
@@ -61,7 +61,11 @@ async function readJson(url: URL, secret: string, signal: AbortSignal, fetcher: 
   try { response = await fetcher(url, { method: "GET", headers: { Authorization: `Bearer ${secret}`, Accept: "application/json" },
     cache: "no-store", redirect: "error", signal }) }
   catch { throw new RevenueCatVerificationError("request") }
-  if (!response.ok) throw new RevenueCatVerificationError("request", response.status)
+  if (!response.ok) {
+    const retryAfter = Number(response.headers.get("retry-after"))
+    throw new RevenueCatVerificationError("request", response.status,
+      Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(86400, Math.ceil(retryAfter)) : undefined)
+  }
   try { return object(await response.json()) } catch { throw new RevenueCatVerificationError("response") }
 }
 
@@ -95,9 +99,10 @@ async function listSubscriptions(account: NativeBillingAccount, config: RevenueC
  * corresponding V1 subscription's explicit grace deadline, environment, store
  * and transaction. Never turn "gives_access" into an unbounded local grant. */
 export async function fetchVerifiedNativeSubscriptions(account: NativeBillingAccount, config: RevenueCatConfig,
-  fetcher: typeof fetch = fetch): Promise<VerifiedNativeSubscription[]> {
+  fetcher: typeof fetch = fetch, requestSignal?: AbortSignal): Promise<VerifiedNativeSubscription[]> {
   if (account.project_id !== config.projectId || account.environment !== config.environment) throw new RevenueCatVerificationError("configuration")
-  const signal = AbortSignal.timeout(15_000)
+  const timeout = AbortSignal.timeout(15_000)
+  const signal = requestSignal ? AbortSignal.any([timeout, requestSignal]) : timeout
   const items = await listSubscriptions(account, config, signal, fetcher)
   const verified: VerifiedNativeSubscription[] = [], ids = new Set<string>()
   let legacy: Json | undefined

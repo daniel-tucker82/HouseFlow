@@ -18,6 +18,7 @@ import {
 import { createManagerNotificationEventInTransaction, createUnlockNotifications } from "@/lib/notifications"
 import { dispatchPushForNotificationIds } from "@/lib/push"
 import { runNativeNotifications } from "@/lib/run-native-notifications"
+import { runNativeBilling } from "@/lib/run-native-billing"
 
 function authorizedByCronSecret(request: Request) {
   const secret = process.env.CRON_SECRET?.trim()
@@ -650,6 +651,10 @@ export async function GET(request: Request) {
   if (process.env.NATIVE_PUSH_ENABLED === "true") {
     after(async () => { await runNativeNotifications().catch(() => {}) })
   }
+  // Start alongside recurrence work; never add a full billing batch to the end
+  // of its processing budget. after keeps it alive if this handler exits early.
+  const nativeBilling = process.env.NATIVE_BILLING_ENABLED === "true" ? runNativeBilling() : null
+  if (nativeBilling) after(async () => { await nativeBilling })
 
   await ensureRoutineSchemaColumns()
   const households = await db.query<{ id: string; leader_id: string | null }>(
@@ -743,8 +748,10 @@ export async function GET(request: Request) {
   await db.query(`delete from application_rate_limits where (bucket_key,window_start) in
     (select bucket_key,window_start from application_rate_limits where window_start < now()-interval '1 day' limit 1000)`)
 
+  const billingResult = await nativeBilling
   const body = {
-    ok: householdsFailed === 0,
+    ok: householdsFailed === 0 && billingResult?.ok !== false,
+    ...(billingResult ? { nativeBilling: billingResult } : {}),
     householdsProcessed,
     householdsFailed,
     occurrencesProcessed,

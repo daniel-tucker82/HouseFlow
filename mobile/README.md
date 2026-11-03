@@ -504,9 +504,10 @@ owner access. Downgrades retain household data.
 This foundation is **disabled by default and is not a complete purchase flow**.
 No store/RevenueCat account was provisioned, no purchase SDK was installed, and no
 real store purchase or remote verification was performed in this stage. Before
-enabling it, finish authenticated billing endpoints, durable lifecycle webhooks
-and reconciliation, duplicate-purchase prevention, purchase/restore/management UI,
-provider configuration and the B01–B04 device/sandbox tests. The migration has only
+enabling it, finish authenticated billing endpoints, duplicate-purchase prevention,
+purchase/restore/management UI, provider configuration and the B01–B04 device/sandbox
+tests. Durable lifecycle handling is implemented below; its remote delivery still
+needs verification. The migration has only
 been applied inside disposable local test schemas, not production.
 
 Server configuration, once the full flow is ready:
@@ -539,3 +540,66 @@ Provider references checked on 2026-11-04: [Expo IAP](https://docs.expo.dev/guid
 [customer subscriptions](https://www.revenuecat.com/docs/api-v2/customer/resources),
 [V1 grace expiry](https://www.revenuecat.com/docs/api-v1/customer-info-model), and
 [restore behaviour](https://www.revenuecat.com/docs/projects/restore-behavior).
+
+## Durable native billing updates
+
+Migration `0031_native_billing_jobs.sql` adds event receipts and persistent
+reconciliation jobs. `POST /api/billing/native/webhook` requires both the configured
+Authorization header and RevenueCat's HMAC-SHA256 signature over the exact raw
+body. Signature timestamps allow five minutes of delivery skew; old events remain
+acceptable when the provider signs a fresh retry. Bodies are limited to 256 KiB.
+Configure HMAC signing in the provider dashboard before connecting this endpoint.
+
+Receipt acceptance and every affected household job commit together before the
+response. Duplicate events reuse their receipt; a reused ID with conflicting
+event identity is rejected. Webhook payment/expiry claims never grant access.
+Known customer IDs, including both sides of transfer events, trigger fresh
+server-to-server verification. Other environments/apps, unknown customers and
+dashboard TEST events cannot create grants. Receipts retain only the event envelope,
+a fingerprint and known opaque account IDs; customer attributes are not stored.
+
+An `after()` callback prompts processing but is not the durable retry mechanism.
+Jobs have 60-second leases, increasing request generations and verification
+revisions. An interrupted worker can be replaced, late results cannot overwrite
+newer verified state, and events received during a fetch remain pending. Retriable
+failures use persistent backoff and honor bounded provider `Retry-After` values;
+new webhook deliveries do not bypass that backoff. A busy household write makes
+verification retry without waiting for the household lock.
+
+The existing authenticated `/api/cron` starts billing alongside recurrence work
+when `NATIVE_BILLING_ENABLED=true`, and includes its health in the response's `ok`.
+The separate authenticated `GET /api/internal/billing` is available for an
+independent schedule and returns HTTP 503 for application-level failure. It uses
+the existing `CRON_SECRET`. Processing is bounded to five jobs/20 seconds by
+default, with pending work retained for later invocations. Paid accounts receive
+hourly missed-event checks (sooner near expiry), billing trouble receives
+five-minute checks, and empty/expired accounts receive daily checks. Deleted
+households stop scheduled checks. Health reports due jobs, persistent errors,
+oldest due age and attempt counts without revealing customer/provider payloads.
+
+Additional protected server configuration:
+
+- `REVENUECAT_APP_IDS`: the two native dashboard app IDs, comma-separated.
+- `REVENUECAT_WEBHOOK_AUTHORIZATION`: the exact header configured in RevenueCat,
+  preferably `Bearer ` followed by a cryptographically random secret.
+- `REVENUECAT_WEBHOOK_SIGNING_SECRET`: the integration's HMAC signing secret.
+  Both secrets must be at least 32 characters; neither belongs in the mobile app.
+
+Apply 0030/0031 before enabling the feature. The production gate is still off.
+No provider integration, production migration or external scheduler setting has
+been changed in this stage. Delivery from RevenueCat, Apple and Google remains
+unverified until those accounts/catalogs are configured and sandbox events are
+sent through a deployed endpoint.
+
+`tests/mobile-native-billing-jobs.test.cjs` exercises real PostgreSQL rollback,
+duplicate/concurrent delivery, lease takeover, delayed responses, events during
+verification, provider backoff, periodic recovery, household contention, transfer
+isolation and retired accounts. It also exercises the actual webhook/cron handlers
+with signed synthetic requests and verifies the household scheduler integration.
+Provider reference: [RevenueCat webhook authentication, retries and event handling](https://www.revenuecat.com/docs/integrations/webhooks).
+
+Verification on 2026-11-04: regression suites passed, including 15 signed-webhook,
+durable-job and scheduler checks plus the existing 19 isolated web-billing tests.
+Root/mobile lint and typecheck and the production Next.js build passed; both new
+HTTP endpoints are included in the build. All lifecycle/provider responses in
+these tests are synthetic; PostgreSQL transactions, leases and routes are real.

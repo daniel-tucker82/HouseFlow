@@ -1,7 +1,7 @@
 import type { Pool } from "pg"
 
 export class NativeBillingError extends Error {
-  constructor(public code: "invalid_snapshot" | "identity_mismatch" | "purchase_already_bound" | "account_retired" | "configuration_mismatch") {
+  constructor(public code: "invalid_snapshot" | "identity_mismatch" | "purchase_already_bound" | "account_retired" | "configuration_mismatch" | "household_busy") {
     super(code)
     this.name = "NativeBillingError"
   }
@@ -81,12 +81,14 @@ export async function applyNativeBillingSnapshot(pool: Pool, accountId: string, 
   const client = await pool.connect()
   try {
     await client.query("begin")
+    await client.query("set local statement_timeout='5s'")
     const lookup = await client.query<NativeBillingAccount>("select * from native_billing_accounts where id=$1::uuid", [accountId])
     const account = lookup.rows[0]
     if (!account?.household_id) throw new NativeBillingError("account_retired")
     // Same lock as quota writes/Stripe reconciliation. The account row is read
     // again after acquiring it, so household deletion cannot revive access.
-    await client.query("select pg_advisory_xact_lock(hashtextextended($1,0))", [account.household_id])
+    const lock = await client.query<{ acquired: boolean }>("select pg_try_advisory_xact_lock(hashtextextended($1,0)) as acquired", [account.household_id])
+    if (!lock.rows[0].acquired) throw new NativeBillingError("household_busy")
     const locked = await client.query<NativeBillingAccount & { requested_revision: string; applied_revision: string }>(
       "select * from native_billing_accounts where id=$1::uuid for update", [accountId])
     const current = locked.rows[0]
