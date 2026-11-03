@@ -15,8 +15,8 @@ export function billingUuid(value: unknown): value is string { return typeof val
 export function parseNativeBillingAction(value: unknown): NativeBillingAction {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new EntitlementError("Choose a billing action.", 400)
   const body = value as Record<string, unknown>
-  if (!billingUuid(body.householdId) || !["prepare", "begin", "cancel", "verify"].includes(String(body.action))) throw new EntitlementError("Choose a household and billing action.", 400)
-  if (body.action !== "verify" && !["app_store", "play_store"].includes(String(body.store))) throw new EntitlementError("Choose a supported store.", 400)
+  if (!billingUuid(body.householdId) || !["prepare", "begin", "cancel", "verify", "webCancellation"].includes(String(body.action))) throw new EntitlementError("Choose a household and billing action.", 400)
+  if (!["verify","webCancellation"].includes(String(body.action)) && !["app_store", "play_store"].includes(String(body.store))) throw new EntitlementError("Choose a supported store.", 400)
   if (["begin", "cancel"].includes(String(body.action)) &&
     (!billingUuid(body.operationId) || !["monthly", "yearly"].includes(String(body.interval)))) throw new EntitlementError("Choose a subscription and purchase attempt.", 400)
   return { ...body, householdId: body.householdId.toLowerCase(), ...(typeof body.operationId === "string" ? { operationId: body.operationId.toLowerCase() } : {}) } as NativeBillingAction

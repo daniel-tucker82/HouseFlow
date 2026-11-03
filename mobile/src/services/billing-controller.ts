@@ -1,5 +1,5 @@
 import type { HouseholdSummary } from "../../../shared/mobile/contracts"
-import type { NativeBillingScope, NativeBillingSetup, NativeBillingStatus, NativeBillingStore, NativeBillingInterval } from "../../../shared/mobile/billing"
+import type { NativeBillingScope, NativeBillingSetup, NativeBillingStatus, NativeBillingStore, NativeBillingInterval, WebBillingCancellation } from "../../../shared/mobile/billing"
 import type { BillingOperation, BillingStore } from "../storage/billing-store"
 import { TransportError } from "../storage/sync-engine"
 import type { BillingOffer, BillingSdk } from "./billing-sdk"
@@ -9,6 +9,7 @@ interface BillingApi {
   prepareBilling(householdId: string, store: NativeBillingStore): Promise<NativeBillingSetup>
   billingPurchase(action: { action: "begin" | "cancel"; householdId: string; store: NativeBillingStore; interval: NativeBillingInterval; operationId: string }): Promise<unknown>
   verifyBilling(householdId: string): Promise<NativeBillingStatus>
+  webBillingCancellation(householdId: string): Promise<WebBillingCancellation>
 }
 export interface BillingState {
   household: HouseholdSummary | null
@@ -224,8 +225,17 @@ export class BillingController {
   }
   async manage() {
     return this.action("manage",async (householdId,generation) => {
-      const setup = await this.setup(householdId,generation)
-      await this.sdk.run(setup,() => this.check(generation,householdId),session => session.manage())
+      const status = await this.api.billingStatus(householdId); this.check(generation,householdId)
+      this.update({ status })
+      if (!status.canManage || !this.sdk.store || !status.sources.some(source => source.provider === this.sdk.store)) throw new Error("This household has no subscription in this device’s store.")
+      await this.sdk.manage(() => this.check(generation,householdId))
+    })
+  }
+  async cancelWebRenewal() {
+    return this.action("manage",async (householdId,generation) => {
+      const destination = await this.api.webBillingCancellation(householdId); this.check(generation,householdId)
+      await this.sdk.openWebCancellation(destination.url,() => this.check(generation,householdId))
+      if (this.current(generation,householdId)) this.update({ message: "Confirm cancellation with Stripe. Any remaining paid access is preserved; the plan updates after confirmation." })
     })
   }
   stop() { this.stopped = true; this.generation++; clearTimeout(this.timer); this.listeners.clear() }

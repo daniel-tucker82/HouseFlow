@@ -37,7 +37,11 @@ export function BillingSettingsCard() {
       {status.duplicateSubscriptions ? <View accessibilityRole="alert"><Copy style={{ color: colors.warning }}>More than one subscription is providing Premium. Review them with their billing providers to avoid paying twice.</Copy></View> : null}
       {sources.map((source,index) => <View key={`${source.provider}:${index}`} style={{ borderTopWidth: 1, borderColor: colors.border, paddingTop: 12, gap: 4 }}>
         <Copy tone="label">{providers[source.provider]}</Copy><Copy tone="muted">{sourceDescription(source)}</Copy>
-        {source.provider !== nativeBillingSdk.store ? <Copy tone="muted">Manage this subscription through the {providers[source.provider]}.</Copy> : null}
+        {source.provider !== nativeBillingSdk.store && source.provider !== "stripe" ? <Copy tone="muted">Manage this subscription through the {providers[source.provider]} using the account that purchased it.</Copy> : null}
+        {source.provider === "stripe" && source.renewal !== "will_not_renew" && !["canceled","incomplete_expired","none"].includes(source.status) ? <>
+          <Copy tone="muted">You can stop automatic renewal. Any remaining paid access continues until the end of your paid period.</Copy>
+          <Action disabled={disabled} secondary label="Cancel website subscription" onPress={() => run(billing.cancelWebRenewal())} />
+        </> : null}
       </View>)}
     </> : state.loading ? <View style={styles.row}><ActivityIndicator color={colors.primary} /><Copy tone="muted">Checking your household’s plan…</Copy></View> : null}
     {!state.online && state.household ? <Copy tone="muted">Connect to the internet to check or manage subscriptions. Your saved tasks are still available.</Copy> : null}
@@ -58,8 +62,8 @@ export function BillingSettingsCard() {
       </View>}
       {state.offers.length ? <Copy tone="muted">Payment is charged to your store account. Your subscription renews automatically until cancelled in your store settings. Review the price and renewal terms in the purchase sheet.</Copy> : null}
     </> : status?.canManage && status.tier === "free" && !status.purchasesAvailable ? <Copy tone="muted">Store subscriptions are not available yet.</Copy> : null}
+    {status?.canManage && canManageStore ? <Action disabled={disabled} secondary label={`Manage in ${nativeBillingSdk.store === "app_store" ? "App Store" : "Google Play"}`} onPress={() => run(billing.manage())} /> : null}
     {status?.canManage && status.purchasesAvailable ? <>
-      {canManageStore ? <Action disabled={disabled} secondary label={`Manage in ${nativeBillingSdk.store === "app_store" ? "App Store" : "Google Play"}`} onPress={() => run(billing.manage())} /> : null}
       <Action disabled={disabled} secondary label="Restore purchases" onPress={() => Alert.alert("Restore purchases for this household?", "Use the same store account that originally subscribed for this household. Purchases belonging to another household will stay with that household.", [
         { text: "Cancel", style: "cancel" }, { text: "Restore", onPress: () => run(billing.restore()) },
       ])} />

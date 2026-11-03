@@ -1,7 +1,7 @@
 import type { PurchasesPackage, SubscriptionOption } from "react-native-purchases"
 import { Platform } from "react-native"
 import * as Linking from "expo-linking"
-import type { NativeBillingSetup } from "../../../shared/mobile/billing"
+import { isWebBillingCancellationUrl, type NativeBillingSetup } from "../../../shared/mobile/billing"
 import { BillingSdkQueue, type BillingOffer, type BillingSdk, type IdentifiedBillingStore } from "./billing-sdk"
 
 type Reference = { package: PurchasesPackage; basePlan: SubscriptionOption | null }
@@ -9,6 +9,17 @@ const queue = new BillingSdkQueue()
 let configuredKey: string | undefined
 export const nativeBillingSdk: BillingSdk = {
   store: Platform.OS === "ios" ? "app_store" : Platform.OS === "android" ? "play_store" : null,
+  async manage(check) {
+    check()
+    if (!nativeBillingSdk.store) throw new Error("Use the Android or iOS app to manage store subscriptions.")
+    // Management must remain reachable without SDK keys or current offerings.
+    await Linking.openURL(nativeBillingSdk.store === "app_store" ? "https://apps.apple.com/account/subscriptions" : "https://play.google.com/store/account/subscriptions")
+  },
+  async openWebCancellation(url, check) {
+    check()
+    if (!isWebBillingCancellationUrl(url)) throw new Error("This cancellation link is not valid. Please try again.")
+    await Linking.openURL(url)
+  },
   run<T>(setup: NativeBillingSetup, check: () => void, work: (store: IdentifiedBillingStore) => Promise<T>) {
     return queue.run(check, async () => {
       const { default: Purchases, LOG_LEVEL, PURCHASES_ERROR_CODE, RECURRENCE_MODE } = await import("react-native-purchases")
@@ -68,11 +79,6 @@ export const nativeBillingSdk: BillingSdk = {
           }
         },
         async restore() { check(); await Purchases.restorePurchases() },
-        async manage() {
-          check()
-          if (setup.store === "app_store") await Purchases.showManageSubscriptions()
-          else await Linking.openURL("https://play.google.com/store/account/subscriptions")
-        },
       }
       return work(session)
     })

@@ -8,6 +8,7 @@ import { runNativeBilling } from "@/lib/run-native-billing"
 import { beginNativeBillingPurchase, billingUuid, cancelNativeBillingPurchase, parseNativeBillingAction,
   prepareNativeBilling, readNativeBillingStatus, requestNativeBillingVerification } from "@/lib/native-billing-actions"
 import type { NativeBillingAction } from "@/shared/mobile/billing"
+import { prepareWebBillingCancellation } from "@/lib/native-billing-management"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -33,13 +34,14 @@ async function handle(request: Request, write: boolean) {
     }
     const householdId = action?.householdId ?? new URL(request.url).searchParams.get("householdId")
     if (!billingUuid(householdId)) throw new EntitlementError("Choose a household.", 400)
-    await enforceRequestLimit(userId, action?.action === "begin" || action?.action === "verify" ? "billing" : write ? "write" : "read")
+    await enforceRequestLimit(userId, action && ["begin","verify","webCancellation"].includes(action.action) ? "billing" : write ? "write" : "read")
     const scope = { accountId: userId, sessionId, deviceId, householdId: householdId.toLowerCase() }
     let result
     if (!action) result = await readNativeBillingStatus(scope)
     else if (action.action === "prepare") result = await prepareNativeBilling(scope, action.store)
     else if (action.action === "begin") result = await beginNativeBillingPurchase(scope, action)
     else if (action.action === "cancel") result = await cancelNativeBillingPurchase(scope, action)
+    else if (action.action === "webCancellation") result = await prepareWebBillingCancellation(scope)
     else result = await requestNativeBillingVerification(scope)
     if (action?.action === "verify" || action?.action === "cancel") after(async () => { await runNativeBilling() })
     return Response.json(result, { headers })

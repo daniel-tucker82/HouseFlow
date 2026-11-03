@@ -12,11 +12,12 @@ export interface IdentifiedBillingStore {
   offers(): Promise<BillingOffer[]>
   purchase(offer: BillingOffer): Promise<"purchased" | "cancelled" | "pending">
   restore(): Promise<void>
-  manage(): Promise<void>
 }
 export interface BillingSdk {
   store: NativeBillingStore | null
   run<T>(setup: NativeBillingSetup, check: () => void, work: (store: IdentifiedBillingStore) => Promise<T>): Promise<T>
+  manage(check: () => void): Promise<void>
+  openWebCancellation(url: string, check: () => void): Promise<void>
 }
 
 /** SDK implementations share this queue across runtimes/accounts. A new login

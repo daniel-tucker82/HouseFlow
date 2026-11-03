@@ -694,11 +694,71 @@ are temporary runtime-only values and are removed after inspection; they do not
 enable billing or make purchases. Physical-device and iOS checks remain required.
 
 This is not yet the complete subscription release: store accounts/catalogs and
-real sandbox lifecycle verification remain outstanding, as do policy/support
-links and actionable management for Stripe and other-platform subscriptions.
-Those sources currently show provider instructions. Web reservations also still
+real store sandbox lifecycle verification remain outstanding, as do policy/support
+links and actionable management for other-platform subscriptions.
+Those store sources currently show provider instructions. Web reservations also still
 need a polished change/cancel recovery flow. Keep the production billing gate off
 until the complete purchase and management flows have been verified.
+
+## Existing subscription management
+
+Owners can open the current device's subscription centre even when native
+purchases are disabled or store offerings/SDK keys are unavailable. Management
+rechecks household ownership and the recorded provider before opening the fixed
+Apple or Google management URL. It does not configure a purchasing identity or
+start a purchase. Account, household and kiosk changes fence delayed actions.
+
+An existing website subscription has a **Cancel website subscription** action.
+The backend creates a short-lived Stripe cancellation session after checking the
+stored customer/subscription binding, current provider state and approved price.
+Stripe asks the parent to confirm cancellation at the end of the paid period.
+Creating/opening the link never changes entitlements. Stripe webhook processing
+remains required to reconcile the resulting lifecycle event. The return page at
+`/mobile/billing/return` contains only a neutral status explanation and an app
+link; it neither accepts account/redirect parameters nor grants access.
+
+Set protected server configuration `STRIPE_NATIVE_CANCEL_PORTAL_CONFIG_ID` to a
+dedicated portal configuration in the same Stripe environment as the subscription:
+
+- Active, non-default configuration, with public login disabled.
+- Only subscription cancellation enabled, at period end, without proration.
+- All other portal features disabled; no retention/upgrade flow is requested.
+- Optional legal URLs restricted to this deployment's `/legal/privacy` and
+  `/legal/terms`; publish and review those pages before configuring their URLs.
+- Never reuse the general website portal configuration. Stripe makes the first
+  configuration in an empty sandbox the default; create a separate non-default
+  configuration for mobile cancellation.
+
+The service checks this configuration on every request and fails visibly if it
+changes. Provider calls run outside the household write lock; owner and billing
+binding are rechecked before and after session creation. Session links stay in
+memory only, with no cache, analytics or logs. Validation accepts the current
+`/p/session/flow?secret=...` form and legacy opaque path tokens on
+`https://billing.stripe.com`, rejecting extra query parameters and other hosts.
+Use a server-only restricted Stripe key with the required subscription reads,
+portal configuration reads and portal session writes. No secret key belongs in
+the mobile bundle. Existing prices and Stripe Tax settings are unchanged.
+
+Verification on 2026-11-04: 249 general regression checks passed, followed by 37
+focused billing checks after the real Stripe URL-format correction; all 19
+isolated web-billing checks passed. Root/mobile lint and typecheck, the Next.js
+production build and Android/iOS JavaScript exports passed.
+
+An isolated Stripe sandbox and disposable PostgreSQL schema exercised the actual
+mobile API handler and entitlement reconciliation with real Stripe responses
+through the authenticated CLI. Browser confirmation scheduled cancellation;
+fresh provider state reported an active subscription with `cancel_at`, and
+Cyntch retained Premium with renewal `will_not_renew` through the paid period.
+The return page was inspected after navigation. This verifies provider responses
+and reconciliation, not webhook delivery, a physical mobile browser handoff or
+store review approval. Test subscription/customer/schema were removed and prices,
+product and dedicated portal configuration deactivated after evidence capture.
+Stripe requires its default configuration to remain active; all features and its
+public login were disabled. Live Stripe settings and subscriptions were untouched.
+
+References: [Stripe portal deep links](https://docs.stripe.com/customer-management/portal-deep-links),
+[Google subscription cancellation requirements](https://support.google.com/googleplay/android-developer/answer/12154973),
+and [Google payment-policy guidance](https://support.google.com/googleplay/android-developer/answer/10281818).
 
 Verification on 2026-11-04: 241 general checks (including 15 native billing client
 checks) and 19 isolated web billing checks passed. Root/mobile lint and typecheck,

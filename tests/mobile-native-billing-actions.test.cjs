@@ -14,6 +14,96 @@ const products = ['app_store', 'play_store'].flatMap(store => ['monthly', 'yearl
   revenuecatProductId: `${store}_${interval}`, storeProductId: `cyntch.${store}.${interval}`, store, interval,
 })))
 
+test('native web cancellation accepts only scoped Stripe session URLs and return pages cannot grant access', async t => {
+  const { MobileApi, GET } = load(['mobile/src/services/api.ts','app/mobile/billing/return/route.ts'],{})
+  const scope={accountId:'parent',sessionId:'session',householdId:randomUUID(),deviceId:randomUUID()}
+  const api=new MobileApi('https://cyntch.test',scope.accountId,scope.deviceId,async()=>'fixture-token',undefined,scope.sessionId)
+  const previousFetch=global.fetch;t.after(()=>{global.fetch=previousFetch})
+  let response={...scope,provider:'stripe',url:'https://billing.stripe.com/p/session/test_fixture'}
+  global.fetch=async()=>Response.json(response)
+  assert.equal((await api.webBillingCancellation(scope.householdId)).url,response.url)
+  response.url='https://billing.stripe.com/p/session/flow?secret=fixture_opaque-token'
+  assert.equal((await api.webBillingCancellation(scope.householdId)).url,response.url)
+  for(const url of ['http://billing.stripe.com/p/session/a','https://billing.stripe.com.evil.test/p/session/a','https://billing.stripe.com@evil.test/p/session/a',
+    'https://user:secret@billing.stripe.com/p/session/a','https://billing.stripe.com:444/p/session/a','https://billing.stripe.com/p/login/a',
+    'https://billing.stripe.com/p/session/a?redirect=bad','https://billing.stripe.com/p/session/a#bad','cyntch://settings',
+    'https://billing.stripe.com/p/session/flow','https://billing.stripe.com/p/session/flow?secret=',
+    'https://billing.stripe.com/p/session/flow?secret=a&secret=b','https://billing.stripe.com/p/session/flow?secret=a&return_url=bad',
+    'https://billing.stripe.com/p/session/flow?secret=https%3A%2F%2Fevil.test']) {
+    response={...scope,provider:'stripe',url};await assert.rejects(api.webBillingCancellation(scope.householdId),/invalid cancellation link/)
+  }
+  response={...scope,provider:'stripe',url:'https://billing.stripe.com/p/session/test_fixture',sessionId:'another'}
+  await assert.rejects(api.webBillingCancellation(scope.householdId),/different account/)
+  const page=GET(new Request('https://cyntch.test/mobile/billing/return?success=true&return_url=https://evil.test'))
+  const html=await page.text()
+  assert.equal(page.headers.get('Cache-Control'),'no-store');assert.equal(page.headers.get('Referrer-Policy'),'no-referrer')
+  assert.match(page.headers.get('Content-Security-Policy'),/default-src 'none'/)
+  assert.equal((html.match(/href=/g)||[]).length,1);assert.match(html,/href="cyntch:\/\/settings"/)
+  assert.doesNotMatch(html,/evil.test|success=true|<script|<form/)
+})
+
+test('native website cancellation creates only a verified cancellation flow outside household writes', {skip:!connectionString}, async t=>{
+  const f=await fixture(t), scope=await f.household()
+  await f.db.query(`insert into household_billing(household_id,stripe_customer_id,stripe_subscription_id,subscription_status,paid_through)
+    values($1,'cus_cancel','sub_cancel','active',now()+interval '1 month')`,[scope.householdId])
+  let subscription={id:'sub_cancel',customer:'cus_cancel',livemode:false,metadata:{household_id:scope.householdId},status:'active',cancel_at:null,cancel_at_period_end:false,
+    items:{has_more:false,data:[{price:{id:'price_monthly'},quantity:1}]}}
+  const configuration={id:'bpc_mobilecancel',active:true,is_default:false,livemode:false,login_page:{enabled:false},business_profile:{privacy_policy_url:null,terms_of_service_url:null},
+    features:{subscription_cancel:{enabled:true,mode:'at_period_end',proration_behavior:'none'},customer_update:{enabled:false},invoice_history:{enabled:false},
+      payment_method_update:{enabled:false},subscription_update:{enabled:false},subscription_pause:{enabled:false}}}
+  const calls=[];let returnedUrl='https://billing.stripe.com/p/session/test_fixture'
+  f.stripe.subscriptions.retrieve=async(id)=>{assert.equal(id,'sub_cancel');return structuredClone(subscription)}
+  f.stripe.billingPortal={configurations:{retrieve:async()=>structuredClone(configuration)},sessions:{create:async(params)=>{
+    calls.push(params);return{customer:'cus_cancel',configuration:'bpc_mobilecancel',livemode:false,url:returnedUrl}
+  }}}
+  await t.test('members, non-owner managers, missing subscriptions and locked sessions cannot open a billing link',async()=>{
+    for(const accountId of ['member','manager','other'])await assert.rejects(f.lib.prepareWebBillingCancellation({...scope,accountId}),{status:403})
+    await assert.rejects(f.lib.prepareWebBillingCancellation(await f.household()),{status:404})
+    await f.db.query('insert into native_notification_installations(device_id,secret_hash) values($1,$2)',[scope.deviceId,'b'.repeat(64)])
+    await f.db.query(`insert into native_kiosk_sessions(id,household_id,user_id,session_id,device_id,visible_member_ids,editable_member_ids,state,exit_secret_hash,request_hash)
+      values($1,$2,$3,$4,$5,array[$3],array[$3],'locked',$6,$6)`,[randomUUID(),scope.householdId,scope.accountId,scope.sessionId,scope.deviceId,'a'.repeat(64)])
+    assert.equal((await f.route.POST(f.request(scope,{action:'webCancellation'}))).status,423)
+    await f.db.query('delete from native_kiosk_sessions where session_id=$1',[scope.sessionId])
+    assert.equal(calls.length,0)
+  })
+  await t.test('the link works with native purchase rollout off and preserves current paid access',async()=>{
+    process.env.NATIVE_BILLING_ENABLED='false'
+    const before=(await f.db.query('select * from household_billing where household_id=$1',[scope.householdId])).rows[0]
+    const response=await f.route.POST(f.request(scope,{action:'webCancellation'})),body=await response.json()
+    assert.equal(response.status,200);assert.equal(response.headers.get('Cache-Control'),'no-store');assert.equal(body.url,returnedUrl)
+    assert.equal(body.sessionId,scope.sessionId);assert.equal(f.limits.at(-1),'billing')
+    assert.deepEqual(calls.at(-1),{customer:'cus_cancel',configuration:'bpc_mobilecancel',return_url:'https://cyntch.test/mobile/billing/return',
+      flow_data:{type:'subscription_cancel',subscription_cancel:{subscription:'sub_cancel'},after_completion:{type:'redirect',redirect:{return_url:'https://cyntch.test/mobile/billing/return'}}}})
+    assert.deepEqual((await f.db.query('select * from household_billing where household_id=$1',[scope.householdId])).rows[0],before)
+    process.env.NATIVE_BILLING_ENABLED='true'
+  })
+  await t.test('changed or unsafe provider state fails closed without using the default portal',async()=>{
+    const before=calls.length, good=structuredClone(subscription)
+    for(const patch of [{customer:'cus_other'},{metadata:{household_id:randomUUID()}},{cancel_at_period_end:true},{cancel_at:123},{status:'canceled'},
+      {items:{has_more:true,data:good.items.data}},{items:{has_more:false,data:[{price:{id:'price_other'},quantity:1}]}},{livemode:true}]){
+      subscription={...good,...patch};await assert.rejects(f.lib.prepareWebBillingCancellation(scope),{status:409})
+    }
+    subscription=good
+    for(const feature of ['customer_update','invoice_history','payment_method_update','subscription_update','subscription_pause']){
+      configuration.features[feature].enabled=true;await assert.rejects(f.lib.prepareWebBillingCancellation(scope),{status:503});configuration.features[feature].enabled=false
+    }
+    configuration.is_default=true;await assert.rejects(f.lib.prepareWebBillingCancellation(scope),{status:503});configuration.is_default=false
+    configuration.features.subscription_cancel.mode='immediately';await assert.rejects(f.lib.prepareWebBillingCancellation(scope),{status:503});configuration.features.subscription_cancel.mode='at_period_end'
+    assert.equal(calls.length,before)
+    returnedUrl='https://evil.test/p/session/test_fixture';await assert.rejects(f.lib.prepareWebBillingCancellation(scope),{status:503});returnedUrl='https://billing.stripe.com/p/session/test_fixture'
+  })
+  await t.test('slow provider reads do not block task writes; changed ownership prevents returning the session',async()=>{
+    let release,reached;const gate=new Promise(resolve=>{release=resolve}),entered=new Promise(resolve=>{reached=resolve})
+    const create=f.stripe.billingPortal.sessions.create
+    f.stripe.billingPortal.sessions.create=async(params)=>{reached();await gate;return create(params)}
+    const work=f.lib.prepareWebBillingCancellation(scope);await entered
+    await f.lib.withHouseholdWrite(scope.householdId,scope.accountId,async client=>{await client.query("update households set leader_id='other' where id=$1",[scope.householdId])})
+    release();await assert.rejects(work,{status:403})
+    await f.db.query("update households set leader_id='parent' where id=$1",[scope.householdId])
+    f.stripe.billingPortal.sessions.create=create
+  })
+})
+
 test('mobile billing replies are fenced to account, session, household, device and purchase; client clocks do not decide authorization', async t => {
   const { MobileApi } = load(['mobile/src/services/api.ts'], {})
   const scope = { accountId: 'parent', sessionId: 'session', householdId: randomUUID(), deviceId: randomUUID() }
@@ -57,7 +147,8 @@ async function fixture(t) {
   await db.query(fs.readFileSync(path.join(root, 'database/0032_billing_purchase_attempts.sql'), 'utf8'))
   const env = { NATIVE_BILLING_ENABLED: 'true', NATIVE_BILLING_ENVIRONMENT: 'production', FREEMIUM_ENFORCEMENT_ENABLED: 'true',
     REVENUECAT_PROJECT_ID: 'proj_test', REVENUECAT_V1_SECRET_KEY: 'secret_fixture_v1', REVENUECAT_V2_SECRET_KEY: 'secret_fixture_v2',
-    REVENUECAT_NATIVE_PRODUCTS: JSON.stringify(products), REVENUECAT_IOS_PUBLIC_KEY: 'appl_fixture', REVENUECAT_ANDROID_PUBLIC_KEY: 'goog_fixture' }
+    REVENUECAT_NATIVE_PRODUCTS: JSON.stringify(products), REVENUECAT_IOS_PUBLIC_KEY: 'appl_fixture', REVENUECAT_ANDROID_PUBLIC_KEY: 'goog_fixture',
+    STRIPE_NATIVE_CANCEL_PORTAL_CONFIG_ID: 'bpc_mobilecancel', STRIPE_MONTHLY_PRICE_ID: 'price_monthly', STRIPE_YEARLY_PRICE_ID: 'price_yearly' }
   const previous = Object.fromEntries(Object.keys(env).map(key => [key, process.env[key]])), previousFetch = global.fetch
   Object.assign(process.env, env)
   t.after(() => { global.fetch = previousFetch; for (const [key, value] of Object.entries(previous)) { if (value === undefined) delete process.env[key]; else process.env[key] = value } })
@@ -71,7 +162,7 @@ async function fixture(t) {
     '@/lib/stripe-billing': { stripeClient: () => stripe, validatedPrice: async interval => ({ id: `price_${interval}` }), billingOrigin: () => 'https://cyntch.test' },
     '@/lib/usage-controls': { enforceRequestLimit: async (_user, operation) => limits.push(operation) },
     'next/server': { after: callback => callbacks.push(callback), NextResponse: { json: Response.json } }, '@/lib/run-native-billing': { runNativeBilling: async () => ({ ok: true }) } }
-  const lib = load(['lib/native-billing-actions.ts', 'lib/billing-purchase-attempts.ts', 'lib/entitlements.ts', 'lib/native-billing-store.ts', 'lib/native-billing-jobs.ts', 'lib/revenuecat-native-billing.ts'], mocks)
+  const lib = load(['lib/native-billing-actions.ts', 'lib/native-billing-management.ts', 'lib/billing-purchase-attempts.ts', 'lib/entitlements.ts', 'lib/native-billing-store.ts', 'lib/native-billing-jobs.ts', 'lib/revenuecat-native-billing.ts'], mocks)
   const route = load(['app/api/mobile/billing/route.ts'], mocks), web = load(['app/api/billing/checkout/route.ts'], mocks)
   for (const user of ['parent', 'member', 'manager', 'other']) await db.query('insert into users(id) values($1)', [user])
   async function household() {

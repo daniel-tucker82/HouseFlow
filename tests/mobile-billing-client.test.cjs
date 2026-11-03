@@ -43,9 +43,11 @@ async function fixture(t) {
     prepareBilling: async () => { calls.push('setup'); return setup },
     billingPurchase: async action => { calls.push(structuredClone(action)); if (action.action === 'begin') status.purchase={id:action.operationId,thisSession:true,provider:action.store}; else status.purchase=null },
     verifyBilling: async () => { calls.push('verify'); status.verificationPending=true; return structuredClone(status) },
+    webBillingCancellation: async () => ({...scope,provider:'stripe',url:'https://billing.stripe.com/p/session/test_fixture'}),
   }
   const session = { offers: async () => offers, purchase: async () => { calls.push('purchase'); return 'purchased' }, restore: async () => { calls.push('restore') }, manage: async () => { calls.push('manage') } }
-  const sdk = { store: 'play_store', run: (configuration,check,work) => queue.run(check,async () => { check(); return work(session) }) }
+  const sdk = { store: 'play_store', run: (configuration,check,work) => queue.run(check,async () => { check(); return work(session) }),
+    manage:async check=>{check();calls.push('manage')},openWebCancellation:async(url,check)=>{check();calls.push(['open',url])} }
   const controllers = []
   const create = (identity = scope) => {
     const controller = new BillingController(local.billing,identity,api,sdk,() => allowed,randomUUID,() => now)
@@ -246,4 +248,27 @@ test('SDK errors distinguish cancellation and pending payment; stale access chec
   const queued=f.sdk.run({...setup,billingCustomerId:randomUUID()},()=>{if(!allowed)throw new Error('Kiosk locked')},async()=>assert.fail())
   allowed=false;gate.resolve();await running;await assert.rejects(queued,/Kiosk locked/)
   assert.equal(f.user,setup.billingCustomerId)
+})
+
+test('store management does not need purchase setup or SDK identity; delayed cancellation links are fenced',async t=>{
+  const f=await fixture(t)
+  f.setStatus({purchasesAvailable:false,sources:[{provider:'play_store',status:'active',givesAccess:true}]})
+  f.api.prepareBilling=async()=>assert.fail('Management must not need purchase configuration')
+  await f.controller.manage();assert.equal(f.calls.includes('manage'),true)
+  await f.controller.refresh()
+  const gate=deferred(), reached=deferred()
+  f.api.webBillingCancellation=async()=>{reached.resolve();await gate.promise;return{...f.scope,provider:'stripe',url:'https://billing.stripe.com/p/session/test_fixture'}}
+  const opening=f.controller.cancelWebRenewal();await reached.promise;f.setAllowed(false);gate.resolve()
+  await assert.rejects(opening,/interrupted/);assert.equal(f.calls.some(call=>Array.isArray(call)&&call[0]==='open'),false)
+})
+
+test('native management links use only approved destinations without configuring RevenueCat',async()=>{
+  for(const [platform,url] of [['ios','https://apps.apple.com/account/subscriptions'],['android','https://play.google.com/store/account/subscriptions']]){
+    const f=nativeSdk(platform);await f.sdk.manage(()=>{})
+    assert.deepEqual(f.calls,[['open',url]]);assert.equal(f.configurations,0)
+    await assert.rejects(f.sdk.manage(()=>{throw new Error('Locked')}),/Locked/)
+    await assert.rejects(f.sdk.openWebCancellation('https://evil.test',()=>{}),/not valid/)
+    await f.sdk.openWebCancellation('https://billing.stripe.com/p/session/test_fixture',()=>{})
+    assert.equal(f.calls.length,2)
+  }
 })

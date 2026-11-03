@@ -4,7 +4,7 @@ import type { PlannerEdit, PlannerSnapshot } from "../../../shared/mobile/planne
 import type { RunPage, RunSnapshot, RunView } from "../../../shared/mobile/runs"
 import type { NativeNotificationDevice, NotificationSettingsOperation, NotificationSettingsSnapshot } from "../../../shared/mobile/notification-settings"
 import { parseNativeKioskSession, type NativeKioskOperation, type NativeKioskResult } from "../../../shared/mobile/kiosk"
-import type { NativeBillingAction, NativeBillingScope, NativeBillingSetup, NativeBillingStatus, NativeBillingStore } from "../../../shared/mobile/billing"
+import { isWebBillingCancellationUrl, type NativeBillingAction, type NativeBillingScope, type NativeBillingSetup, type NativeBillingStatus, type NativeBillingStore, type WebBillingCancellation } from "../../../shared/mobile/billing"
 
 export interface BootstrapResult { accountId: string; households: HouseholdSummary[]; board: BoardSnapshot | null }
 
@@ -78,6 +78,11 @@ export class MobileApi implements SyncTransport {
   }
   async verifyBilling(householdId: string) {
     return this.validateBilling(await this.request<NativeBillingStatus>("/api/mobile/billing", { action: "verify", householdId }), householdId)
+  }
+  async webBillingCancellation(householdId: string) {
+    const result = this.validateBilling(await this.request<WebBillingCancellation>("/api/mobile/billing", { action: "webCancellation", householdId }),householdId)
+    if (result.provider !== "stripe" || !isWebBillingCancellationUrl(result.url)) throw new Error("Cyntch returned an invalid cancellation link.")
+    return result
   }
 
   async kioskSettings() {
