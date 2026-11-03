@@ -603,13 +603,13 @@ async function completeOlderRoutineOccurrences(
 }
 
 export async function GET(request: Request) {
+  const started = Date.now()
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   try { await enforceRequestLimit(userId,"read") } catch(error) {
     if (error instanceof EntitlementError) return NextResponse.json({error:error.message},{status:error.status})
     throw error
   }
-  await ensureCurrentUserRecord()
   await ensureRoutineSchemaColumns()
 
   const { searchParams } = new URL(request.url)
@@ -910,6 +910,14 @@ export async function GET(request: Request) {
     : { rows: [] }
   const serverNowResult = await db.query(`select now() as server_now`)
   const serverNow = String(serverNowResult.rows[0]?.server_now ?? new Date().toISOString())
+
+  const usageClient = await db.connect()
+  try {
+    const entitlement = await getHouseholdEntitlement(usageClient, householdId)
+    await recordHouseholdUsage(usageClient, householdId, entitlement.tier, Date.now() - started)
+  } catch {
+    console.warn("Household read usage could not be recorded")
+  } finally { usageClient.release() }
 
   return NextResponse.json({
     routines: routinesResult.rows,

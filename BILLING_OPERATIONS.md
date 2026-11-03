@@ -31,11 +31,11 @@ Required server variables: STRIPE_SECRET_KEY (prefer restricted key), STRIPE_WEB
 
 Use separate Stripe sandbox/test credentials and products for preview. Never use live financial transactions for tests. Keep credentials in Vercel Secret variables, scoped to the intended environment and branch; never commit them.
 
-Verified live catalog, Aspyre Pty Ltd (acct_1S5hWjAeXJvRlwAS):
+Verified live catalog in the user-selected Aspyre account, under Aspyre Pty Ltd (acct_1U4XwUAJcWjR3ecT):
 
-- Product: prod_VYfuzIy0VvkdVb — Cyntch Premium.
-- Monthly: price_1UXYYsAeXJvRlwASHbeqoqPX — AUD 599.
-- Annual: price_1UXYbGAeXJvRlwASz7WC1KLy — AUD 4999.
+- Product: prod_VYge51YKosH7b8 — Cyntch Premium.
+- Monthly: price_1UXZHAAJcWjR3ecTIh1sDRNh — AUD 599.
+- Annual: price_1UXZJYAJcWjR3ecTHfb4oXwN — AUD 4999.
 - No trial. No charges were created during catalog setup.
 
 Aspyre's owner corrected the business status: **not GST registered**. Automatic GST collection is not enabled. Revisit tax settings when registration or sales jurisdictions change; absence of Australian GST registration is not a conclusion about other jurisdictions.
@@ -66,10 +66,14 @@ household_usage_daily records tier, API/job request counts, processing milliseco
 
 Read-only production baseline on 2026-11-03: 8 households, 5 templates, 160 task records, 13 runs, 1 active run. These counts do not validate prior dollar estimates. Reconcile provider invoices, actual egress/database storage, active household counts and payment fees before publishing per-household cost claims.
 
-Provider spending alerts and a complete usage report still need verification. The existing Vercel cron runs daily on the current configuration; active web clients also check recurrence. Do not silently upgrade infrastructure to obtain more frequent cron.
+Run scripts/billing-usage-report.cjs with an explicitly supplied POSTGRES_URL and optional USAGE_REPORT_DAYS (1–366, default 30) for aggregate workload, retained records and billing health. This read-only report was verified against the isolated preview database. Provider spending alerts still need configuration/verification. The existing Vercel cron runs daily on the current configuration; active web clients also check recurrence. Do not silently upgrade infrastructure to obtain more frequent cron.
 
 ## Native release follow-up
 
 The user confirmed neither Android nor iOS has been released. Both are required in a separate release objective. Web purchase links are hidden in native wrappers.
 
 Google permits consumption-only apps under its [Payments policy](https://support.google.com/googleplay/android-developer/answer/10281818?hl=en). Apple's current [review guidelines](https://developer.apple.com/app-store/review/guidelines/) do not establish that Cyntch qualifies for the limited companion-app exemption. Complete an iOS-compliant purchase strategy, store configuration, server verification/restoration/lifecycle handling where applicable, and device/store review testing before native release. This web launch does not claim native billing completion.
+
+Security checks: the existing Next.js 16.2.4 and Zod versions had applicable advisories. Release branch upgrades Next.js/eslint-config-next to 16.4.4 and Zod to 4.6.6. Remaining dependency findings include native Capacitor and transitive tools; native releases require a separate security review. No forced major dependency downgrade was applied.
+
+Account selection note: an earlier unused catalog was created in Aspyre Pty Ltd account acct_1S5hWjAeXJvRlwAS. The user subsequently selected Aspyre acct_1U4XwUAJcWjR3ecT in Chrome; the catalog above belongs to that selected account. Do not mix account credentials or price IDs. No payments or subscriptions were created in either account.
