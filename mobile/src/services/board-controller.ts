@@ -2,8 +2,9 @@ import type { BoardSnapshot, BoardTask, CompletionChange, HouseholdSummary } fro
 import type { LocalStore } from "../storage/local-store"
 import { SyncEngine, TransportError, type SyncTransport } from "../storage/sync-engine"
 import type { BootstrapResult } from "./api"
+import type { RunSnapshot } from "../../../shared/mobile/runs"
 
-interface BoardApi extends SyncTransport { bootstrap(householdId?: string): Promise<BootstrapResult> }
+interface BoardApi extends SyncTransport { bootstrap(householdId?: string): Promise<BootstrapResult>; run?(householdId: string, occurrenceId: string): Promise<RunSnapshot> }
 export interface BoardState {
   board: BoardSnapshot | null; households: HouseholdSummary[]; pending: CompletionChange[];
   loading: boolean; refreshing: boolean; online: boolean; error: string | null;
@@ -132,7 +133,7 @@ export class BoardController {
 
   async setCompleted(task: BoardTask, memberId: string, completed: boolean) {
     const householdId = this.state.board?.household.id
-    if (!householdId || this.stopped) return
+    if (!householdId || this.stopped) return false
     const id = this.uuid()
     const key = `${task.occurrence_id}:${task.id}`
     this.mutationRevision++
@@ -143,8 +144,10 @@ export class BoardController {
     try {
       await this.store.enqueueCompletion({ id, accountId: this.accountId, deviceId: this.deviceId, householdId,
         taskId: task.id, occurrenceId: task.occurrence_id, memberId, completed, deviceTimeMs: Date.now() })
+      return true
     } catch (error) {
       this.fail(new Error(`This change could not be saved on this device. ${error instanceof Error ? error.message : "Please try again."}`))
+      return false
     } finally {
       if (this.optimistic.get(key)?.id === id) this.optimistic.delete(key)
       await this.readLocal().catch(error => this.fail(error))
@@ -162,8 +165,13 @@ export class BoardController {
     const revoked = await this.store.isHouseholdRevoked(this.accountId, change.householdId)
     const result = revoked ? null : await this.api.bootstrap(change.householdId)
     if (!revoked && !result?.board) throw new Error("Connect to refresh this household before discarding the change.")
+    let run: RunSnapshot | null | undefined
+    if (!revoked && this.api.run && await this.store.getRun(this.accountId, change.householdId, change.occurrenceId)) {
+      try { run = await this.api.run(change.householdId, change.occurrenceId) }
+      catch (error) { if (error instanceof TransportError && error.status === 404) run = null; else throw error }
+    }
     this.mutationRevision++
-    await this.store.discardRejected(this.accountId, change.id, result?.board ?? null)
+    await this.store.discardRejected(this.accountId, change.id, result?.board ?? null, run)
     await this.readLocal()
     this.wake()
   }

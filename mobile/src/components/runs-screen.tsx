@@ -1,0 +1,67 @@
+import { useCallback, useState } from "react"
+import { Alert, FlatList, Modal, Pressable, RefreshControl, View, useWindowDimensions } from "react-native"
+import { useFocusEffect } from "expo-router"
+import { SafeAreaView } from "react-native-safe-area-context"
+import { ChevronRight } from "lucide-react-native"
+import type { RunSnapshot, RunSummary } from "../../../shared/mobile/runs"
+import { useBoard, useRuns, useRuntime } from "../providers/runtime"
+import { BoardTaskRow } from "./board-screen"
+import { PlannerSelect } from "./planner-inputs"
+import { Action, Card, Copy, Loading, styles, usePalette } from "./ui"
+
+const dateLabel = (run: RunSummary, timezone: string) => new Date(run.scheduled_for).toLocaleString(undefined, { timeZone: timezone, year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+function report(error: unknown) { Alert.alert("Unable to open runs", error instanceof Error ? error.message : "Please try again.") }
+
+export default function RunsScreen() {
+  const { runs } = useRuntime(), state = useRuns(), board = useBoard(), colors = usePalette()
+  const { width, fontScale } = useWindowDimensions(), columns = width / Math.max(1, fontScale) >= 840 ? 2 : 1
+  useFocusEffect(useCallback(() => { runs.setVisible(true); return () => runs.setVisible(false) }, [runs]))
+  if (!state.household) return <View style={[styles.center, { backgroundColor: colors.background }]}><Copy tone="heading">Your household’s runs</Copy><Copy tone="muted">Choose a household in Today to see its active runs and history.</Copy></View>
+  return <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1, backgroundColor: colors.background }}>
+    <FlatList key={columns} numColumns={columns} columnWrapperStyle={columns > 1 ? { gap: 16 } : undefined} data={state.page?.items ?? []} keyExtractor={run => run.id}
+      contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={state.refreshing} onRefresh={() => void runs.refresh()} tintColor={colors.primary} />}
+      ListHeaderComponent={<View style={{ gap: 16 }}><Copy tone="title">Runs</Copy><Copy tone="muted">{state.household.name} · Each run is a copy of a routine, or a board of one-off tasks.</Copy>
+        <View style={styles.row}>{(["active", "past"] as const).map(view => <Pressable key={view} accessibilityRole="tab" accessibilityState={{ selected: state.view === view }}
+          onPress={() => void runs.selectView(view).catch(report)} style={[styles.action, { flex: 1, backgroundColor: state.view === view ? colors.primary : colors.soft }]}><Copy style={{ color: state.view === view ? colors.onPrimary : colors.text, textAlign: "center", fontWeight: "600" }}>{view === "active" ? "Active runs" : "Past runs"}</Copy></Pressable>)}</View>
+        {!board.online ? <Copy tone="muted">You’re offline. Previously opened runs are available here; saved changes will sync when connected.</Copy> : null}
+        {state.error ? <View accessibilityRole="alert"><Copy style={{ color: colors.danger }}>{state.error}</Copy></View> : null}
+      </View>}
+      ListEmptyComponent={state.loading ? <Loading label="Opening your runs…" /> : <Card><Copy tone="heading">{state.view === "active" ? "No active runs" : "No past runs loaded"}</Copy><Copy tone="muted">{!board.online ? "Connect to load this household’s runs." : state.view === "active" ? "Start a routine in Routines. Its tasks will appear here and in Today." : "Completed runs will appear here. Your history is kept when your plan changes."}</Copy></Card>}
+      ListFooterComponent={<View style={{ gap: 12 }}>{state.page?.nextCursor ? <Action secondary label={state.refreshing ? "Loading…" : "Load more runs"} disabled={!board.online || state.refreshing} onPress={() => void runs.refresh(true)} /> : null}
+        {state.error && board.online ? <Action secondary label="Try again" disabled={state.refreshing} onPress={() => void runs.refresh()} /> : null}</View>}
+      renderItem={({ item: run }) => <Pressable accessibilityRole="button" accessibilityLabel={`Open ${run.title}, ${dateLabel(run, state.household!.timezone)}, ${run.completed_tasks} of ${run.total_tasks} done`}
+        onPress={() => void runs.openRun(run.id).catch(report)} style={{ flex: 1 }}><Card><View style={styles.row}><Copy tone="heading" style={{ flex: 1 }}>{run.title}</Copy><ChevronRight color={colors.primary} size={22} /></View>
+        <Copy tone="muted">{dateLabel(run, state.household!.timezone)}</Copy><Copy>{run.status === "cancelled" ? "Cancelled" : `${run.completed_tasks} of ${run.total_tasks} done`}</Copy>
+      </Card></Pressable>} />
+    <Modal visible={Boolean(state.runId)} animationType="slide" presentationStyle="pageSheet" supportedOrientations={["portrait", "landscape-left", "landscape-right"]} onRequestClose={() => runs.closeRun()}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
+        {state.run ? <RunDetails key={state.runId} snapshot={state.run} /> : <View style={[styles.content, { flex: 1 }]}><Action secondary label="Close run" onPress={() => runs.closeRun()} />
+          {state.runLoading ? <Loading label="Opening this run…" /> : <><Copy>{state.runError ?? "This run is not available on this device."}</Copy>{board.online ? <Action label="Try again" onPress={() => void runs.refreshRun()} /> : null}</>}
+        </View>}
+      </SafeAreaView>
+    </Modal>
+  </SafeAreaView>
+}
+
+function RunDetails({ snapshot }: { snapshot: RunSnapshot }) {
+  const { runs, controller } = useRuntime(), state = useRuns(), board = useBoard(), colors = usePalette()
+  const [selectedMember, setMember] = useState("all")
+  const memberId = snapshot.members.some(member => member.id === selectedMember) ? selectedMember : "all"
+  const tasks = snapshot.tasks.filter(task => memberId === "all" || task.assignee_ids.includes(memberId))
+  const pending = new Map(board.pending.filter(change => change.householdId === snapshot.household.id && change.occurrenceId === snapshot.run.id).map(change => [change.taskId, change]))
+  return <FlatList data={tasks} keyExtractor={task => task.id} contentContainerStyle={[styles.content, { maxWidth: 800 }]} refreshControl={<RefreshControl refreshing={state.runLoading} onRefresh={() => void runs.refreshRun()} tintColor={colors.primary} />}
+    ListHeaderComponent={<View style={{ gap: 16 }}><View style={[styles.row, { flexWrap: "wrap" }]}><Copy tone="heading" style={{ flex: 1, minWidth: 160 }}>{snapshot.run.title}</Copy><Action secondary label="Close run" onPress={() => runs.closeRun()} /></View>
+      <Copy tone="muted">{dateLabel(snapshot.run, snapshot.household.timezone)} · {snapshot.household.timezone}</Copy>
+      <Copy>{snapshot.run.status === "cancelled" ? "This run was cancelled. Its tasks cannot be changed." : `${snapshot.run.completed_tasks} of ${snapshot.run.total_tasks} done`}</Copy>
+      {!board.online ? <Copy tone="muted">{snapshot.run.status === "cancelled" ? "Saved on this device for viewing offline." : "Saved on this device. You can update these tasks offline."}</Copy> : null}
+      {[...pending.values()].some(change => change.state === "rejected") ? <Copy style={{ color: colors.danger }}>A saved change needs attention in Settings.</Copy> : null}
+      {state.runError ? <View accessibilityRole="alert"><Copy style={{ color: colors.danger }}>{state.runError}</Copy></View> : null}
+      <PlannerSelect label="Show tasks for" value={memberId} options={[{ value: "all", label: "Everyone" }, ...snapshot.members.map(member => ({ value: member.id, label: member.name }))]} onChange={setMember} />
+    </View>}
+    ListEmptyComponent={<Card><Copy tone="muted">{snapshot.tasks.length ? "No tasks for this person in this run." : "There are no tasks in this run."}</Copy></Card>}
+    renderItem={({ item: task }) => <BoardTaskRow task={task} timezone={snapshot.household.timezone} saving={pending.has(task.id)}
+      memberNames={snapshot.members.filter(member => task.assignee_ids.includes(member.id)).map(member => member.name).join(", ")}
+      canEdit={snapshot.run.status !== "cancelled" && (snapshot.household.role !== "member" || task.assignee_ids.includes(controller.accountId))}
+      onPress={() => void runs.setCompleted(task, memberId !== "all" ? memberId : snapshot.household.role === "member" ? controller.accountId : task.assignee_ids[0] ?? controller.accountId, task.status !== "completed").catch(report)} />}
+  />
+}

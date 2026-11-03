@@ -15,12 +15,12 @@ function Person({ member, selected, onPress }: { member: HouseholdMember | null;
   </Pressable>
 }
 
-function Task({ task, canEdit, memberNames, saving, onPress }: { task: BoardTask; canEdit: boolean; memberNames: string; saving: boolean; onPress: () => void }) {
+export function BoardTaskRow({ task, canEdit, memberNames, saving, onPress, timezone }: { task: BoardTask; canEdit: boolean; memberNames: string; saving: boolean; onPress: () => void; timezone?: string }) {
   const colors = usePalette()
   const complete = task.status === "completed"
   const locked = task.status === "locked"
   const explanation = locked ? task.blocking_task_title ? `After ${task.blocking_task_title}` : task.unlock_at
-    ? `Available ${new Date(task.unlock_at).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}` : "Not available yet" : null
+    ? `Available ${new Date(task.unlock_at).toLocaleString(undefined, { timeZone: timezone, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : "Not available yet" : null
   return <Pressable onPress={onPress} disabled={!canEdit || locked} accessibilityRole="checkbox"
     accessibilityLabel={`${task.title}${memberNames ? `, ${memberNames}` : ""}${explanation ? `, ${explanation}` : ""}${saving ? ", saved on this device, waiting to sync" : ""}`}
     accessibilityState={{ checked: complete, disabled: !canEdit || locked }} accessibilityHint={complete ? "Mark incomplete" : "Mark complete"}
@@ -100,7 +100,7 @@ export default function BoardScreen() {
         ListEmptyComponent={<Card><Copy tone="heading">{tasks.length > 0 ? "All done for now" : board ? "Room for a fresh start" : "Welcome to Cyntch"}</Copy>
           <Copy tone="muted">{tasks.length > 0 ? "Enjoy a little breathing room. Your next tasks will appear here." : board ? "Active routines and tasks will appear here for your household." : state.online ? "Create or join a household to start sharing routines." : "Connect once to load your household on this device."}</Copy>
         </Card>}
-        renderItem={({ item: task }) => <Task task={task} saving={pending.has(`${task.occurrence_id}:${task.id}`)}
+        renderItem={({ item: task }) => <BoardTaskRow task={task} saving={pending.has(`${task.occurrence_id}:${task.id}`)} timezone={board?.household.timezone}
           memberNames={members.filter(member => task.assignee_ids.includes(member.id)).map(member => member.name).join(", ")}
           canEdit={Boolean(board && (board.household.role !== "member" || task.assignee_ids.includes(controller.accountId) || (!task.assignee_ids.length && board.household.leaderId === controller.accountId)))}
           onPress={() => void controller.setCompleted(task, memberId ?? (board?.household.role === "member" ? controller.accountId : task.assignee_ids[0] ?? controller.accountId), task.status !== "completed")} />}

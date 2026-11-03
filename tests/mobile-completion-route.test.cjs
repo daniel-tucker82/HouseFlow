@@ -20,7 +20,17 @@ function compile(relative, dependencies) {
 test('F01 O05 O07 native completion endpoint enforces real membership, prerequisites, cancellation and replay rules', { skip: !url }, async t => {
   const target = new URL(url)
   assert.ok(['localhost', '127.0.0.1', '[::1]'].includes(target.hostname) && target.pathname === '/cyntch_mobile_test')
-  const db = new Pool({ connectionString: url, max: 5 })
+  const schema = `completion_route_${randomUUID().replaceAll('-', '')}`, admin = new Pool({ connectionString: url })
+  await admin.query(`create schema ${schema}`)
+  const db = new Pool({ connectionString: url, max: 5, options: `-c search_path=${schema}` })
+  t.after(async () => { await db.end(); await admin.query(`drop schema ${schema} cascade`); await admin.end() })
+  // The historical migrations detect enum names globally. Clone their labels
+  // into this test schema so existing public fixture types cannot redirect DDL.
+  for (const name of ['app_role', 'routine_type', 'task_status', 'occurrence_status', 'notification_kind']) {
+    const labels = (await admin.query(`select e.enumlabel from pg_enum e join pg_type t on t.oid=e.enumtypid join pg_namespace n on n.oid=t.typnamespace
+      where t.typname=$1 and n.nspname='public' order by e.enumsortorder`, [name])).rows
+    if (labels.length) await db.query(`create type ${name} as enum (${labels.map(row => "'" + row.enumlabel.replaceAll("'", "''") + "'").join(',')})`)
+  }
   const migrations = path.resolve(__dirname, '../database')
   for (const file of readdirSync(migrations).filter(name => name.endsWith('.sql')).sort()) await db.query(readFileSync(path.join(migrations, file), 'utf8'))
   const householdId = randomUUID(), occurrenceId = randomUUID(), taskId = randomUUID(), prerequisiteId = randomUUID(), deviceId = randomUUID()
@@ -34,11 +44,6 @@ test('F01 O05 O07 native completion endpoint enforces real membership, prerequis
     await db.query("insert into occurrence_tasks(occurrence_id,task_id,status) values ($1,$2,'unlocked')", [occurrenceId, id])
     await db.query('insert into task_assignees(task_id,user_id) values ($1,$2)', [id, child])
   }
-  t.after(async () => {
-    await db.query('delete from households where id=$1', [householdId])
-    await db.query('delete from users where id=any($1::text[])', [[parent, child, stranger]])
-    await db.end()
-  })
   const operationFile = path.resolve(__dirname, '../lib/completion-operations.ts')
   const bundled = buildSync({ entryPoints: [operationFile], bundle: true, platform: 'node', format: 'cjs', write: false })
   const operationModule = new Module(operationFile, module)

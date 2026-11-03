@@ -1,6 +1,7 @@
 import type { BoardSnapshot, CompletionChange, CompletionResult, HouseholdSummary } from "../../../shared/mobile/contracts"
 import { TransportError, type SyncTransport } from "../storage/sync-engine"
 import type { PlannerEdit, PlannerSnapshot } from "../../../shared/mobile/planner"
+import type { RunPage, RunSnapshot, RunView } from "../../../shared/mobile/runs"
 
 export interface BootstrapResult { accountId: string; households: HouseholdSummary[]; board: BoardSnapshot | null }
 
@@ -42,6 +43,18 @@ export class MobileApi implements SyncTransport {
   }
 
   async serverTime() { return (await this.request<{ serverTimeMs: number }>("/api/mobile/time")).serverTimeMs }
+
+  async runs(householdId: string, view: RunView, cursor?: string): Promise<RunPage> {
+    const query = new URLSearchParams({ householdId, view }); if (cursor) query.set("cursor", cursor)
+    const page = await this.request<RunPage>(`/api/mobile/runs?${query}`)
+    if (page.householdId !== householdId || page.view !== view) throw new Error("The run list did not match your household.")
+    return page
+  }
+  async run(householdId: string, occurrenceId: string): Promise<RunSnapshot> {
+    const snapshot = await this.request<RunSnapshot>(`/api/mobile/runs?${new URLSearchParams({ householdId, occurrenceId })}`)
+    if (snapshot.household?.id !== householdId || snapshot.run?.id !== occurrenceId) throw new Error("The run did not match your household.")
+    return snapshot
+  }
 
   async planner(householdId: string): Promise<PlannerSnapshot> {
     const data = await this.request<PlannerSnapshot>(`/api/leader/flow?householdId=${encodeURIComponent(householdId)}`)

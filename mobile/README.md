@@ -99,10 +99,20 @@ household settings; replacing a rejected request is atomic. A late replay return
 its receipt without overwriting newer rules. After a downgrade, households can
 remove recurrences or disable automatic completion without re-enabling automation.
 
-Full run management/history, kiosk protection,
+The Runs tab lists active and past runs with stable, paginated history. Opening a
+run saves its details in account/household-scoped SQLite storage. Task completion
+and reopening use the same durable outbox as Today, including when the entire run
+has already left Today. Pending changes move runs between the cached lists;
+versioned responses cannot undo newer acknowledged task states. Membership loss
+clears cached history, and discarding a rejected change refreshes the affected run.
+Reads do not require Premium or mutate historical completion states. Apply
+`0023_run_history_index.sql` before deploying the run-history API.
+
+The remaining run management actions, kiosk protection,
 push delivery and store billing are still under development. Rename/delete
 actions currently require a connection; extending interruption recovery to those
-remaining management actions is still required.
+remaining management actions is still required. Automatic cross-device refresh
+and its five-second target also remain to be implemented and measured.
 
 From the repository root, run `node --experimental-sqlite --test tests/mobile-*.test.cjs`.
 PostgreSQL tests additionally require `CYNTCH_TEST_DATABASE_URL` pointing to a local
@@ -170,6 +180,19 @@ Free. `tests/routine-schedule.test.cjs`, `tests/routine-schedule-db.test.cjs` an
 the mobile planner tests cover validation, access/entitlement checks, transaction
 rollback, immutable retries, concurrent changes and interruption recovery.
 Android and iOS JavaScript exports pass; this does not establish native iOS behavior.
+
+On 2026-11-04, the Runs tab was verified against the local API on Android: reopen
+a completed run's task offline, force-stop/restart, reconnect, and confirm one
+server receipt and the run's transition to active. Completing it again returned
+it to history. The server stayed unchanged while offline. Portrait and the
+two-column landscape list, landscape detail scrolling and native Back dismissal
+were inspected. The temporary Premium fixture was returned to Free and the run
+to its original completed state. SQLite tests cover rollback during removal,
+discarding rejected edits, stale replies, role changes and household revocation;
+PostgreSQL tests cover history pagination including equal/microsecond timestamps,
+membership checks and read-only behavior. The completion-route integration test
+now runs its historical migrations in an isolated schema, leaving emulator data
+and public-schema constraints untouched.
 
 Changing Android system font size while the development app is running produced
 an Expo Router multiple-linking-handlers warning; a clean launch did not. This

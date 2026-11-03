@@ -7,11 +7,12 @@ import { AppState, View } from "react-native"
 import { MobileApi } from "../services/api"
 import { BoardController } from "../services/board-controller"
 import { PlannerController } from "../services/planner-controller"
+import { RunsController } from "../services/runs-controller"
 import { getDeviceId, openLocalStore } from "../storage/native-store"
 import type { LocalStore } from "../storage/local-store"
 import { Action, Copy, Loading, styles } from "../components/ui"
 
-interface Runtime { controller: BoardController; planner: PlannerController; api: MobileApi; store: LocalStore; keepAwake: boolean; setKeepAwake: (enabled: boolean) => Promise<void> }
+interface Runtime { controller: BoardController; planner: PlannerController; runs: RunsController; api: MobileApi; store: LocalStore; keepAwake: boolean; setKeepAwake: (enabled: boolean) => Promise<void> }
 const RuntimeContext = createContext<Runtime | null>(null)
 
 export function RuntimeProvider({ children, accountId }: PropsWithChildren<{ accountId: string }>) {
@@ -28,6 +29,7 @@ export function RuntimeProvider({ children, accountId }: PropsWithChildren<{ acc
     let cancelled = false
     let controller: BoardController | undefined
     let planner: PlannerController | undefined
+    let runs: RunsController | undefined
     let boardSubscription: (() => void) | undefined
     let network: ReturnType<typeof Network.addNetworkStateListener> | undefined
     let app: ReturnType<typeof AppState.addEventListener> | undefined
@@ -38,21 +40,23 @@ export function RuntimeProvider({ children, accountId }: PropsWithChildren<{ acc
       if (cancelled) return
       controller = new BoardController(store, accountId, deviceId, api, randomUUID)
       planner = new PlannerController(store.planner, accountId, deviceId, api, randomUUID, async () => { await controller?.refresh() })
-      boardSubscription = controller.subscribe(() => { void planner?.selectHousehold(controller?.getSnapshot().board?.household ?? null) })
+      runs = new RunsController(store, accountId, api, controller)
+      boardSubscription = controller.subscribe(() => { if (controller) { void planner?.selectHousehold(controller.getSnapshot().board?.household ?? null); runs?.observe(controller.getSnapshot()) } })
       const connected = (state: Network.NetworkState) => {
         const online = state.isConnected === true && state.isInternetReachable !== false
         controller?.setConnectivity(online); planner?.setConnectivity(online)
       }
       network = Network.addNetworkStateListener(connected)
-      app = AppState.addEventListener("change", state => { setActive(state === "active"); controller?.setActive(state === "active"); planner?.setActive(state === "active") })
+      app = AppState.addEventListener("change", state => { setActive(state === "active"); controller?.setActive(state === "active"); planner?.setActive(state === "active"); runs?.setActive(state === "active") })
       setAwake(displaySetting === true)
-      setRuntime({ controller, planner, api, store })
+      setRuntime({ controller, planner, runs, api, store })
       controller.setActive(AppState.currentState === "active")
       planner.setActive(AppState.currentState === "active")
+      runs.setActive(AppState.currentState === "active")
       await controller.start()
       connected(await Network.getNetworkStateAsync())
     })().catch(cause => { if (!cancelled) setError(cause instanceof Error ? cause.message : "Unable to open your saved household") })
-    return () => { cancelled = true; network?.remove(); app?.remove(); boardSubscription?.(); controller?.stop(); planner?.stop() }
+    return () => { cancelled = true; network?.remove(); app?.remove(); boardSubscription?.(); controller?.stop(); planner?.stop(); runs?.stop() }
   }, [accountId, attempt])
 
   useEffect(() => {
@@ -84,4 +88,8 @@ export function useBoard() {
 export function usePlanner() {
   const { planner } = useRuntime()
   return useSyncExternalStore(planner.subscribe, planner.getSnapshot, planner.getSnapshot)
+}
+export function useRuns() {
+  const { runs } = useRuntime()
+  return useSyncExternalStore(runs.subscribe, runs.getSnapshot, runs.getSnapshot)
 }

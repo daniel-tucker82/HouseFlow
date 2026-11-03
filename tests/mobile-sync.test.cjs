@@ -18,10 +18,11 @@ function load(files) {
   loadedModule._compile(outputFiles[0].text, filename)
   return loadedModule.exports
 }
-const { LocalStore, SyncEngine, TransportError, BoardController, nextSyncDelay, estimateClockOffset, compareCompletionVersions,
+const { LocalStore, SyncEngine, TransportError, BoardController, RunsController, nextSyncDelay, estimateClockOffset, compareCompletionVersions,
   notificationCatalog, defaultNotificationPreferences, shouldPushNotification, inQuietHours } = load([
   'mobile/src/storage/local-store.ts', 'mobile/src/storage/sync-engine.ts', 'mobile/src/services/board-controller.ts',
   'shared/mobile/sync-policy.ts', 'shared/mobile/notification-catalog.ts',
+  'mobile/src/services/runs-controller.ts',
 ])
 
 class SqliteAdapter {
@@ -436,4 +437,170 @@ test('N04 quiet hours cross midnight in the receiving device timezone', () => {
   const preferences = { ...defaultNotificationPreferences('parent', 'Australia/Sydney'), quietHours: { start: '22:00', end: '07:00' } }
   assert.equal(inQuietHours(preferences, new Date('2026-11-03T12:30:00Z')), true)
   assert.equal(inQuietHours(preferences, new Date('2026-11-03T20:00:00Z')), false)
+})
+
+function historicalRun(status = 'completed', version = '10') {
+  const base = snapshot()
+  return { ...base, tasks: [{ ...base.tasks[0], occurrence_id: 'old-run', status, status_version: version }],
+    run: { id: 'old-run', routine_id: 'template', title: 'Yesterday morning', kind: 'routine', scheduled_for: '2026-11-02T00:00:00.000000Z', status,
+      total_tasks: 1, completed_tasks: status === 'completed' ? 1 : 0 } }
+}
+const historyPage = (view, items = []) => ({ householdId: 'h1', view, items, nextCursor: null, fetchedAt: '2026-11-03T00:00:00Z' })
+
+test('R01 reopening a saved historical task is atomic, survives restart, and updates both run lists', async t => {
+  const f = await fixture(t), historical = historicalRun()
+  await f.store.cacheRunPage('parent', historyPage('past', [historical.run]))
+  await f.store.cacheRunPage('parent', historyPage('active'))
+  await f.store.cacheRun('parent', historical)
+  f.adapter.failOnBoardWrite = true
+  await assert.rejects(f.store.enqueueCompletion({ ...change('reopen', false), occurrenceId: 'old-run' }), /disk write/)
+  assert.equal((await f.store.pending('parent')).length, 0)
+  assert.equal((await f.store.getRun('parent', 'h1', 'old-run')).tasks[0].status, 'completed')
+  f.adapter.failOnBoardWrite = false
+  await f.store.enqueueCompletion({ ...change('reopen', false), occurrenceId: 'old-run' })
+  const store = await f.reopen()
+  assert.equal((await store.getRun('parent', 'h1', 'old-run')).run.status, 'active')
+  assert.equal((await store.getRunPage('parent', 'h1', 'past')).items.length, 0)
+  assert.equal((await store.getRunPage('parent', 'h1', 'active')).items[0].id, 'old-run')
+  assert.equal(await store.getRun('other-account', 'h1', 'old-run'), null)
+  await store.acknowledge('parent', { operationId: 'reopen', outcome: 'applied', occurrenceTaskStatuses: [{ task_id: 't1', status: 'unlocked', status_version: '11' }] })
+  await store.cacheRun('parent', historical)
+  assert.equal((await store.getRun('parent', 'h1', 'old-run')).tasks[0].status, 'unlocked', 'an older read cannot undo an acknowledgement')
+  assert.equal((await store.getBoard('parent', 'h1')).tasks[0].status, 'unlocked', 'another occurrence using the same task ID is unchanged')
+})
+
+test('R02 history refresh retains unsynced intent; revocation clears history and prevents further edits', async t => {
+  const f = await fixture(t), historical = historicalRun()
+  await f.store.cacheRun('parent', historical)
+  await f.store.enqueueCompletion({ ...change('reopen', false), occurrenceId: 'old-run' })
+  await f.store.cacheRunPage('parent', historyPage('past', [historical.run]))
+  assert.equal((await f.store.getRunPage('parent', 'h1', 'past')).items.length, 0)
+  await f.store.cacheRunPage('parent', historyPage('active'))
+  assert.equal((await f.store.getRunPage('parent', 'h1', 'active')).items[0].id, 'old-run')
+  await f.store.reconcileHouseholds('parent', [])
+  assert.equal(await f.store.getRun('parent', 'h1', 'old-run'), null)
+  assert.equal(await f.store.getRunPage('parent', 'h1', 'past'), null)
+  assert.equal((await f.store.pending('parent'))[0].state, 'rejected')
+  await assert.rejects(f.store.cacheRun('parent', historical), /removed/)
+  await assert.rejects(f.store.enqueueCompletion({ ...change('another', false), occurrenceId: 'old-run' }), /not available/)
+})
+
+test('R03 paging deduplicates runs and denied/cancelled historical edits never enter the outbox', async t => {
+  const f = await fixture(t), historical = historicalRun()
+  await f.store.cacheRunPage('parent', { ...historyPage('past', [historical.run]), nextCursor: 'page2' })
+  await f.store.cacheRunPage('parent', historyPage('past', [historical.run, { ...historical.run, id: 'older' }]), true)
+  assert.deepEqual((await f.store.getRunPage('parent', 'h1', 'past')).items.map(run => run.id), ['old-run', 'older'])
+  await f.store.cacheRun('parent', { ...historical, run: { ...historical.run, status: 'cancelled' } })
+  await assert.rejects(f.store.enqueueCompletion({ ...change('cancelled', false), occurrenceId: 'old-run' }), /cancelled/)
+  await f.store.cacheRun('parent', { ...historical, household: { ...historical.household, role: 'member' } })
+  await assert.rejects(f.store.enqueueCompletion({ ...change('denied', false), occurrenceId: 'old-run' }), /assigned to you/)
+  assert.equal((await f.store.pending('parent')).length, 0)
+})
+
+test('R04 run controller publishes a tap before storage, and keeps offline details after navigation/restart', async t => {
+  const f = await fixture(t), historical = historicalRun()
+  await f.store.cacheRun('parent', historical)
+  const board = new BoardController(f.store, 'parent', 'device-1', {}, () => 'history-tap')
+  const runs = new RunsController(f.store, 'parent', {}, board)
+  const subscription = board.subscribe(() => runs.observe(board.getSnapshot()))
+  t.after(() => { subscription(); runs.stop(); board.stop() })
+  await board.start(); runs.setVisible(true); await runs.openRun('old-run')
+  let release; const enqueue = f.store.enqueueCompletion.bind(f.store)
+  f.store.enqueueCompletion = async input => { await new Promise(resolve => { release = resolve }); return enqueue(input) }
+  const save = runs.setCompleted(historical.tasks[0], 'child', false)
+  assert.equal(runs.getSnapshot().run.tasks[0].status, 'unlocked')
+  assert.equal((await f.store.pending('parent')).length, 0)
+  release(); await save
+  runs.closeRun(); await runs.openRun('old-run')
+  assert.equal(runs.getSnapshot().run.tasks[0].status, 'unlocked')
+  assert.equal(runs.getSnapshot().runError, null)
+  await runs.openRun('not-cached')
+  assert.match(runs.getSnapshot().runError, /Connect once/)
+})
+
+test('R05 old household/page/detail responses cannot replace the newly selected history', async t => {
+  const f = await fixture(t), waits = []
+  const board = new BoardController(f.store, 'parent', 'device', {}, () => 'unused')
+  const runs = new RunsController(f.store, 'parent', {
+    runs: async (householdId, view) => new Promise(resolve => waits.push({ householdId, view, resolve })),
+    run: async () => new Promise(resolve => waits.push({ detail: true, resolve })),
+  }, board)
+  t.after(() => { runs.stop(); board.stop() })
+  await board.start(); runs.observe({ ...board.getSnapshot(), online: true }); runs.setVisible(true)
+  const open = runs.openRun('old-run'); await new Promise(resolve => setImmediate(resolve))
+  const second = { ...snapshot().household, id: 'h2', name: 'Other household' }
+  runs.observe({ ...board.getSnapshot(), board: { ...snapshot(), household: second }, online: true })
+  for (const request of waits.filter(item => item.householdId === 'h1')) request.resolve(historyPage('active', [historicalRun().run]))
+  for (const request of waits.filter(item => item.detail)) request.resolve(historicalRun())
+  await open
+  assert.equal(runs.getSnapshot().household.id, 'h2')
+  assert.equal(runs.getSnapshot().run, null)
+  assert.equal(await f.store.getRunPage('parent', 'h1', 'active'), null)
+  for (const request of waits.filter(item => item.householdId === 'h2')) request.resolve({ ...historyPage('active'), householdId: 'h2' })
+  await new Promise(resolve => setImmediate(resolve))
+})
+
+test('R06 an open run observes task and role changes learned by Today without navigation', async t => {
+  const f = await fixture(t), historical = historicalRun()
+  historical.tasks[0].status = 'unlocked'; historical.run.status = 'active'; historical.run.completed_tasks = 0
+  await f.store.cacheRun('parent', historical)
+  const board = new BoardController(f.store, 'parent', 'device', {}, () => 'unused')
+  const runs = new RunsController(f.store, 'parent', {}, board)
+  t.after(() => { runs.stop(); board.stop() })
+  await board.start(); runs.observe(board.getSnapshot()); await runs.openRun('old-run')
+  const next = { ...historical, fetchedAt: '2026-11-03T00:01:00Z', household: { ...historical.household, role: 'member' },
+    tasks: [{ ...historical.tasks[0], status: 'completed', status_version: '11' }] }
+  await f.store.cacheBoard('parent', next)
+  const updated = new Promise(resolve => {
+    const unsubscribe = runs.subscribe(() => {
+      if (runs.getSnapshot().run?.tasks[0].status_version === '11') { unsubscribe(); resolve() }
+    })
+  })
+  runs.observe({ ...board.getSnapshot(), board: await f.store.getBoard('parent', 'h1') })
+  await updated
+  assert.equal(runs.getSnapshot().run.run.status, 'completed')
+  assert.equal(runs.getSnapshot().run.household.role, 'member')
+})
+
+test('R07 discarding a rejected historical edit atomically restores the freshly fetched run', async t => {
+  const f = await fixture(t), historical = historicalRun()
+  await f.store.cacheRun('parent', historical)
+  await f.store.enqueueCompletion({ ...change('reopen', false), occurrenceId: 'old-run' })
+  await f.store.acknowledge('parent', { operationId: 'reopen', outcome: 'rejected', error: 'Free active-run limit', occurrenceTaskStatuses: [] })
+  await assert.rejects(f.store.discardRejected('parent', 'reopen', snapshot(), { ...historical, run: { ...historical.run, id: 'wrong-run' } }), /matching run/)
+  assert.equal((await f.store.pending('parent')).length, 1)
+  f.adapter.failOnBoardWrite = true
+  await assert.rejects(f.store.discardRejected('parent', 'reopen', snapshot(), historicalRun('completed', '11')), /disk write/)
+  f.adapter.failOnBoardWrite = false
+  await f.store.discardRejected('parent', 'reopen', snapshot(), historicalRun('completed', '11'))
+  assert.equal((await f.store.pending('parent')).length, 0)
+  assert.equal((await f.store.getRun('parent', 'h1', 'old-run')).tasks[0].status_version, '11')
+  assert.equal((await f.store.getRun('parent', 'h1', 'old-run')).run.status, 'completed')
+})
+
+test('R08 discarding a removed run cannot leave a stale list entry after interruption', async t => {
+  const f = await fixture(t), historical = historicalRun()
+  await f.store.cacheRunPage('parent', historyPage('active'))
+  await f.store.cacheRunPage('parent', historyPage('past', [historical.run]))
+  await f.store.cacheRun('parent', historical)
+  await f.store.enqueueCompletion({ ...change('reopen', false), occurrenceId: 'old-run' })
+  await f.store.acknowledge('parent', { operationId: 'reopen', outcome: 'rejected', error: 'Run removed', occurrenceTaskStatuses: [] })
+  const original = f.adapter.runAsync.bind(f.adapter)
+  f.adapter.runAsync = async (sql, ...values) => {
+    if (sql.includes('UPDATE run_pages')) throw new Error('Interrupted list write')
+    return original(sql, ...values)
+  }
+  await assert.rejects(f.store.discardRejected('parent', 'reopen', snapshot(), null), /Interrupted/)
+  f.adapter.runAsync = original
+  assert.equal((await f.store.pending('parent')).length, 1)
+  assert.ok(await f.store.getRun('parent', 'h1', 'old-run'))
+  assert.equal((await f.store.getRunPage('parent', 'h1', 'active')).items.length, 1)
+  await f.store.discardRejected('parent', 'reopen', snapshot(), null)
+  const store = await f.reopen()
+  assert.equal((await store.pending('parent')).length, 0)
+  assert.equal(await store.getRun('parent', 'h1', 'old-run'), null)
+  assert.equal((await store.getRunPage('parent', 'h1', 'active')).items.length, 0)
+  assert.equal((await store.getRunPage('parent', 'h1', 'past')).items.length, 0)
+  await store.acknowledge('parent', { operationId: 'reopen', outcome: 'applied', occurrenceTaskStatuses: [{ task_id: 't1', status: 'unlocked', status_version: '12' }] })
+  assert.equal(await store.getRun('parent', 'h1', 'old-run'), null, 'a late receipt cannot recreate a removed run')
 })

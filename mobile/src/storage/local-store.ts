@@ -1,6 +1,7 @@
-import type { BoardSnapshot, BoardTask, CompletionChange, CompletionResult, HouseholdSummary } from "../../../shared/mobile/contracts"
+import type { BoardSnapshot, CompletionChange, CompletionResult, HouseholdSummary } from "../../../shared/mobile/contracts"
 import { retryDelayMs } from "../../../shared/mobile/sync-policy"
 import { PlannerStore } from "./planner-store"
+import { mergeRunPages, runView, summarizeRun, type RunPage, type RunSnapshot, type RunSummary, type RunView } from "../../../shared/mobile/runs"
 
 export type SqlValue = string | number | null
 export interface SqlConnection {
@@ -63,6 +64,14 @@ function mergeServerBoard(incoming: BoardSnapshot, previous?: BoardSnapshot): Bo
   }) }
 }
 
+function acknowledged<T extends BoardSnapshot>(server: T, occurrenceId: string, result: CompletionResult): T {
+  const statuses = new Map(result.occurrenceTaskStatuses.map(item => [item.task_id, item]))
+  return { ...server, tasks: server.tasks.map(task => {
+    const incoming = task.occurrence_id === occurrenceId ? statuses.get(task.id) : undefined
+    return incoming && statusVersion(incoming) >= statusVersion(task) ? { ...task, status: incoming.status, status_version: incoming.status_version } : task
+  }) }
+}
+
 /** The device database is the durable outbox. Network callbacks never own it. */
 export class LocalStore {
   readonly planner: PlannerStore
@@ -98,7 +107,15 @@ export class LocalStore {
         account_id TEXT NOT NULL, household_id TEXT NOT NULL,
         PRIMARY KEY(account_id, household_id)
       );
-      PRAGMA user_version = 4;
+      CREATE TABLE IF NOT EXISTS run_snapshots (
+        account_id TEXT NOT NULL, household_id TEXT NOT NULL, occurrence_id TEXT NOT NULL, data TEXT NOT NULL,
+        PRIMARY KEY(account_id,household_id,occurrence_id)
+      );
+      CREATE TABLE IF NOT EXISTS run_pages (
+        account_id TEXT NOT NULL, household_id TEXT NOT NULL, view TEXT NOT NULL, data TEXT NOT NULL,
+        PRIMARY KEY(account_id,household_id,view)
+      );
+      PRAGMA user_version = 5;
     `)
     await this.planner.initialize()
   }
@@ -141,8 +158,84 @@ export class LocalStore {
       const previous = await this.getCachedBoard(accountId, snapshot.household.id, transaction)
       // A refresh cannot erase an edit created while the request was in flight.
       merged = await this.writeBoard(transaction, accountId, mergeServerBoard(snapshot, previous?.server))
+      // Keep an opened run current when Today learns newer task states.
+      for (const cached of await this.runCaches(accountId, snapshot.household.id, transaction, [...new Set(snapshot.tasks.map(task => task.occurrence_id))])) {
+        const tasks = snapshot.tasks.filter(task => task.occurrence_id === cached.server.run.id)
+        if (tasks.length) await this.writeRun(transaction, accountId, { ...cached.server, household: snapshot.household, members: snapshot.members,
+          tasks: mergeServerBoard({ ...snapshot, tasks }, cached.server).tasks })
+      }
     })
     return merged
+  }
+
+  private async runCaches(accountId: string, householdId: string, tx: SqlConnection, ids?: string[]) {
+    if (ids && !ids.length) return []
+    return (await tx.getAllAsync<{ data: string }>(`SELECT data FROM run_snapshots WHERE account_id=? AND household_id=?${ids ? ` AND occurrence_id IN (${ids.map(() => "?").join(",")})` : ""}`, accountId, householdId, ...(ids ?? [])))
+      .map(row => JSON.parse(row.data) as { server: RunSnapshot; board: RunSnapshot })
+  }
+  private async runCache(accountId: string, householdId: string, occurrenceId: string, tx: SqlConnection) {
+    const row = await tx.getFirstAsync<{ data: string }>("SELECT data FROM run_snapshots WHERE account_id=? AND household_id=? AND occurrence_id=?", accountId, householdId, occurrenceId)
+    return row ? JSON.parse(row.data) as { server: RunSnapshot; board: RunSnapshot } : null
+  }
+  async getRun(accountId: string, householdId: string, occurrenceId: string) { return (await this.runCache(accountId, householdId, occurrenceId, this.database))?.board ?? null }
+  private async updateRunPages(tx: SqlConnection, accountId: string, householdId: string, run: RunSummary) {
+    const rows = await tx.getAllAsync<{ data: string }>("SELECT data FROM run_pages WHERE account_id=? AND household_id=?", accountId, householdId)
+    for (const row of rows) {
+      const page = JSON.parse(row.data) as RunPage
+      page.items = page.items.filter(item => item.id !== run.id)
+      if (runView(run) === page.view) page.items.push(run)
+      page.items.sort((a, b) => b.scheduled_for.localeCompare(a.scheduled_for) || b.id.localeCompare(a.id))
+      await tx.runAsync("UPDATE run_pages SET data=? WHERE account_id=? AND household_id=? AND view=?", JSON.stringify(page), accountId, householdId, page.view)
+    }
+  }
+  private async writeRun(tx: SqlConnection, accountId: string, server: RunSnapshot) {
+    server = summarizeRun(server)
+    const changes = (await this.pending(accountId, tx)).filter(change => change.householdId === server.household.id)
+    const board = summarizeRun({ ...server, ...overlayChanges(server, changes) })
+    await tx.runAsync("INSERT INTO run_snapshots VALUES(?,?,?,?) ON CONFLICT(account_id,household_id,occurrence_id) DO UPDATE SET data=excluded.data",
+      accountId, server.household.id, server.run.id, JSON.stringify({ server, board }))
+    await this.updateRunPages(tx, accountId, server.household.id, board.run)
+    return board
+  }
+  async cacheRun(accountId: string, snapshot: RunSnapshot) {
+    if (snapshot.tasks.some(task => task.occurrence_id !== snapshot.run.id)) throw new Error("This run response contained unrelated tasks.")
+    await this.database.withExclusiveTransactionAsync(async tx => {
+      if (await this.isHouseholdRevoked(accountId, snapshot.household.id, tx)) throw new Error("Access to this household has been removed.")
+      const previous = await this.runCache(accountId, snapshot.household.id, snapshot.run.id, tx)
+      await this.writeRun(tx, accountId, { ...snapshot, ...mergeServerBoard(snapshot, previous?.server) })
+      const today = await this.getCachedBoard(accountId, snapshot.household.id, tx)
+      if (today) {
+        const tasks = new Map(snapshot.tasks.map(task => [task.id, task]))
+        await this.writeBoard(tx, accountId, mergeServerBoard({ ...today.server, tasks: today.server.tasks.map(task => task.occurrence_id === snapshot.run.id ? tasks.get(task.id) ?? task : task) }, today.server))
+      }
+    })
+  }
+  async getRunPage(accountId: string, householdId: string, view: RunView, tx: SqlConnection = this.database): Promise<RunPage | null> {
+    const row = await tx.getFirstAsync<{ data: string }>("SELECT data FROM run_pages WHERE account_id=? AND household_id=? AND view=?", accountId, householdId, view)
+    return row ? JSON.parse(row.data) : null
+  }
+  async cacheRunPage(accountId: string, page: RunPage, append = false) {
+    await this.database.withExclusiveTransactionAsync(async tx => {
+      if (await this.isHouseholdRevoked(accountId, page.householdId, tx)) throw new Error("Access to this household has been removed.")
+      const previous = append ? await this.getRunPage(accountId, page.householdId, page.view, tx) : null
+      const merged = previous ? mergeRunPages(previous, page) : page
+      await tx.runAsync("INSERT INTO run_pages VALUES(?,?,?,?) ON CONFLICT(account_id,household_id,view) DO UPDATE SET data=excluded.data", accountId, page.householdId, page.view, JSON.stringify(merged))
+      const pending = await this.pending(accountId, tx)
+      const ids = [...new Set(pending.filter(change => change.householdId === page.householdId).map(change => change.occurrenceId))]
+      for (const run of await this.runCaches(accountId, page.householdId, tx, ids)) {
+        await this.updateRunPages(tx, accountId, page.householdId, run.board.run)
+      }
+    })
+  }
+  async removeRun(accountId: string, householdId: string, occurrenceId: string) {
+    await this.database.withExclusiveTransactionAsync(tx => this.removeRunInTransaction(tx, accountId, householdId, occurrenceId))
+  }
+  private async removeRunInTransaction(tx: SqlConnection, accountId: string, householdId: string, occurrenceId: string) {
+    await tx.runAsync("DELETE FROM run_snapshots WHERE account_id=? AND household_id=? AND occurrence_id=?", accountId, householdId, occurrenceId)
+    for (const view of ["active", "past"] as const) {
+      const page = await this.getRunPage(accountId, householdId, view, tx)
+      if (page) await tx.runAsync("UPDATE run_pages SET data=? WHERE account_id=? AND household_id=? AND view=?", JSON.stringify({ ...page, items: page.items.filter(item => item.id !== occurrenceId) }), accountId, householdId, view)
+    }
   }
 
   /** Only a successful, authenticated membership response can invalidate an offline cache. */
@@ -152,17 +245,24 @@ export class LocalStore {
       const allowed = new Map(households.map(household => [household.id, household]))
       const known = await transaction.getAllAsync<{ household_id: string }>(`
         SELECT household_id FROM board_snapshots WHERE account_id = ?
-        UNION SELECT household_id FROM pending_completions WHERE account_id = ?`, accountId, accountId)
+        UNION SELECT household_id FROM pending_completions WHERE account_id = ?
+        UNION SELECT household_id FROM run_snapshots WHERE account_id = ?
+        UNION SELECT household_id FROM run_pages WHERE account_id = ?`, accountId, accountId, accountId, accountId)
       for (const household of households) {
         await transaction.runAsync("DELETE FROM revoked_households WHERE account_id = ? AND household_id = ?", accountId, household.id)
         const cached = await this.getCachedBoard(accountId, household.id, transaction)
         // Role changes also take effect locally, including when task edits are still pending.
         if (cached) await this.writeBoard(transaction, accountId, { ...cached.server, household })
+        if (cached?.server.household.role !== household.role) {
+          for (const run of await this.runCaches(accountId, household.id, transaction)) await this.writeRun(transaction, accountId, { ...run.server, household })
+        }
       }
       for (const { household_id: householdId } of known) {
         if (allowed.has(householdId)) continue
         await transaction.runAsync("INSERT OR IGNORE INTO revoked_households(account_id, household_id) VALUES (?, ?)", accountId, householdId)
         await transaction.runAsync("DELETE FROM board_snapshots WHERE account_id = ? AND household_id = ?", accountId, householdId)
+        await transaction.runAsync("DELETE FROM run_snapshots WHERE account_id = ? AND household_id = ?", accountId, householdId)
+        await transaction.runAsync("DELETE FROM run_pages WHERE account_id = ? AND household_id = ?", accountId, householdId)
         // Keep the user's unsent intent for explicit review; never keep sending it after revocation.
         await transaction.runAsync(`UPDATE pending_completions SET state = 'rejected', error = ?
           WHERE account_id = ? AND household_id = ?`, "Access to this household has been removed. This saved change cannot sync.", accountId, householdId)
@@ -178,9 +278,12 @@ export class LocalStore {
     let saved: CompletionChange | undefined
     await this.database.withExclusiveTransactionAsync(async transaction => {
       const cached = await this.getCachedBoard(input.accountId, input.householdId, transaction)
-      const snapshot = cached?.board
+      const run = await this.runCache(input.accountId, input.householdId, input.occurrenceId, transaction)
+      const snapshot = run?.board ?? cached?.board
       const task = snapshot?.tasks.find(item => item.id === input.taskId && item.occurrence_id === input.occurrenceId)
       if (!snapshot || !task) throw new Error("This task is not available on this device. Refresh the board first.")
+      if (run?.board.run.status === "cancelled") throw new Error("This run has been cancelled.")
+      if (snapshot.household.role === "member" && !task.assignee_ids.includes(input.accountId)) throw new Error("You can only update tasks assigned to you.")
       if (input.completed && task.status === "locked") throw new Error("This task is not startable yet.")
       await transaction.runAsync(`INSERT INTO device_sequences(account_id, device_id, sequence) VALUES (?, ?, 1)
         ON CONFLICT(account_id, device_id) DO UPDATE SET sequence = sequence + 1`, input.accountId, input.deviceId)
@@ -193,7 +296,8 @@ export class LocalStore {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       input.id, input.accountId, input.householdId, input.deviceId, input.taskId, input.occurrenceId,
       input.memberId, input.completed ? 1 : 0, input.deviceTimeMs, saved.sequence)
-      await this.writeBoard(transaction, input.accountId, cached!.server)
+      if (cached) await this.writeBoard(transaction, input.accountId, cached.server)
+      if (run) await this.writeRun(transaction, input.accountId, run.server)
     })
     if (!saved) throw new Error("Unable to save the task safely")
     return saved
@@ -223,14 +327,10 @@ export class LocalStore {
       await transaction.runAsync("DELETE FROM pending_completions WHERE account_id = ? AND id = ?", accountId, result.operationId)
       const cached = await this.getCachedBoard(accountId, row.household_id, transaction)
       if (cached) {
-        const statuses = new Map(result.occurrenceTaskStatuses.map(item => [item.task_id, item]))
-        const updated: BoardSnapshot = { ...cached.server, tasks: cached.server.tasks.map((task): BoardTask => {
-          const incoming = task.occurrence_id === row.occurrence_id ? statuses.get(task.id) : undefined
-          if (!incoming || statusVersion(incoming) < statusVersion(task)) return task
-          return { ...task, status: incoming.status, status_version: incoming.status_version }
-        }) }
-        await this.writeBoard(transaction, accountId, updated)
+        await this.writeBoard(transaction, accountId, acknowledged(cached.server, row.occurrence_id, result))
       }
+      const run = await this.runCache(accountId, row.household_id, row.occurrence_id, transaction)
+      if (run) await this.writeRun(transaction, accountId, acknowledged(run.server, row.occurrence_id, result))
     })
   }
 
@@ -253,7 +353,7 @@ export class LocalStore {
     })
   }
 
-  async discardRejected(accountId: string, id: string, freshBoard: BoardSnapshot | null) {
+  async discardRejected(accountId: string, id: string, freshBoard: BoardSnapshot | null, freshRun?: RunSnapshot | null) {
     await this.database.withExclusiveTransactionAsync(async transaction => {
       const change = await transaction.getFirstAsync<PendingRow>("SELECT * FROM pending_completions WHERE account_id = ? AND id = ? AND state = 'rejected'", accountId, id)
       if (!change) return
@@ -265,6 +365,11 @@ export class LocalStore {
       if (revoked || !freshBoard) return
       const previous = await this.getCachedBoard(accountId, freshBoard.household.id, transaction)
       await this.writeBoard(transaction, accountId, mergeServerBoard(freshBoard, previous?.server))
+      const run = await this.runCache(accountId, change.household_id, change.occurrence_id, transaction)
+      if (freshRun && (freshRun.household.id !== change.household_id || freshRun.run.id !== change.occurrence_id)) throw new Error("Refresh the matching run before discarding this change.")
+      if (freshRun) await this.writeRun(transaction, accountId, { ...freshRun, ...mergeServerBoard(freshRun, run?.server) })
+      else if (freshRun === null) await this.removeRunInTransaction(transaction, accountId, change.household_id, change.occurrence_id)
+      else if (run) await this.writeRun(transaction, accountId, run.server)
     })
   }
 
