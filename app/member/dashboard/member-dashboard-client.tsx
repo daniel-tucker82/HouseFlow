@@ -213,7 +213,6 @@ export function MemberDashboardClient({
   const [hasHydrated, setHasHydrated] = useState(false)
   const [isNativeShell, setIsNativeShell] = useState(isCapacitorNativeShellSync)
   const [fabPos, setFabPos] = useState<{ left: number; top: number } | null>(null)
-  const refreshOccurrenceStatusesRef = useRef<(occurrenceId: string) => Promise<void>>(async () => {})
   const fabDragRef = useRef<{
     pointerId: number
     startX: number
@@ -331,14 +330,6 @@ export function MemberDashboardClient({
   }, [leaderId, members, orderedTasks])
 
   useEffect(() => {
-    const hasTimeEligibleLockedTask = localTasks.some(
-      (task) => task.status === "locked" && task.lock_type === "time" && Boolean(task.unlock_at),
-    )
-    const hasExpiryCandidate = localTasks.some(
-      (task) => Boolean(task.expires_at) && task.status !== "completed",
-    )
-    if (!hasTimeEligibleLockedTask && !hasExpiryCandidate) return
-
     const candidateInstantsMs = localTasks
       .flatMap((task) => {
         if (task.status === "completed") return []
@@ -370,8 +361,8 @@ export function MemberDashboardClient({
           ? Math.max(10, Math.min(msUntilNextMinute, msUntilNearestInstant))
           : Math.max(10, msUntilNextMinute)
       timeoutId = window.setTimeout(() => {
-        const occurrenceIds = [...new Set(localTasks.map((task) => task.occurrence_id).filter(Boolean))]
-        void Promise.all(occurrenceIds.map((occurrenceId) => refreshOccurrenceStatusesRef.current(occurrenceId)))
+        // One server refresh recomputes timing and updates all household lanes.
+        if (document.visibilityState === "visible") router.refresh()
         scheduleNextPoll()
       }, nextDelay)
     }
@@ -381,7 +372,7 @@ export function MemberDashboardClient({
       cancelled = true
       if (timeoutId !== null) window.clearTimeout(timeoutId)
     }
-  }, [localTasks])
+  }, [localTasks,router])
 
   const openSelectors = useCallback(() => {
     setSelectorsModal({
@@ -485,9 +476,6 @@ export function MemberDashboardClient({
     selectorsModalRef.current = selectorsModal
   }, [selectorsModal])
 
-  useLayoutEffect(() => {
-    refreshOccurrenceStatusesRef.current = refreshOccurrenceStatuses
-  }, [refreshOccurrenceStatuses])
 
   const toggleTaskCompleted = async (task: Task, actingMemberId: string) => {
     if (task.status === "locked" || isToggling || !editableMemberSet.has(actingMemberId)) return

@@ -22,7 +22,9 @@ export async function ensureCurrentUserRecord() {
        do update set email = excluded.email,
                      full_name = excluded.full_name,
                      avatar_url = excluded.avatar_url,
-                     updated_at = now()`,
+                     updated_at = now()
+       where (users.email, users.full_name, users.avatar_url)
+         is distinct from (excluded.email, excluded.full_name, excluded.avatar_url)`,
       [clerkUser.id, email, fullName, avatarUrl],
     )
   } catch (error) {

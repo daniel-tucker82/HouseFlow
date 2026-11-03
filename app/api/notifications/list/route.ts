@@ -1,12 +1,10 @@
 import { NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
 import { db } from "@/lib/db"
-import { ensureCurrentUserRecord } from "@/lib/user-sync"
 
 export async function GET(request: Request) {
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  await ensureCurrentUserRecord()
 
   const { searchParams } = new URL(request.url)
   const householdId = String(searchParams.get("householdId") ?? "").trim() || null

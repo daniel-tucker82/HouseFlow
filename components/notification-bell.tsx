@@ -70,11 +70,16 @@ export function NotificationBell() {
 
   useEffect(() => {
     let cancelled = false
+    let inFlight = false
+    const controller = new AbortController()
     const householdId = searchParams.get("household")
     const query = householdId ? `?householdId=${encodeURIComponent(householdId)}&limit=20` : "?limit=20"
 
     const fetchNotifications = async () => {
-      const response = await fetch(`/api/notifications/list${query}`, { cache: "no-store" })
+      if (cancelled || inFlight || document.visibilityState === "hidden") return
+      inFlight = true
+      try {
+      const response = await fetch(`/api/notifications/list${query}`, { cache: "no-store", signal: controller.signal })
       if (!response.ok) return
       const payload = (await response.json()) as { notifications: NotificationItem[]; unreadCount: number }
       if (cancelled) return
@@ -89,15 +94,24 @@ export function NotificationBell() {
         }
       }
       seenUnreadIds.current = nextUnreadIds
+      } catch {
+        // A lost connection must not create unhandled rejections or a retry loop.
+      } finally {
+        inFlight = false
+      }
     }
 
     void fetchNotifications()
     const intervalId = window.setInterval(() => {
       void fetchNotifications()
-    }, 15000)
+    }, 60000)
+    const onVisibility = () => { void fetchNotifications() }
+    document.addEventListener("visibilitychange", onVisibility)
     return () => {
       cancelled = true
+      controller.abort()
       window.clearInterval(intervalId)
+      document.removeEventListener("visibilitychange", onVisibility)
     }
   }, [searchParams])
 
@@ -145,17 +159,15 @@ export function NotificationBell() {
     seenUnreadIds.current = new Set()
   }
 
-  useEffect(() => {
-    if (!open) return
-    void markAllRead()
-  }, [open])
-
   return (
     <div className="relative" ref={rootRef}>
       <button
         ref={triggerRef}
         type="button"
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => {
+          if (!open) void markAllRead().catch(() => {})
+          setOpen((value) => !value)
+        }}
         className="relative inline-flex h-8 w-8 items-center justify-center rounded-md border border-input bg-background hover:bg-muted"
         aria-label="Open notifications"
       >

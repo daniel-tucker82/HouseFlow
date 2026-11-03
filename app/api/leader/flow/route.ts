@@ -1,7 +1,12 @@
+import { createHouseholdWithAdmission } from "@/lib/household-admission"
+import { enforceRequestLimit, recordHouseholdUsage, recordHouseholdActivity } from "@/lib/usage-controls"
 import { NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
 import type { PoolClient } from "pg"
 import { db } from "@/lib/db"
+import { automaticGenerationAllowance, occurrenceAutomationAllowed, TASK_AUTOMATION_ALLOWED_SQL } from "@/lib/automation-entitlements"
+import { enforceFlowEntitlements } from "@/lib/flow-entitlements"
+import { EntitlementError, getHouseholdEntitlement } from "@/lib/entitlements"
 import { ensureRoutineSchemaColumns } from "@/lib/schema-ensure"
 import { ensureCurrentUserRecord } from "@/lib/user-sync"
 import {
@@ -119,6 +124,7 @@ function isUnlockBasedDeferredExpiryRule(rule: { kind?: string } | null): boolea
 }
 
 async function materializeDeferredExpiryForUnlockedTasks(client: PoolClient, occurrenceId: string) {
+  if (!await occurrenceAutomationAllowed(client, occurrenceId)) return
   const rows = await client.query<{
     id: string
     unlock_at: string | null
@@ -181,6 +187,7 @@ async function materializeDeferredExpiryForUnlockedTasks(client: PoolClient, occ
 }
 
 async function applyRewardAutoCompletion(client: PoolClient, occurrenceId: string) {
+  if (!await occurrenceAutomationAllowed(client, occurrenceId)) return
   const result = await client.query(
     `update occurrence_tasks ot
      set status = 'completed',
@@ -224,7 +231,7 @@ async function recomputeOccurrenceStatuses(client: PoolClient, occurrenceId: str
        select
          ot.task_id,
          coalesce(t.unlock_combiner, 'and') as unlock_combiner,
-          (t.expires_at is not null and t.expires_at <= now()) as is_expired,
+          ((${TASK_AUTOMATION_ALLOWED_SQL}) and t.expires_at is not null and t.expires_at <= now()) as is_expired,
          exists (
            select 1
            from task_dependencies td_any
@@ -242,8 +249,8 @@ async function recomputeOccurrenceStatuses(client: PoolClient, occurrenceId: str
            where td.target_task_id = ot.task_id
              and src.status <> 'completed'::task_status
          ) as prereq_unsatisfied,
-         (t.unlock_at is not null) as time_applies,
-         (t.unlock_at is not null and now() < t.unlock_at) as time_unsatisfied
+         ((${TASK_AUTOMATION_ALLOWED_SQL}) and t.unlock_at is not null) as time_applies,
+         ((${TASK_AUTOMATION_ALLOWED_SQL}) and t.unlock_at is not null and now() < t.unlock_at) as time_unsatisfied
        from occurrence_tasks ot
        join tasks t on t.id = ot.task_id
        where ot.occurrence_id = $1::uuid
@@ -287,17 +294,22 @@ async function materializeDueRecurrences(
   userId: string,
 ) {
   const createdNotificationIds: string[] = []
+  let generationAllowance = await automaticGenerationAllowance(client, householdId)
+  if (!generationAllowance) return createdNotificationIds
+  const generationLimits = (await getHouseholdEntitlement(client,householdId)).limits
   const routines = await client.query<{
     id: string
     name: string
     recurrence_rule: string | null
     complete_older_occurrences_on_new: boolean
   }>(
-    `select id, name, recurrence_rule, coalesce(complete_older_occurrences_on_new, false) as complete_older_occurrences_on_new
-     from routines
-     where household_id = $1::uuid
+    `select r.id, r.name, r.recurrence_rule, coalesce(r.complete_older_occurrences_on_new, false) as complete_older_occurrences_on_new
+     from routines r
+     where r.household_id = $1::uuid
+       and (select count(*) from tasks t where t.routine_id=r.id and t.routine_occurrence_id is null) <= $2
+     order by r.created_at,r.id limit $3
      for update`,
-    [householdId],
+    [householdId,generationLimits.items,generationLimits.templates],
   )
   const now = new Date()
 
@@ -334,6 +346,8 @@ async function materializeDueRecurrences(
         continue
       }
 
+      if (generationAllowance <= 0) break
+      generationAllowance -= 1
       const occurrenceInsert = await client.query(
         `insert into routine_occurrences (routine_id, household_id, kind, title, scheduled_for, status, created_by)
          values ($1::uuid, $2::uuid, 'routine', $3, $4::timestamptz, 'active', $5)
@@ -591,6 +605,10 @@ async function completeOlderRoutineOccurrences(
 export async function GET(request: Request) {
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  try { await enforceRequestLimit(userId,"read") } catch(error) {
+    if (error instanceof EntitlementError) return NextResponse.json({error:error.message},{status:error.status})
+    throw error
+  }
   await ensureCurrentUserRecord()
   await ensureRoutineSchemaColumns()
 
@@ -620,6 +638,7 @@ export async function GET(request: Request) {
     try {
       await client.query("BEGIN")
       pushNotificationIds.push(...(await materializeDueRecurrences(client, householdId, userId)))
+      await recordHouseholdActivity(client,householdId)
       await client.query("COMMIT")
     } catch (error) {
       await client.query("ROLLBACK")
@@ -910,6 +929,58 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  try { await enforceRequestLimit(userId,"write") } catch(error) {
+    if (error instanceof EntitlementError) return NextResponse.json({error:error.message},{status:error.status})
+    throw error
+  }
+  let body: Record<string, unknown>
+  try {
+    const raw = await request.clone().text()
+    if (new TextEncoder().encode(raw).byteLength > 262144) return NextResponse.json({error:"Request is too large"},{status:413})
+    body = JSON.parse(raw)
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return NextResponse.json({ error: "Expected a JSON object" }, { status: 400 })
+  }
+  const householdId = String(body.householdId ?? "")
+  if (!householdId || body.action === "createHousehold") return handleFlowPost(request)
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(householdId)) {
+    return NextResponse.json({ error: "Invalid household" }, { status: 400 })
+  }
+  const membership = await getHouseholdMembershipAuthz(householdId, userId)
+  if (!membership || (body.action !== "deleteHousehold" && !canPerformAction(membership.role, String(body.action)))) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+  const lockClient = await db.connect()
+  const started = Date.now()
+  let locked = false
+  try {
+    const result = await lockClient.query("select pg_try_advisory_lock(hashtextextended($1, 0)) as acquired", [householdId])
+    locked = result.rows[0].acquired
+    if (!locked) return NextResponse.json({ error: "Another household change is in progress. Please retry." }, { status: 429 })
+    const entitlement = await enforceFlowEntitlements(lockClient, householdId, body)
+    const response = await handleFlowPost(request)
+    if (body.action !== "deleteHousehold") {
+      await recordHouseholdActivity(lockClient,householdId).catch(() => console.warn("Household activity could not be recorded"))
+      await recordHouseholdUsage(lockClient,householdId,entitlement.tier,Date.now()-started).catch(() => console.warn("Household usage could not be recorded"))
+    }
+    return response
+  } catch (error) {
+    if (error instanceof EntitlementError) return NextResponse.json({ error: error.message }, { status: error.status })
+    throw error
+  } finally {
+    try {
+      if (locked) await lockClient.query("select pg_advisory_unlock(hashtextextended($1, 0))", [householdId])
+      lockClient.release()
+    } catch { lockClient.release(true) }
+  }
+}
+
+async function handleFlowPost(request: Request) {
+  const { userId } = await auth()
+  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   await ensureCurrentUserRecord()
   await ensureRoutineSchemaColumns()
 
@@ -926,21 +997,13 @@ export async function POST(request: Request) {
     const timezone = String(body?.timezone ?? "UTC").trim() || "UTC"
     if (!name) return NextResponse.json({ error: "name is required" }, { status: 400 })
 
-    const create = await db.query(
-      `insert into households (name, leader_id, timezone)
-       values ($1, $2, $3)
-       returning id, name, timezone, leader_id`,
-      [name, userId, timezone],
-    )
-    const householdId = create.rows[0].id
-    await db.query(
-      `insert into household_members (household_id, user_id, role)
-       values ($1, $2, 'manager')
-       on conflict (household_id, user_id)
-       do update set role = excluded.role`,
-      [householdId, userId],
-    )
-    return NextResponse.json({ household: create.rows[0] })
+    try {
+      const household = await createHouseholdWithAdmission(userId, name, timezone)
+      return NextResponse.json({ household })
+    } catch (error) {
+      if (error instanceof EntitlementError) return NextResponse.json({ error: error.message }, { status: error.status })
+      throw error
+    }
   }
 
   if (action === "deleteHousehold") {
@@ -1595,7 +1658,8 @@ export async function POST(request: Request) {
         await applyRewardAutoCompletion(client, newOccurrenceId)
       }
 
-      if (routineCheck.rows[0]?.complete_older_occurrences_on_new) {
+      if (routineCheck.rows[0]?.complete_older_occurrences_on_new &&
+          (await getHouseholdEntitlement(client, householdId)).limits.automation) {
         await completeOlderRoutineOccurrences(client, routineId, newOccurrenceId)
       }
 
@@ -2073,6 +2137,11 @@ export async function POST(request: Request) {
         }
       }
 
+      await client.query(`update routine_occurrences set
+        status = case when exists (select 1 from occurrence_tasks where occurrence_id = $1::uuid)
+          and not exists (select 1 from occurrence_tasks where occurrence_id = $1::uuid and status <> 'completed')
+          then 'completed'::occurrence_status else 'active'::occurrence_status end,
+        updated_at = now() where id = $1::uuid and household_id = $2::uuid`, [occurrenceId, householdId])
       await client.query("COMMIT")
       if (deferredUnlockNotifications.length > 0) {
         void (async () => {

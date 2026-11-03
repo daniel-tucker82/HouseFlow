@@ -1639,7 +1639,7 @@ export function LeaderFlowEditor({
           ? Math.max(10, Math.min(msUntilNextMinute, msUntilNearestInstant))
           : Math.max(10, msUntilNextMinute)
       timeoutId = window.setTimeout(() => {
-        void reloadFlowRef.current(selectedHouseholdId, selectedRoutineId, selectedOccurrenceId)
+        if (document.visibilityState === "visible") void reloadFlowRef.current(selectedHouseholdId, selectedRoutineId, selectedOccurrenceId).catch(() => {})
         scheduleNextPoll()
       }, nextDelay)
     }
@@ -1672,7 +1672,7 @@ export function LeaderFlowEditor({
       const now = new Date(nowMsByServerClock)
       const msUntilNextMinute = (60 - now.getSeconds()) * 1000 - now.getMilliseconds() + 10
       timeoutId = window.setTimeout(() => {
-        void reloadFlowRef.current(selectedHouseholdId, selectedRoutineId, null)
+        if (document.visibilityState === "visible") void reloadFlowRef.current(selectedHouseholdId, selectedRoutineId, null).catch(() => {})
         scheduleNextPoll()
       }, Math.max(10, msUntilNextMinute))
     }
@@ -1692,9 +1692,13 @@ export function LeaderFlowEditor({
   /** Occurrence boards do not use the routine “next minute” poll above; still refetch so other members’ completions update the canvas. */
   useEffect(() => {
     if (!selectedOccurrenceId) return
-    const pollMs = 15_000
+    const pollMs = 60_000
+    let polling = false
     const tick = () => {
+      if (document.visibilityState !== "visible" || polling) return
+      polling = true
       void reloadFlowRef.current(selectedHouseholdId, selectedRoutineId, selectedOccurrenceId)
+        .catch(() => {}).finally(() => { polling = false })
     }
     const intervalId = window.setInterval(tick, pollMs)
     const onVisibility = () => {

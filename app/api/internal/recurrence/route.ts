@@ -2,6 +2,10 @@ import { NextResponse } from "next/server"
 import type { PoolClient } from "pg"
 import { timingSafeEqual } from "node:crypto"
 import { db } from "@/lib/db"
+import { getHouseholdEntitlement } from "@/lib/entitlements"
+import { recordHouseholdUsage } from "@/lib/usage-controls"
+import { reconcileHouseholdSubscription } from "@/lib/stripe-billing"
+import { automaticGenerationAllowance, occurrenceAutomationAllowed, TASK_AUTOMATION_ALLOWED_SQL } from "@/lib/automation-entitlements"
 import { ensureRoutineSchemaColumns } from "@/lib/schema-ensure"
 import { parseExpiryRule, parseUnlockRule, resolveExpiryAt, resolveUnlockAt, type UnlockCombiner } from "@/lib/time-rules"
 import {
@@ -86,6 +90,7 @@ async function getHouseholdTimeZone(client: PoolClient, householdId: string) {
 }
 
 async function materializeDeferredExpiryForUnlockedTasks(client: PoolClient, occurrenceId: string) {
+  if (!await occurrenceAutomationAllowed(client, occurrenceId)) return
   const rows = await client.query<{
     id: string
     unlock_at: string | null
@@ -138,6 +143,7 @@ async function materializeDeferredExpiryForUnlockedTasks(client: PoolClient, occ
 }
 
 async function applyRewardAutoCompletion(client: PoolClient, occurrenceId: string) {
+  if (!await occurrenceAutomationAllowed(client, occurrenceId)) return
   await client.query(
     `update occurrence_tasks ot
      set status = 'completed',
@@ -159,7 +165,7 @@ async function recomputeOccurrenceStatuses(client: PoolClient, occurrenceId: str
        select
          ot.task_id,
          coalesce(t.unlock_combiner, 'and') as unlock_combiner,
-         (t.expires_at is not null and t.expires_at <= now()) as is_expired,
+         ((${TASK_AUTOMATION_ALLOWED_SQL}) and t.expires_at is not null and t.expires_at <= now()) as is_expired,
          exists (
            select 1
            from task_dependencies td_any
@@ -177,8 +183,8 @@ async function recomputeOccurrenceStatuses(client: PoolClient, occurrenceId: str
            where td.target_task_id = ot.task_id
              and src.status <> 'completed'::task_status
          ) as prereq_unsatisfied,
-         (t.unlock_at is not null) as time_applies,
-         (t.unlock_at is not null and now() < t.unlock_at) as time_unsatisfied
+         ((${TASK_AUTOMATION_ALLOWED_SQL}) and t.unlock_at is not null) as time_applies,
+         ((${TASK_AUTOMATION_ALLOWED_SQL}) and t.unlock_at is not null and now() < t.unlock_at) as time_unsatisfied
        from occurrence_tasks ot
        join tasks t on t.id = ot.task_id
        where ot.occurrence_id = $1::uuid
@@ -267,17 +273,22 @@ async function materializeDueRecurrences(
   actorUserId: string | null,
 ) {
   const createdNotificationIds: string[] = []
+  let generationAllowance = await automaticGenerationAllowance(client, householdId)
+  if (!generationAllowance) return createdNotificationIds
+  const generationLimits = (await getHouseholdEntitlement(client,householdId)).limits
   const routines = await client.query<{
     id: string
     name: string
     recurrence_rule: string | null
     complete_older_occurrences_on_new: boolean
   }>(
-    `select id, name, recurrence_rule, coalesce(complete_older_occurrences_on_new, false) as complete_older_occurrences_on_new
-     from routines
-     where household_id = $1::uuid
+    `select r.id, r.name, r.recurrence_rule, coalesce(r.complete_older_occurrences_on_new, false) as complete_older_occurrences_on_new
+     from routines r
+     where r.household_id = $1::uuid
+       and (select count(*) from tasks t where t.routine_id=r.id and t.routine_occurrence_id is null) <= $2
+     order by r.created_at,r.id limit $3
      for update`,
-    [householdId],
+    [householdId,generationLimits.items,generationLimits.templates],
   )
   const now = new Date()
 
@@ -314,6 +325,8 @@ async function materializeDueRecurrences(
         continue
       }
 
+      if (generationAllowance <= 0) break
+      generationAllowance -= 1
       const occurrenceInsert = await client.query(
         `insert into routine_occurrences (routine_id, household_id, kind, title, scheduled_for, status, created_by)
          values ($1::uuid, $2::uuid, 'routine', $3, $4::timestamptz, 'active', $5)
@@ -611,6 +624,7 @@ async function processActiveOccurrenceTimers(
 }
 
 export async function GET(request: Request) {
+  const deadline = Date.now() + 45000
   const secretConfigured = Boolean(process.env.CRON_SECRET?.trim())
   if (!secretConfigured) {
     console.error("[cron] rejected: CRON_SECRET is not configured")
@@ -623,8 +637,11 @@ export async function GET(request: Request) {
 
   await ensureRoutineSchemaColumns()
   const households = await db.query<{ id: string; leader_id: string | null }>(
-    `select id, leader_id
-     from households`,
+    `select h.id, h.leader_id
+     from households h
+     left join household_billing b on b.household_id = h.id
+     order by b.last_scheduled_check_at asc nulls first, h.id
+     limit 100`,
   )
 
   console.info("[cron][recurrence] run start", {
@@ -640,11 +657,22 @@ export async function GET(request: Request) {
   let tasksCompleted = 0
 
   for (const household of households.rows) {
+    if (Date.now() >= deadline) break
+    const started = Date.now()
     let client: PoolClient | null = null
     let destroyClient = false
     try {
       client = await connectWithRetry()
       await client.query("BEGIN")
+      const lock = await client.query("select pg_try_advisory_xact_lock(hashtextextended($1, 0)) as acquired", [household.id])
+      if (!lock.rows[0].acquired) { await client.query("ROLLBACK"); continue }
+      await client.query(`insert into household_billing (household_id, last_scheduled_check_at)
+        values ($1::uuid, now()) on conflict (household_id)
+        do update set last_scheduled_check_at = now()`, [household.id])
+      const entitlement = await getHouseholdEntitlement(client,household.id)
+      const before = await client.query(`select
+        (select count(*)::int from routine_occurrences where household_id=$1::uuid) as runs,
+        (select count(*)::int from tasks where household_id=$1::uuid) as tasks`,[household.id])
       pushNotificationIds.push(...(await materializeDueRecurrences(client, household.id, household.leader_id ?? null)))
       const timerResult = await processActiveOccurrenceTimers(
         client,
@@ -655,6 +683,11 @@ export async function GET(request: Request) {
       occurrencesProcessed += timerResult.occurrencesProcessed
       tasksUnlocked += timerResult.tasksUnlocked
       tasksCompleted += timerResult.tasksCompleted
+      const after = await client.query(`select
+        (select count(*)::int from routine_occurrences where household_id=$1::uuid) as runs,
+        (select count(*)::int from tasks where household_id=$1::uuid) as tasks`,[household.id])
+      await recordHouseholdUsage(client,household.id,entitlement.tier,Date.now()-started,
+        Math.max(0,after.rows[0].runs-before.rows[0].runs),Math.max(0,after.rows[0].tasks-before.rows[0].tasks))
       await client.query("COMMIT")
       householdsProcessed += 1
     } catch (error) {
@@ -681,6 +714,18 @@ export async function GET(request: Request) {
   }
 
   await dispatchPushForNotificationIds(pushNotificationIds)
+  // Reconcile missed Stripe deliveries independently of event ordering; never create charges.
+  if (process.env.STRIPE_SECRET_KEY && Date.now() < deadline) {
+    const due = await db.query(`select household_id from household_billing where stripe_customer_id is not null
+      and (last_reconciled_at is null or last_reconciled_at < now() - interval '1 hour')
+      order by last_reconciled_at nulls first limit 5`)
+    for (const row of due.rows) {
+      if (Date.now() >= deadline) break
+      await reconcileHouseholdSubscription(row.household_id).catch(() => console.warn("Scheduled billing reconciliation needs retry",{householdId:row.household_id}))
+    }
+  }
+  await db.query(`delete from application_rate_limits where (bucket_key,window_start) in
+    (select bucket_key,window_start from application_rate_limits where window_start < now()-interval '1 day' limit 1000)`)
 
   const body = {
     ok: householdsFailed === 0,

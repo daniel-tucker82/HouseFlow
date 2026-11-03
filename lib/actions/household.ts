@@ -5,6 +5,9 @@ import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { auth } from "@clerk/nextjs/server"
 import { db } from "@/lib/db"
+import { createHouseholdWithAdmission } from "@/lib/household-admission"
+import { EntitlementError, withHouseholdWrite } from "@/lib/entitlements"
+import { enforceRequestLimit } from "@/lib/usage-controls"
 import { ensureCurrentUserRecord } from "@/lib/user-sync"
 import { createManagerNotificationEvent } from "@/lib/notifications"
 
@@ -21,24 +24,8 @@ export async function createHousehold(formData: FormData) {
     redirect("/auth/login")
   }
 
-  const householdResult = await db.query(
-    `insert into households (name, leader_id, timezone)
-     values ($1, $2, $3)
-     returning id`,
-    [name, userId, timezone],
-  )
-  const householdId = householdResult.rows[0]?.id as string | undefined
-  if (!householdId) {
-    redirect("/leader/dashboard?error=Unable%20to%20create%20household")
-  }
-
-  await db.query(
-    `insert into household_members (household_id, user_id, role)
-     values ($1, $2, 'manager')
-     on conflict (household_id, user_id)
-     do update set role = excluded.role`,
-    [householdId, userId],
-  )
+  const household = await createHouseholdWithAdmission(userId, name, timezone)
+  const householdId = household.id
 
   revalidatePath("/leader/dashboard")
   redirect(`/leader/dashboard?household=${householdId}`)
@@ -48,6 +35,10 @@ export async function createInvite(formData: FormData) {
   const householdId = String(formData.get("householdId") ?? "")
   const maxUses = Number(formData.get("maxUses") ?? 10)
   const expiresInDays = Number(formData.get("expiresInDays") ?? 30)
+  if (!Number.isInteger(maxUses) || maxUses < 1 || maxUses > 100 ||
+      !Number.isInteger(expiresInDays) || expiresInDays < 1 || expiresInDays > 365) {
+    throw new EntitlementError("Choose 1–100 uses and an expiry of 1–365 days.", 400)
+  }
   const code = makeInviteCode()
   const expiresAt = new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000)
 
@@ -57,11 +48,12 @@ export async function createInvite(formData: FormData) {
     redirect("/auth/login")
   }
 
-  await db.query(
+  await enforceRequestLimit(userId, "write")
+  await withHouseholdWrite(householdId, userId, async client => client.query(
     `insert into household_invites (household_id, created_by, code, max_uses, expires_at)
      values ($1, $2, $3, $4, $5)`,
     [householdId, userId, code, maxUses, expiresAt.toISOString()],
-  )
+  ))
 
   revalidatePath("/leader/dashboard")
   redirect(`/leader/dashboard?household=${householdId}&invite=${code}`)
@@ -82,6 +74,9 @@ export async function acceptInvite(formData: FormData) {
 }
 
 export async function acceptInviteByCode(code: string, userId: string) {
+  const identity = await auth()
+  if (!identity.userId || identity.userId !== userId) throw new EntitlementError("Sign in required", 401)
+  await enforceRequestLimit(userId, "write")
   const inviteCode = code.trim()
   if (!inviteCode) {
     throw new Error("Invite code is required.")

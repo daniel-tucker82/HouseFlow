@@ -4,11 +4,15 @@ import { UserButton } from "@clerk/nextjs"
 import { LayoutDashboard, Settings, Users } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import { useEffect, useState } from "react"
+import { useEffect, useState, useSyncExternalStore } from "react"
 import { Brand } from "@/components/brand"
 import { NotificationBell } from "@/components/notification-bell"
 import { isCapacitorNativeShellSync } from "@/lib/native-shell-detect"
 import { cn } from "@/lib/utils"
+
+const subscribeToHydration = () => () => {}
+const clientMounted = () => true
+const serverMounted = () => false
 
 export function AppHeader({
   className,
@@ -19,7 +23,7 @@ export function AppHeader({
   lockViewSwitch?: boolean
   canAccessManagement?: boolean
 }) {
-  const [isMounted, setIsMounted] = useState(false)
+  const isMounted = useSyncExternalStore(subscribeToHydration,clientMounted,serverMounted)
   const [nativeMemberShell, setNativeMemberShell] = useState(isCapacitorNativeShellSync)
   const pathname = usePathname()
   const router = useRouter()
@@ -35,9 +39,6 @@ export function AppHeader({
     }
     return params.size ? `${target}?${params.toString()}` : target
   }
-  useEffect(() => {
-    setIsMounted(true)
-  }, [])
   useEffect(() => {
     void import("@capacitor/core").then(({ Capacitor }) => setNativeMemberShell(Capacitor.isNativePlatform()))
   }, [])
@@ -100,6 +101,11 @@ export function AppHeader({
         {isMounted ? (
           <UserButton appearance={{ elements: { avatarBox: "size-8 ring-2 ring-white shadow-sm" } }}>
             <UserButton.MenuItems>
+              {!nativeMemberShell && <UserButton.Link
+                label="Household plan"
+                labelIcon={<Settings className="size-4" />}
+                href={`/settings/billing${searchParams.get("household") ? "?household=" + encodeURIComponent(searchParams.get("household")!) : ""}`}
+              />}
               <UserButton.Link
                 label="Notification settings"
                 labelIcon={<Settings className="size-4" />}

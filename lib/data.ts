@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation"
 import { auth } from "@clerk/nextjs/server"
 import { db } from "@/lib/db"
+import { TASK_AUTOMATION_ALLOWED_SQL } from "@/lib/automation-entitlements"
 import { ensureRoutineSchemaColumns } from "@/lib/schema-ensure"
 import { createUnlockNotifications } from "@/lib/notifications"
 import { dispatchPushForNotificationIds } from "@/lib/push"
@@ -182,7 +183,7 @@ export async function getHouseholdMemberViewData(
            ot.occurrence_id,
            ot.task_id,
            coalesce(t.unlock_combiner, 'and') as unlock_combiner,
-           (t.expires_at is not null and t.expires_at <= now()) as is_expired,
+           ((${TASK_AUTOMATION_ALLOWED_SQL}) and t.expires_at is not null and t.expires_at <= now()) as is_expired,
            exists (
              select 1
              from task_dependencies td_any
@@ -200,8 +201,8 @@ export async function getHouseholdMemberViewData(
              where td.target_task_id = ot.task_id
                and src.status <> 'completed'::task_status
            ) as prereq_unsatisfied,
-           (t.unlock_at is not null) as time_applies,
-           (t.unlock_at is not null and now() < t.unlock_at) as time_unsatisfied
+           ((${TASK_AUTOMATION_ALLOWED_SQL}) and t.unlock_at is not null) as time_applies,
+           ((${TASK_AUTOMATION_ALLOWED_SQL}) and t.unlock_at is not null and now() < t.unlock_at) as time_unsatisfied
          from occurrence_tasks ot
          join tasks t on t.id = ot.task_id
          where ot.occurrence_id in (select id from active_occurrences)
