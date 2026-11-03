@@ -41,6 +41,7 @@ import {
 } from "@/lib/notifications"
 import { dispatchPushForNotificationIds } from "@/lib/push"
 import { PlannerSaveError, savePlannerTask } from "@/lib/save-planner-task"
+import { findPlannerCreation, parsePlannerCreation, PlannerCreationError, recordPlannerCreation, type PlannerCreation } from "@/lib/planner-creation"
 import { claimTaskEditVersion, validTaskEditVersion } from "@/lib/task-edit-version"
 import { CompletionOperationError, parseCompletionOperation, findCompletionReceipt, claimCompletionVersion, recordCompletionReceipt } from "@/lib/completion-operations"
 
@@ -961,6 +962,11 @@ export async function POST(request: Request) {
   if (body.action === "updateTask" && !validTaskEditVersion(body)) {
     return NextResponse.json({ error: "Invalid task save version" }, { status: 400 })
   }
+  let creation: PlannerCreation | null = null
+  try { creation = parsePlannerCreation(body) } catch (error) {
+    if (error instanceof PlannerCreationError) return NextResponse.json({ error: error.message }, { status: error.status })
+    throw error
+  }
   const householdId = String(body.householdId ?? "")
   if (!householdId || body.action === "createHousehold") return handleFlowPost(request)
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(householdId)) {
@@ -977,8 +983,9 @@ export async function POST(request: Request) {
     const result = await lockClient.query("select pg_try_advisory_lock(hashtextextended($1, 0)) as acquired", [householdId])
     locked = result.rows[0].acquired
     if (!locked) return NextResponse.json({ error: "Another household change is in progress. Please retry." }, { status: 429 })
-    const entitlement = await enforceFlowEntitlements(lockClient, householdId, body)
-    const response = await handleFlowPost(request, { userId, body, membership })
+    const created = creation ? await findPlannerCreation(lockClient, householdId, userId, creation) : null
+    const entitlement = created ? await getHouseholdEntitlement(lockClient, householdId) : await enforceFlowEntitlements(lockClient, householdId, body)
+    const response = await handleFlowPost(request, { userId, body, membership, creation, created })
     if (body.action !== "deleteHousehold") {
       const duration = Date.now() - started
       after(async () => {
@@ -993,6 +1000,7 @@ export async function POST(request: Request) {
   } catch (error) {
     if (error instanceof EntitlementError) return NextResponse.json({ error: error.message }, { status: error.status })
     if (error instanceof CompletionOperationError) return NextResponse.json({ error: error.message }, { status: error.status })
+    if (error instanceof PlannerCreationError) return NextResponse.json({ error: error.message }, { status: error.status })
     throw error
   } finally {
     try {
@@ -1006,6 +1014,8 @@ async function handleFlowPost(request: Request, context?: {
   userId: string
   body: Record<string, unknown>
   membership: NonNullable<Awaited<ReturnType<typeof getHouseholdMembershipAuthz>>>
+  creation?: PlannerCreation | null
+  created?: Record<string, unknown> | null
 }) {
   const { userId } = context ?? await auth()
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -1084,6 +1094,7 @@ async function handleFlowPost(request: Request, context?: {
   if (kioskSessionActive && !kioskAllowedActions.has(action)) {
     return NextResponse.json({ error: "Kiosk mode is active." }, { status: 423 })
   }
+  if (context?.created) return NextResponse.json(context.created)
 
   if (action === "updateKioskSettings") {
     const visibleMemberIds = Array.isArray(body?.visibleMemberIds)
@@ -1206,13 +1217,21 @@ async function handleFlowPost(request: Request, context?: {
     const name = String(body?.name ?? "").trim() || "New routine"
     const type = body?.type === "one_off" ? "one_off" : "recurring"
     const recurrenceRule = String(body?.recurrenceRule ?? "").trim() || null
-    const result = await db.query(
-      `insert into routines (household_id, name, type, recurrence_rule, complete_older_occurrences_on_new, created_by)
-       values ($1, $2, $3, $4, $5, $6)
-       returning id, household_id, name, type, recurrence_rule, complete_older_occurrences_on_new`,
-      [householdId, name, type, recurrenceRule, false, userId],
-    )
-    return NextResponse.json({ routine: result.rows[0] })
+    const client = await db.connect()
+    try {
+      await client.query("BEGIN")
+      const result = await client.query(
+        `insert into routines (household_id, name, type, recurrence_rule, complete_older_occurrences_on_new, created_by)
+         values ($1, $2, $3, $4, $5, $6)
+         returning id, household_id, name, type, recurrence_rule, complete_older_occurrences_on_new`,
+        [householdId, name, type, recurrenceRule, false, userId],
+      )
+      const response = { routine: result.rows[0] }
+      await recordPlannerCreation(client, householdId, userId, context?.creation ?? null, result.rows[0].id, response)
+      await client.query("COMMIT")
+      return NextResponse.json(response)
+    } catch (error) { await client.query("ROLLBACK"); throw error }
+    finally { client.release() }
   }
 
   if (action === "renameRoutine") {
@@ -2255,7 +2274,7 @@ async function handleFlowPost(request: Request, context?: {
 
   if ((action === "createTask" || action === "updateTask") && Object.hasOwn(body, "prerequisiteIds")) {
     try {
-      const task = await savePlannerTask(householdId, userId, { ...body, isNew: action === "createTask" })
+      const task = await savePlannerTask(householdId, userId, { ...body, isNew: action === "createTask" }, context?.creation ?? null)
       return NextResponse.json({ task })
     } catch (error) {
       if (error instanceof PlannerSaveError) {

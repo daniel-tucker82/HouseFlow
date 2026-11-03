@@ -1,6 +1,7 @@
 import { db } from "@/lib/db"
 import { plannerTaskSchema, taskDescendants, type PlannerDependency } from "@/lib/routine-planner"
 import { claimTaskEditVersion } from "@/lib/task-edit-version"
+import { recordPlannerCreation, type PlannerCreation } from "@/lib/planner-creation"
 
 export class PlannerSaveError extends Error {
   constructor(message: string, public status = 400) { super(message) }
@@ -9,7 +10,7 @@ export class PlannerSaveError extends Error {
 /** Save basic task details, assignments and prerequisites as one operation.
  * Time rules, expiry rules and existing canvas positions are deliberately preserved.
  */
-export async function savePlannerTask(householdId: string, userId: string, raw: unknown) {
+export async function savePlannerTask(householdId: string, userId: string, raw: unknown, creation: PlannerCreation | null = null) {
   const parsed = plannerTaskSchema.safeParse(raw)
   if (!parsed.success) throw new PlannerSaveError(parsed.error.issues[0]?.message ?? "Invalid task.")
   const input = parsed.data
@@ -58,6 +59,7 @@ export async function savePlannerTask(householdId: string, userId: string, raw: 
     await client.query("insert into task_assignees (task_id, user_id) select $1::uuid, unnest($2::text[])", [input.taskId, assignees])
     await client.query("delete from task_dependencies where target_task_id = $1::uuid", [input.taskId])
     await client.query("insert into task_dependencies (source_task_id, target_task_id) select unnest($1::uuid[]), $2::uuid", [prerequisites, input.taskId])
+    await recordPlannerCreation(client, householdId, userId, creation, input.taskId, { task: result.rows[0] })
     await client.query("COMMIT")
     return result.rows[0]
   } catch (error) {

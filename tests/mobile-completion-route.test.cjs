@@ -61,6 +61,7 @@ test('F01 O05 O07 native completion endpoint enforces real membership, prerequis
     '@/lib/completion-operations': operationModule.exports,
   }
   mocks['@/lib/household-authz'] = compile('lib/household-authz.ts', mocks)
+  mocks['@/lib/planner-creation'] = compile('lib/planner-creation.ts', mocks)
   const route = compile('app/api/leader/flow/route.ts', mocks)
   let sequence = 0
   function change(values = {}) {

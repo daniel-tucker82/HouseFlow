@@ -11,6 +11,9 @@ const taskId = 'b98ce792-81b7-4ceb-bbb2-1a17c8134901'
 const versionFile = path.resolve(__dirname, '../lib/task-edit-version.ts')
 const versionModule = new Module(versionFile, module)
 versionModule._compile(transformSync(fs.readFileSync(versionFile, 'utf8'), { loader: 'ts', format: 'cjs' }).code, versionFile)
+const creationFile = path.resolve(__dirname, '../lib/planner-creation.ts')
+const creationModule = new Module(creationFile, module)
+creationModule._compile(transformSync(fs.readFileSync(creationFile, 'utf8'), { loader: 'ts', format: 'cjs' }).code, creationFile)
 function setup(options = {}) {
   const queries = [], after = []
   let memberships = 0, profiles = 0
@@ -43,6 +46,7 @@ function setup(options = {}) {
     },
     '@/lib/time-rules': { parseUnlockRule: () => null, parseExpiryRule: () => null, resolveUnlockAt: () => null, resolveExpiryAt: () => null },
     '@/lib/task-edit-version': versionModule.exports,
+    '@/lib/planner-creation': creationModule.exports,
     '@/lib/completion-operations': { CompletionOperationError: class CompletionOperationError extends Error {} },
   }
   const filename = path.resolve(__dirname, '../app/api/leader/flow/route.ts')
