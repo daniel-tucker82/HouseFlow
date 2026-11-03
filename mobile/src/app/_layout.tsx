@@ -5,20 +5,31 @@ import { resourceCache } from "@clerk/expo/resource-cache"
 import { Tabs } from "expo-router"
 import { StatusBar } from "expo-status-bar"
 import { useState } from "react"
-import { Modal, ScrollView, View } from "react-native"
+import { Alert, Modal, ScrollView, View } from "react-native"
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context"
 import { CircleCheck, History, ListChecks, Settings, Users } from "lucide-react-native"
 import { Action, Copy, Loading, styles, usePalette } from "../components/ui"
 import { RuntimeProvider } from "../providers/runtime"
-import { NotificationSessionProvider } from "../providers/notification-session"
+import { NotificationSessionProvider, useNotificationSession } from "../providers/notification-session"
 import { NotificationInteractions } from "../components/notification-interactions"
+import { KioskProvider, useKiosk } from "../providers/kiosk"
+import { KioskScreen } from "../components/kiosk-screen"
 
 function Application() {
   const { isLoaded, isSignedIn, userId, sessionId } = useAuth({ treatPendingAsSignedOut: false })
   const [authOpen, setAuthOpen] = useState(false)
   const colors = usePalette()
+  const kiosk = useKiosk(), { signOut } = useNotificationSession()
+  if (!kiosk.state.ready || kiosk.state.changing) return <View style={{ flex: 1, backgroundColor: colors.background }}><Loading label={kiosk.state.changing ? "Protecting this device…" : "Checking this device…"} />
+    {kiosk.state.error ? <View style={styles.content}><Copy>{kiosk.state.error}</Copy><Action label="Try again" onPress={() => void kiosk.controller.start()} /></View> : null}</View>
+  if (kiosk.state.record && kiosk.state.record.intent !== "unlock") return <KioskScreen />
   return <>
-    {!isLoaded ? <Loading label="Opening Cyntch…" /> : isSignedIn && userId && sessionId ? <RuntimeProvider key={`${userId}:${sessionId}`} accountId={userId} sessionId={sessionId}>
+    {kiosk.state.record ? <SafeAreaView edges={["top", "left", "right"]} style={{ backgroundColor: colors.soft }}><View style={{ padding: 16, gap: 8 }}>
+      <Copy>Parent controls are unlocked on this device. {kiosk.state.online ? "Finishing sync…" : "Connect to finish syncing the unlock."}</Copy>
+      {kiosk.state.error ? <Copy style={{ color: colors.danger }}>{kiosk.state.error}</Copy> : null}
+      {kiosk.state.record.blocked || sessionId !== kiosk.state.record.kiosk.sessionId ? <Action label="Recover with parent sign-in" onPress={() => void kiosk.controller.beginRecovery().then(() => signOut()).catch(cause => Alert.alert("Parent sign-in needed", cause instanceof Error ? cause.message : "Connect and try again."))} /> : null}
+    </View></SafeAreaView> : null}
+    {!isLoaded ? <Loading label="Opening Cyntch…" /> : isSignedIn && userId && sessionId ? <RuntimeProvider key={`${userId}:${sessionId}:${Boolean(kiosk.state.record)}`} accountId={userId} sessionId={sessionId} canSync={!kiosk.state.record}>
       <Tabs screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: colors.background },
         tabBarActiveTintColor: colors.primary, tabBarInactiveTintColor: colors.muted,
         tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border }, tabBarLabelStyle: { fontSize: 12 } }}>
@@ -28,7 +39,7 @@ function Application() {
         <Tabs.Screen name="household" options={{ title: "Household", tabBarIcon: ({ color, size }) => <Users color={color} size={size} /> }} />
         <Tabs.Screen name="settings" options={{ title: "Settings", tabBarIcon: ({ color, size }) => <Settings color={color} size={size} /> }} />
       </Tabs>
-      <NotificationInteractions accountId={userId} sessionId={sessionId} />
+      {!kiosk.state.record ? <NotificationInteractions accountId={userId} sessionId={sessionId} /> : null}
     </RuntimeProvider> : <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
       <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center", alignItems: "center", padding: 24 }}>
       <View style={{ maxWidth: 430, width: "100%", gap: 24 }}>
@@ -49,6 +60,6 @@ function Application() {
 export default function RootLayout() {
   const key = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY
   return <SafeAreaProvider><StatusBar style="auto" />{key ? <ClerkProvider publishableKey={key} tokenCache={tokenCache} __experimental_resourceCache={resourceCache}>
-    <NotificationSessionProvider><Application /></NotificationSessionProvider>
+    <NotificationSessionProvider><KioskProvider><Application /></KioskProvider></NotificationSessionProvider>
   </ClerkProvider> : <View style={styles.center}><Copy tone="heading">Cyntch setup is incomplete</Copy><Copy>This build is missing its sign-in configuration.</Copy></View>}</SafeAreaProvider>
 }

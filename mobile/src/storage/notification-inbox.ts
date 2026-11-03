@@ -1,6 +1,7 @@
 import { parseNativeNotificationPayload, type NativeNotificationPayload } from "../../../shared/mobile/notification-payload"
 import type { LocalDatabase } from "./local-store"
 import type { NotificationSession } from "./notification-session-store"
+import { kioskRestriction } from "./kiosk-store"
 
 /** Latest explicit tap wins; delivery IDs make OS redelivery/restart idempotent. */
 export class NotificationInbox {
@@ -13,6 +14,7 @@ export class NotificationInbox {
     if (!payload || payload.accountId !== session.accountId || payload.sessionId !== session.sessionId) return false
     let captured = false
     await this.db.withExclusiveTransactionAsync(async tx => {
+      if (await kioskRestriction(tx)) return
       if (!await tx.getFirstAsync("SELECT 1 FROM notification_sessions WHERE account_id=? AND session_id=? AND revoked=0", session.accountId, session.sessionId)) return
       const existing = await tx.getFirstAsync("SELECT 1 FROM notification_taps WHERE session_id=? AND delivery_id=?", session.sessionId, payload.deliveryId)
       if (!existing) {
@@ -26,6 +28,7 @@ export class NotificationInbox {
     return captured
   }
   async pending(session: NotificationSession): Promise<NativeNotificationPayload | null> {
+    if (await kioskRestriction(this.db)) return null
     const row = await this.db.getFirstAsync<{ data: string }>(`SELECT t.data FROM notification_taps t JOIN notification_sessions s ON s.session_id=t.session_id
       WHERE t.session_id=? AND t.account_id=? AND t.handled=0 AND s.revoked=0 AND s.account_id=t.account_id`, session.sessionId, session.accountId)
     return row ? parseNativeNotificationPayload(JSON.parse(row.data)) : null

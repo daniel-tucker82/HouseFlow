@@ -6,6 +6,7 @@ import { useBoard, useNotifications, usePlanner, useRuntime } from "../providers
 import { PlannerPendingCreations } from "../components/planner-pending-creations"
 import { NotificationSettingsCard } from "../components/notification-settings"
 import { useNotificationSession } from "../providers/notification-session"
+import { KioskSettingsCard } from "../components/kiosk-settings"
 
 export default function SettingsScreen() {
   const { signOut } = useNotificationSession()
@@ -23,6 +24,7 @@ export default function SettingsScreen() {
     <Card><Copy tone="heading">This device</Copy><View style={styles.row}><View style={{ flex: 1, gap: 4 }}><Copy>Keep the display awake</Copy><Copy tone="muted">While Cyntch is open. You can still lock the screen yourself.</Copy></View>
       <Switch accessibilityLabel="Keep the display awake while Cyntch is open" value={keepAwake} onValueChange={value => void setKeepAwake(value).catch(report)} trackColor={{ true: colors.primary }} />
     </View></Card>
+    <KioskSettingsCard />
     <NotificationSettingsCard />
     <Card><Copy tone="heading">Saved changes</Copy><Copy tone="muted">{savedCount ? `${savedCount} ${savedCount === 1 ? "change is" : "changes are"} saved on this device and waiting to sync.` : "All saved changes have synced."}</Copy>
       {rejected.map(change => {

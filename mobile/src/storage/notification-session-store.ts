@@ -1,5 +1,6 @@
 import type { LocalDatabase, SqlConnection } from "./local-store"
 import { retryDelayMs } from "../../../shared/mobile/sync-policy"
+import { kioskRestriction } from "./kiosk-store"
 
 export interface NotificationSession { accountId: string; sessionId: string }
 export interface PendingNotificationRevocation extends NotificationSession { attempts: number; nextAttemptMs: number }
@@ -17,6 +18,7 @@ export class NotificationSessionStore {
       INSERT OR IGNORE INTO notification_native_cleanup VALUES(1,0,0);`)
   }
   private requireCleanup(tx: SqlConnection) { return tx.runAsync("UPDATE notification_native_cleanup SET generation=generation+1 WHERE id=1") }
+  async kioskRestricted() { return Boolean(await kioskRestriction(this.db)) }
   async active(): Promise<NotificationSession | null> {
     const row = await this.db.getFirstAsync<SessionRow>("SELECT account_id,session_id FROM notification_sessions WHERE revoked=0")
     return row ? { accountId: row.account_id, sessionId: row.session_id } : null

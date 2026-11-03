@@ -108,8 +108,8 @@ clears cached history, and discarding a rejected change refreshes the affected r
 Reads do not require Premium or mutate historical completion states. Apply
 `0023_run_history_index.sql` before deploying the run-history API.
 
-The remaining run management actions, kiosk protection,
-push delivery and store billing are still under development. Rename/delete
+The remaining run management actions, physical-device kiosk verification,
+remote push verification and store billing are still under development. Rename/delete
 actions currently require a connection; extending interruption recovery to those
 remaining management actions is still required. Automatic cross-device refresh
 and its five-second target also remain to be implemented and measured.
@@ -388,12 +388,10 @@ guarded API routes or notification worker. Request admission uses a separate poo
 of at most two connections in addition to the existing five working connections;
 production connection capacity and latency still need measurement.
 
-This is backend coverage only. The native PIN screen, secure offline verifier,
-restart-persistent attempt throttling, restricted cache lifecycle and recovery UI
-are not yet connected. No device has been presented as a finished native kiosk.
+The native PIN screen, restricted cache lifecycle and recovery UI are now connected
+as described below. The backend checks above alone do not establish device coverage.
 
-The offline PIN verifier is now implemented separately from the unfinished kiosk
-UI. It stores a six-digit PIN's verifier, random device secret and server exit
+The offline PIN verifier stores a six-digit PIN's verifier, random device secret and server exit
 capability exclusively in OS secure storage, using WHEN_UNLOCKED_THIS_DEVICE_ONLY
 on iOS. Each attempt is durably reserved before verification. Five failures start
 a 30-second cooldown, increasing to a 15-minute cap. A process restart restarts
@@ -409,12 +407,51 @@ the real SecureStore-backed verifier accepted the correct PIN, persisted five
 failures, retained its cooldown after the background app process was killed and
 relaunched, and successfully removed the temporary test credential. Root/mobile
 lint and typecheck and Android/iOS JavaScript exports passed. Native iOS storage
-behavior, the PIN UI and the complete kiosk lifecycle remain unverified.
+behavior remains unverified; subsequent Android UI verification is recorded below.
 
-Before exposing activation in the app, integrate the durable local lock with
-cache pruning, in-flight response fencing, protected navigation and offline task
-updates. Parent recovery must also resolve activation whose server acknowledgement
-was lost. If the original activation never reached the server, the current recover
-endpoint returns 404; the integration needs an authenticated cancellation receipt
-that also prevents a late original activation from relocking the device. Do not
-treat an unconfirmed activation or missing credential as permission to unlock.
+Native Settings now lets managers choose visible/editable household members and
+enable a six-digit PIN lock. The lock is read before parent navigation mounts.
+Activation commits restricted cache pruning and the lock together, refuses pending
+edits or unfinished planner drafts, and fences late parent-cache writes. Only
+permitted task toggles remain available. Hidden prerequisites lose their titles,
+IDs and assignee IDs; visible prerequisites retain their explanations. An
+authenticated parent-access revocation removes the restricted task cache and
+retains pending changes as rejected. Temporary errors preserve offline tasks.
+
+PIN verification saves an unlock intent before showing parent controls, even
+offline. Network work runs separately and survives interruption. Forgotten-PIN
+recovery persists the old identity before sign-out and waits for a fresh session
+of the same parent. Migration `0029_native_kiosk_recovery_receipts.sql` adds durable
+recovery and cancellation receipts, including when activation never reached the
+server. Late activation cannot undo either outcome. Apply 0029 before deploying
+the updated kiosk guard/store; it has been applied only to the local test database.
+The client retains an unconfirmed lock until verified PIN access or authenticated
+recovery, including when the OS credential is unavailable.
+
+Android verification on 2026-11-04 used emulator-5554, Android 36, the native
+Expo 58 / React Native 0.88 development build, current Metro source, and the isolated
+`Cyntch emulator family` household. The fixture includes a parent and Alex's
+email-less profile, a school-bag task and a dependent bedtime-story reward.
+
+| Cases | Steps and observed result |
+|---|---|
+| K02, O01, O02 | Enable only Alex's tasks, disable Wi-Fi/data, complete the bag task, kill the background app process, relaunch. The restricted board, completion and pending operation remain. |
+| K03 | Open `cyntch://settings` while locked. Parent tabs remain unavailable and the restricted board stays visible. |
+| K04 | Submit an incorrect PIN, then the correct PIN offline. The first keeps the lock; the second exposes parent controls with an unsynced-unlock notice. Kill/relaunch offline: the unlock intent and task queue remain. |
+| O02 | Restore connectivity. Server lock becomes unlocked, completion uploads, dependent reward unlocks, and the local operation/lock records clear. Reopen the bag task to restore the fixture; no pending operations remain. |
+| U01, U02 | Inspect kiosk portrait/landscape and 1.6× text, including PIN controls. Landscape uses a member sidebar at normal text size; the single header leaves task space. Font changes reproduce the existing development linking warning noted above. |
+| K04 | Enable again, select forgotten-PIN recovery, sign out and authenticate through native Clerk email-code UI using its reserved test identity. The display remains restricted through sign-out. Fresh parent authentication creates a server recovery receipt, retires the original kiosk session and clears the local lock. Parent tabs return. |
+
+Server notification preferences remained at revision 11 across activation, offline
+unlock and recovery. Wi-Fi/data, portrait and normal text size were restored.
+Screenshots and test logs are in the local Codex temporary directory, named
+`cyntch-kiosk-landscape-compact.png`, `cyntch-kiosk-landscape-large-text.png` and
+`cyntch-kiosk-final-*.log`.
+
+All 179 non-billing tests and 19 isolated billing regression tests passed with real
+SQLite/PostgreSQL fixtures. Kiosk tests cover lost replies, rollback, cancellation,
+fresh authentication, access revocation, hidden prerequisite data, stale replies,
+offline unlock and interruption. Root/mobile lint and typecheck, the production
+Next.js build and Android/iOS JavaScript exports passed. Native iOS, physical
+phones/tablets, device reboot/app upgrade, multi-device kiosk UI, remote pushes,
+release performance and the household pilot still require their specified checks.

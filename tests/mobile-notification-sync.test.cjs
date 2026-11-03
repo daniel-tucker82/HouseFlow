@@ -240,7 +240,7 @@ test('token lookup or native subscription failure does not disable an existing r
 
 test('native notification adapter creates Android channels before asking permission and honors iOS provisional status', async () => {
   const events = [], permission = { status: 'denied', canAskAgain: true }, platform = { OS: 'android' }, constants = { expoConfig: { extra: { eas: { projectId: 'test-project' } } } }
-  let tokenListener, tokenOptions, cleanupVersion = null
+  let tokenListener, tokenOptions, cleanupVersion = null, kiosk = false
   const notifications = {
     IosAuthorizationStatus: { AUTHORIZED: 2, DENIED: 1, PROVISIONAL: 3, EPHEMERAL: 4 }, AndroidImportance: { HIGH: 6 }, AndroidNotificationVisibility: { PRIVATE: 2 },
     getPermissionsAsync: async () => permission,
@@ -254,7 +254,7 @@ test('native notification adapter creates Android channels before asking permiss
   const filename = path.join(root, 'mobile/src/services/notification-device.ts')
   const compiled = buildSync({ entryPoints: [filename], bundle: true, platform: 'node', format: 'cjs', external: Object.keys(mocks), write: false })
   const loaded = new Module(filename, module); loaded.require = id => mocks[id] ?? require(id); loaded._compile(compiled.outputFiles[0].text, filename)
-  const adapter = loaded.exports.createNotificationDevice({ active: async () => null, cleanupVersion: async () => cleanupVersion, completeCleanup: async () => { cleanupVersion = null } })
+  const adapter = loaded.exports.createNotificationDevice({ active: async () => null, kioskRestricted: async () => kiosk, cleanupVersion: async () => cleanupVersion, completeCleanup: async () => { cleanupVersion = null } })
   assert.equal((await adapter.inspect()).permission, 'denied'); assert.equal(events.length, 0, 'inspection never prompts')
   assert.equal((await adapter.requestPermission()).permission, 'granted')
   assert.equal(events.at(-1), 'permission'); assert.equal(events.filter(value => value.startsWith('cyntch-')).length, 15)
@@ -265,5 +265,8 @@ test('native notification adapter creates Android channels before asking permiss
   cleanupVersion = 1; await adapter.token()
   assert.equal(tokenOptions.devicePushToken, undefined, 'a token observed before native cleanup must be reacquired')
   remove(); await adapter.openSettings(); assert.equal(events.at(-1), 'settings')
+  kiosk = true
+  await assert.rejects(adapter.token(), /Unlock kiosk/)
+  await assert.rejects(adapter.requestPermission(), /Unlock kiosk/)
   constants.expoConfig.extra.eas.projectId = null; await assert.rejects(adapter.token(), /not available in this build/)
 })

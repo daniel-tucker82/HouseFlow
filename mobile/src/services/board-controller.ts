@@ -127,7 +127,17 @@ export class BoardController {
       }
       await this.readLocal()
       this.update({ error: null })
-    } catch (error) { if (revision === this.refreshRevision) this.fail(error) }
+    } catch (error) {
+      if (this.stopped || revision !== this.refreshRevision) return
+      if (error instanceof TransportError && error.status === 423 && error.code === "kiosk_access_changed") {
+        try {
+          await this.store.invalidateKioskAccess(this.accountId, this.selected)
+          await this.readLocal()
+          this.update({ households: [] })
+        } catch (storageError) { this.fail(storageError); return }
+      }
+      this.fail(error)
+    }
     finally { if (revision === this.refreshRevision) this.update({ refreshing: false }) }
   }
 

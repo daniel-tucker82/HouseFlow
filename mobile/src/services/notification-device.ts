@@ -34,6 +34,7 @@ export function createNotificationDevice(sessions: NotificationSessionStore): No
   return {
     inspect: async () => permissionState(await Notifications.getPermissionsAsync()),
     requestPermission: async () => {
+      if (await sessions.kioskRestricted()) throw new Error("Unlock kiosk mode to change notifications.")
       // Android 13+ needs a channel before the runtime permission prompt can be shown.
       if (Platform.OS === "android") await Promise.all(Object.entries(notificationCatalog).map(([kind, category]) => Notifications.setNotificationChannelAsync(`cyntch-${kind}`, {
         name: category.label, importance: AndroidImportance.HIGH, showBadge: false, lockscreenVisibility: AndroidNotificationVisibility.PRIVATE,
@@ -47,8 +48,14 @@ export function createNotificationDevice(sessions: NotificationSessionStore): No
         await resetNativeNotificationSession(sessions)
         return withNativeNotificationSession(async () => {
           if (await sessions.cleanupVersion() !== null) throw new Error("Notification sign-out is still finishing. Please try again.")
-          return (await Notifications.getExpoPushTokenAsync({ projectId,
+          if (await sessions.kioskRestricted()) throw new Error("Unlock kiosk mode to register notifications.")
+          const token = (await Notifications.getExpoPushTokenAsync({ projectId,
             devicePushToken: nativeToken?.generation === nativeNotificationGeneration() ? nativeToken.token : undefined })).data
+          if (await sessions.kioskRestricted()) {
+            await Notifications.unregisterForNotificationsAsync()
+            throw new Error("Unlock kiosk mode to register notifications.")
+          }
+          return token
         })
       })().finally(() => { tokenRequest = undefined })
       return waitForNativeNotification(tokenRequest)

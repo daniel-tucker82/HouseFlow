@@ -8,7 +8,7 @@ export interface SyncTransport {
 }
 
 export class TransportError extends Error {
-  constructor(message: string, public readonly status: number) { super(message) }
+  constructor(message: string, public readonly status: number, public readonly code?: string) { super(message) }
 }
 
 export class SyncEngine {

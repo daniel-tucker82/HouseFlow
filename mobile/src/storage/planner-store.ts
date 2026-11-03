@@ -4,6 +4,7 @@ import { scheduleForRoutine, validateRoutineSchedule } from "../../../shared/rou
 import type { Routine } from "../../../lib/types"
 import { retryDelayMs } from "../../../shared/mobile/sync-policy"
 import type { LocalDatabase, SqlConnection } from "./local-store"
+import { kioskRestriction, requireKioskParentAccess } from "./kiosk-store"
 
 type EditRow = { id: string; account_id: string; household_id: string; device_id: string; revision: number; data: string;
   state: "pending" | "rejected"; attempts: number; next_attempt_ms: number; error: string | null }
@@ -33,6 +34,7 @@ export class PlannerStore {
     `)
   }
   async reconcile(accountId: string, households: HouseholdSummary[], tx: SqlConnection) {
+    await requireKioskParentAccess(tx)
     const allowed = new Set(households.filter(household => household.role !== "member").map(household => household.id))
     const known = await tx.getAllAsync<{ household_id: string }>(`SELECT household_id FROM planner_access WHERE account_id = ?
       UNION SELECT household_id FROM planner_edits WHERE account_id = ?
@@ -50,6 +52,7 @@ export class PlannerStore {
     }
   }
   async allowed(accountId: string, householdId: string, tx: SqlConnection = this.database) {
+    if (await kioskRestriction(tx)) return false
     return Boolean((await tx.getFirstAsync<{ allowed: number }>("SELECT allowed FROM planner_access WHERE account_id=? AND household_id=?", accountId, householdId))?.allowed)
   }
   private async cached(accountId: string, householdId: string, tx: SqlConnection) {
@@ -61,6 +64,7 @@ export class PlannerStore {
     return (await tx.getAllAsync<EditRow>("SELECT * FROM planner_edits WHERE account_id=? ORDER BY revision", accountId)).map(editFromRow)
   }
   private async write(accountId: string, householdId: string, server: PlannerSnapshot, tx: SqlConnection) {
+    await requireKioskParentAccess(tx)
     const edits = (await this.pending(accountId, tx)).filter(edit => edit.householdId === householdId)
     let view = edits.reduce((snapshot, edit) => applyPlannerDraft(snapshot, edit.draft), server)
     for (const saved of await this.creations(accountId, tx)) {

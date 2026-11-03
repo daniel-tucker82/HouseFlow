@@ -19,9 +19,10 @@ async function clearObsoleteNotifications(store: NotificationSessionStore) {
     Notifications.getPresentedNotificationsAsync(), Notifications.getAllScheduledNotificationsAsync(),
   ])
   const current = await store.active()
+  const kiosk = await store.kioskRestricted()
   const belongsToCurrentSession = (data: unknown) => {
     const payload = parseNativeNotificationPayload(data)
-    return current && payload?.accountId === current.accountId && payload.sessionId === current.sessionId
+    return !kiosk && current && payload?.accountId === current.accountId && payload.sessionId === current.sessionId
   }
   // Retried cleanup can outlive sign-out and run during a new session's cold
   // start. Preserve its tap until the durable inbox captures it. Remove by ID

@@ -4,6 +4,8 @@ import { PlannerStore } from "./planner-store"
 import { NotificationStore } from "./notification-store"
 import { NotificationSessionStore } from "./notification-session-store"
 import { NotificationInbox } from "./notification-inbox"
+import { KioskStore, kioskRestriction, requireKioskParentAccess } from "./kiosk-store"
+import { restrictKioskBoard } from "../../../shared/mobile/kiosk"
 import { mergeRunPages, runView, summarizeRun, type RunPage, type RunSnapshot, type RunSummary, type RunView } from "../../../shared/mobile/runs"
 
 export type SqlValue = string | number | null
@@ -81,7 +83,8 @@ export class LocalStore {
   readonly notifications: NotificationStore
   readonly notificationSessions: NotificationSessionStore
   readonly notificationInbox: NotificationInbox
-  constructor(private readonly database: LocalDatabase) { this.planner = new PlannerStore(database); this.notifications = new NotificationStore(database); this.notificationSessions = new NotificationSessionStore(database); this.notificationInbox = new NotificationInbox(database) }
+  readonly kiosk: KioskStore
+  constructor(private readonly database: LocalDatabase) { this.planner = new PlannerStore(database); this.notifications = new NotificationStore(database); this.notificationSessions = new NotificationSessionStore(database); this.notificationInbox = new NotificationInbox(database); this.kiosk = new KioskStore(database) }
 
   async initialize() {
     await this.database.execAsync(`
@@ -121,8 +124,9 @@ export class LocalStore {
         account_id TEXT NOT NULL, household_id TEXT NOT NULL, view TEXT NOT NULL, data TEXT NOT NULL,
         PRIMARY KEY(account_id,household_id,view)
       );
-      PRAGMA user_version = 8;
+      PRAGMA user_version = 9;
     `)
+    await this.kiosk.initialize()
     await this.planner.initialize()
     await this.notifications.initialize()
     await this.notificationSessions.initialize()
@@ -150,6 +154,12 @@ export class LocalStore {
   }
 
   private async writeBoard(connection: SqlConnection, accountId: string, server: BoardSnapshot) {
+    const kiosk = await kioskRestriction(connection)
+    if (kiosk) {
+      const restricted = accountId === kiosk.accountId ? restrictKioskBoard(server, kiosk) : null
+      if (!restricted) throw new Error("Unlock kiosk mode to access another household.")
+      server = restricted
+    }
     const pending = (await this.pending(accountId, connection)).filter(change => change.householdId === server.household.id)
     const cached: CachedBoard = { format: 3, server, board: overlayChanges(server, pending) }
     await connection.runAsync(`INSERT INTO board_snapshots(account_id, household_id, data) VALUES (?, ?, ?)
@@ -198,6 +208,7 @@ export class LocalStore {
     }
   }
   private async writeRun(tx: SqlConnection, accountId: string, server: RunSnapshot) {
+    await requireKioskParentAccess(tx)
     server = summarizeRun(server)
     const changes = (await this.pending(accountId, tx)).filter(change => change.householdId === server.household.id)
     const board = summarizeRun({ ...server, ...overlayChanges(server, changes) })
@@ -225,6 +236,7 @@ export class LocalStore {
   }
   async cacheRunPage(accountId: string, page: RunPage, append = false) {
     await this.database.withExclusiveTransactionAsync(async tx => {
+      await requireKioskParentAccess(tx)
       if (await this.isHouseholdRevoked(accountId, page.householdId, tx)) throw new Error("Access to this household has been removed.")
       const previous = append ? await this.getRunPage(accountId, page.householdId, page.view, tx) : null
       const merged = previous ? mergeRunPages(previous, page) : page
@@ -247,9 +259,30 @@ export class LocalStore {
     }
   }
 
-  /** Only a successful, authenticated membership response can invalidate an offline cache. */
+  private async revokeKioskHousehold(transaction: SqlConnection, accountId: string, householdId: string) {
+    await transaction.runAsync("INSERT OR IGNORE INTO revoked_households(account_id,household_id) VALUES(?,?)", accountId, householdId)
+    await transaction.runAsync("DELETE FROM board_snapshots WHERE account_id=? AND household_id=?", accountId, householdId)
+    await transaction.runAsync("UPDATE pending_completions SET state='rejected',error=? WHERE account_id=? AND household_id=?", "Parent access to this household changed. Kiosk mode remains locked.", accountId, householdId)
+  }
+  /** An authenticated kiosk denial clears only the still-restricted household. */
+  async invalidateKioskAccess(accountId: string, householdId: string | undefined) {
+    await this.database.withExclusiveTransactionAsync(async transaction => {
+      const kiosk = await kioskRestriction(transaction)
+      if (kiosk?.accountId === accountId && kiosk.householdId === householdId) await this.revokeKioskHousehold(transaction, accountId, householdId)
+    })
+  }
+  /** Only an authoritative membership response can invalidate an offline cache. */
   async reconcileHouseholds(accountId: string, households: HouseholdSummary[]) {
     await this.database.withExclusiveTransactionAsync(async transaction => {
+      const kiosk = await kioskRestriction(transaction)
+      if (kiosk) {
+        if (accountId !== kiosk.accountId) throw new Error("Unlock kiosk mode before switching accounts.")
+        const household = households.find(item => item.id === kiosk.householdId)
+        if (!household || household.role !== "manager") {
+          await this.revokeKioskHousehold(transaction, accountId, kiosk.householdId)
+        } else await transaction.runAsync("DELETE FROM revoked_households WHERE account_id=? AND household_id=?", accountId, kiosk.householdId)
+        return
+      }
       await this.notifications.reconcile(accountId, households, transaction)
       await this.planner.reconcile(accountId, households, transaction)
       const allowed = new Map(households.map(household => [household.id, household]))
@@ -292,6 +325,9 @@ export class LocalStore {
       const snapshot = run?.board ?? cached?.board
       const task = snapshot?.tasks.find(item => item.id === input.taskId && item.occurrence_id === input.occurrenceId)
       if (!snapshot || !task) throw new Error("This task is not available on this device. Refresh the board first.")
+      const kiosk = await kioskRestriction(transaction)
+      if (kiosk && (input.accountId !== kiosk.accountId || input.deviceId !== kiosk.deviceId || input.householdId !== kiosk.householdId
+        || !kiosk.editableMemberIds.includes(input.memberId) || !task.assignee_ids.includes(input.memberId))) throw new Error("This task cannot be changed on this kiosk.")
       if (run?.board.run.status === "cancelled") throw new Error("This run has been cancelled.")
       if (snapshot.household.role === "member" && !task.assignee_ids.includes(input.accountId)) throw new Error("You can only update tasks assigned to you.")
       if (input.completed && task.status === "locked") throw new Error("This task is not startable yet.")
@@ -390,7 +426,11 @@ export class LocalStore {
   }
 
   async saveSetting(accountId: string, key: string, value: unknown) {
-    await this.database.runAsync(`INSERT INTO device_settings(account_id, setting_key, data) VALUES (?, ?, ?)
-      ON CONFLICT(account_id, setting_key) DO UPDATE SET data = excluded.data`, accountId, key, JSON.stringify(value))
+    await this.database.withExclusiveTransactionAsync(async tx => {
+      const kiosk = await kioskRestriction(tx)
+      if (kiosk && (accountId !== kiosk.accountId || key !== "selected-household" || value !== kiosk.householdId)) throw new Error("Unlock kiosk mode to change device settings.")
+      await tx.runAsync(`INSERT INTO device_settings(account_id, setting_key, data) VALUES (?, ?, ?)
+        ON CONFLICT(account_id, setting_key) DO UPDATE SET data = excluded.data`, accountId, key, JSON.stringify(value))
+    })
   }
 }

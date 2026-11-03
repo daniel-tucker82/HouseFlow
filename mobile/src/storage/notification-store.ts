@@ -4,6 +4,7 @@ import { retryDelayMs } from "../../../shared/mobile/sync-policy"
 import type { HouseholdSummary } from "../../../shared/mobile/contracts"
 import type { LocalDatabase, SqlConnection } from "./local-store"
 import type { NotificationSession } from "./notification-session-store"
+import { requireKioskParentAccess } from "./kiosk-store"
 
 export type RegistrationIntent = Omit<RegisterNotificationDevice, "action" | "operationId" | "baseRevision">
 export type NotificationServerSnapshot = NativeNotificationDevice | NotificationSettingsSnapshot
@@ -36,6 +37,7 @@ export class NotificationStore {
     await tx.runAsync("INSERT INTO native_notification_settings VALUES(?,?,?) ON CONFLICT(account_id,scope) DO UPDATE SET data=excluded.data", accountId, row.scope, JSON.stringify(row))
   }
   private async allowed(accountId: string, scope: string, tx: SqlConnection) {
+    await requireKioskParentAccess(tx)
     if (this.session && (this.session.accountId !== accountId || !await tx.getFirstAsync("SELECT 1 FROM notification_sessions WHERE account_id=? AND session_id=? AND revoked=0", accountId, this.session.sessionId))) {
       throw new Error("This notification session has ended.")
     }

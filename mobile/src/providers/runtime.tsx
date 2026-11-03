@@ -14,14 +14,14 @@ import { getDeviceId, getInstallationSecret, openLocalStore } from "../storage/n
 import type { LocalStore } from "../storage/local-store"
 import { Action, Copy, Loading, styles } from "../components/ui"
 
-interface Runtime { controller: BoardController; planner: PlannerController; runs: RunsController; notifications: NotificationController; api: MobileApi; store: LocalStore; keepAwake: boolean; setKeepAwake: (enabled: boolean) => Promise<void> }
+interface Runtime { controller: BoardController; planner: PlannerController; runs: RunsController; notifications: NotificationController; api: MobileApi; store: LocalStore; keepAwake: boolean; syncPaused: boolean; setKeepAwake: (enabled: boolean) => Promise<void> }
 const RuntimeContext = createContext<Runtime | null>(null)
 
-export function RuntimeProvider({ children, accountId, sessionId }: PropsWithChildren<{ accountId: string; sessionId: string }>) {
+export function RuntimeProvider({ children, accountId, sessionId, restricted = false, canSync = true }: PropsWithChildren<{ accountId: string; sessionId: string; restricted?: boolean; canSync?: boolean }>) {
   const { getToken } = useAuth()
   const tokenRef = useRef(getToken)
   useEffect(() => { tokenRef.current = getToken }, [getToken])
-  const [runtime, setRuntime] = useState<Omit<Runtime, "keepAwake" | "setKeepAwake"> | null>(null)
+  const [runtime, setRuntime] = useState<Omit<Runtime, "keepAwake" | "syncPaused" | "setKeepAwake"> | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
   const [keepAwake, setAwake] = useState(false)
@@ -46,25 +46,25 @@ export function RuntimeProvider({ children, accountId, sessionId }: PropsWithChi
       runs = new RunsController(store, accountId, api, controller)
       notifications = new NotificationController(store.notifications.forSession(accountId, sessionId), accountId, api, createNotificationDevice(store.notificationSessions), randomUUID,
         Date.now, selection => digestStringAsync(CryptoDigestAlgorithm.SHA256, selection))
-      boardSubscription = controller.subscribe(() => { if (controller) { void planner?.selectHousehold(controller.getSnapshot().board?.household ?? null); runs?.observe(controller.getSnapshot()); notifications?.observe(controller.getSnapshot()) } })
+      boardSubscription = controller.subscribe(() => { if (controller && !restricted) { void planner?.selectHousehold(controller.getSnapshot().board?.household ?? null); runs?.observe(controller.getSnapshot()); if (canSync) notifications?.observe(controller.getSnapshot()) } })
       const connected = (state: Network.NetworkState) => {
-        const online = state.isConnected === true && state.isInternetReachable !== false
-        controller?.setConnectivity(online); planner?.setConnectivity(online); notifications?.setConnectivity(online)
+        const online = canSync && state.isConnected === true && state.isInternetReachable !== false
+        controller?.setConnectivity(online); planner?.setConnectivity(!restricted && online); notifications?.setConnectivity(!restricted && online)
       }
       network = Network.addNetworkStateListener(connected)
-      app = AppState.addEventListener("change", state => { setActive(state === "active"); controller?.setActive(state === "active"); planner?.setActive(state === "active"); runs?.setActive(state === "active"); notifications?.setActive(state === "active") })
+      app = AppState.addEventListener("change", state => { setActive(state === "active"); controller?.setActive(state === "active"); planner?.setActive(!restricted && state === "active"); runs?.setActive(!restricted && state === "active"); notifications?.setActive(!restricted && canSync && state === "active") })
       setAwake(displaySetting === true)
       setRuntime({ controller, planner, runs, notifications, api, store })
       controller.setActive(AppState.currentState === "active")
-      planner.setActive(AppState.currentState === "active")
-      runs.setActive(AppState.currentState === "active")
-      notifications.setActive(AppState.currentState === "active")
+      planner.setActive(!restricted && AppState.currentState === "active")
+      runs.setActive(!restricted && AppState.currentState === "active")
+      notifications.setActive(!restricted && canSync && AppState.currentState === "active")
       await controller.start()
-      await notifications.start()
+      if (!restricted && canSync) await notifications.start()
       connected(await Network.getNetworkStateAsync())
     })().catch(cause => { if (!cancelled) setError(cause instanceof Error ? cause.message : "Unable to open your saved household") })
     return () => { cancelled = true; network?.remove(); app?.remove(); boardSubscription?.(); controller?.stop(); planner?.stop(); runs?.stop(); notifications?.stop() }
-  }, [accountId, sessionId, attempt])
+  }, [accountId, sessionId, attempt, restricted, canSync])
 
   useEffect(() => {
     let cancelled = false
@@ -77,7 +77,7 @@ export function RuntimeProvider({ children, accountId, sessionId }: PropsWithChi
 
   if (error && !runtime) return <View style={styles.center}><Copy>{error}</Copy><Action label="Try again" onPress={() => { setError(null); setAttempt(value => value + 1) }} /></View>
   if (!runtime) return <Loading />
-  return <RuntimeContext value={{ ...runtime, keepAwake, setKeepAwake: async enabled => {
+  return <RuntimeContext value={{ ...runtime, keepAwake, syncPaused: !canSync, setKeepAwake: async enabled => {
     await runtime.store.saveSetting(accountId, "keep-awake", enabled)
     setAwake(enabled)
   } }}><View style={{ flex: 1 }}>{error ? <View accessibilityRole="alert" style={{ padding: 16 }}><Copy>{error}</Copy></View> : null}{children}</View></RuntimeContext>

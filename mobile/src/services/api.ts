@@ -3,6 +3,7 @@ import { TransportError, type SyncTransport } from "../storage/sync-engine"
 import type { PlannerEdit, PlannerSnapshot } from "../../../shared/mobile/planner"
 import type { RunPage, RunSnapshot, RunView } from "../../../shared/mobile/runs"
 import type { NativeNotificationDevice, NotificationSettingsOperation, NotificationSettingsSnapshot } from "../../../shared/mobile/notification-settings"
+import { parseNativeKioskSession, type NativeKioskOperation, type NativeKioskResult } from "../../../shared/mobile/kiosk"
 
 export interface BootstrapResult { accountId: string; households: HouseholdSummary[]; board: BoardSnapshot | null }
 
@@ -29,11 +30,11 @@ export class MobileApi implements SyncTransport {
       const response = await fetch(new URL(path, this.baseUrl).toString(), {
         method: body ? "POST" : "GET", signal: controller.signal,
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json",
-          "X-Task-Save-User": this.accountId, "X-Cyntch-Device": this.deviceId, ...extraHeaders },
+          "X-Task-Save-User": this.accountId, "X-Cyntch-Device": this.deviceId, ...(this.sessionId ? { "X-Cyntch-Session": this.sessionId } : {}), ...extraHeaders },
         ...(body ? { body: JSON.stringify(body) } : {}),
       })
       const data = await response.json().catch(() => null)
-      if (!response.ok) throw new TransportError(data?.error ?? "Cyntch could not sync right now. Your saved changes will retry.", response.status)
+      if (!response.ok) throw new TransportError(data?.error ?? "Cyntch could not sync right now. Your saved changes will retry.", response.status, typeof data?.code === "string" ? data.code : undefined)
       if (!data || typeof data !== "object") throw new Error("Cyntch returned an unexpected response")
       return data as T
     } finally { clearTimeout(timeout) }
@@ -46,6 +47,30 @@ export class MobileApi implements SyncTransport {
   }
 
   async serverTime() { return (await this.request<{ serverTimeMs: number }>("/api/mobile/time")).serverTimeMs }
+
+  async kioskSettings() {
+    const result = await this.request<NativeKioskResult>("/api/mobile/kiosk", undefined, await this.notificationHeaders())
+    return this.validateKiosk(result)
+  }
+  async saveKiosk(operation: NativeKioskOperation) {
+    const result = this.validateKiosk(await this.request<NativeKioskResult>("/api/mobile/kiosk", { ...operation }, await this.notificationHeaders()))
+    if (operation.action === "recover") {
+      const receipt = result.recovery
+      if (!receipt || receipt.id !== operation.id || receipt.accountId !== this.accountId || receipt.deviceId !== this.deviceId || receipt.sessionId !== operation.previousSessionId) throw new Error("The recovery reply did not match this device lock.")
+    } else if (operation.action === "unlock" && result.cancelledActivation) {
+      const receipt = result.cancelledActivation
+      if (receipt.id !== operation.id || receipt.accountId !== this.accountId || receipt.deviceId !== this.deviceId || receipt.sessionId !== this.sessionId) throw new Error("The cancellation reply did not match this device lock.")
+    } else if (!result.kiosk || result.kiosk.id !== operation.id || result.kiosk.sessionId !== this.sessionId) throw new Error("The kiosk reply did not match this sign-in.")
+    return result
+  }
+  private validateKiosk(result: NativeKioskResult) {
+    if (result.kiosk !== null) {
+      const kiosk = parseNativeKioskSession(result.kiosk)
+      if (kiosk.accountId !== this.accountId || kiosk.deviceId !== this.deviceId) throw new Error("The kiosk reply did not match this account and device.")
+      return { ...result, kiosk }
+    }
+    return result
+  }
 
   private async notificationHeaders() {
     if (!this.installationSecret || !this.sessionId) throw new Error("This device's secure registration is not available.")
