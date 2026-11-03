@@ -68,6 +68,25 @@ test('P02 disk failure rolls back both planner cache and queued edit', async t =
   assert.deepEqual(await local.planner.pending('parent'), [])
 })
 
+test('P15 offline timing survives restart, coalesced basic edits, old replies and explicit clearing', async t => {
+  const f = await fixture(t)
+  const timing = { unlockRule: { kind: 'weekday_after_generation', weekday: 1, nth: 2, time: '08:30' },
+    expiryRule: { kind: 'after_unlock', amount: 2, unit: 'hours' }, unlockCombiner: 'or' }
+  await f.local.planner.enqueue('parent', 'h1', 'device', 'timing1', { ...draft(), timing })
+  const first = (await f.local.planner.pending('parent'))[0]
+  await f.local.planner.enqueue('parent', 'h1', 'device', 'timing2', draft('Renamed offline'))
+  await f.local.planner.acknowledge(first)
+  const local = await f.reopen(), pending = (await local.planner.pending('parent'))[0]
+  assert.deepEqual(pending.draft.timing, timing)
+  const task = (await local.planner.get('parent', 'h1')).tasks[0]
+  assert.equal(task.title, 'Renamed offline'); assert.deepEqual(task.unlock_rule, timing.unlockRule)
+  assert.deepEqual(task.expiry_rule, timing.expiryRule); assert.equal(task.unlock_combiner, 'or')
+  await local.planner.enqueue('parent', 'h1', 'device', 'clear', { ...draft(), timing: { unlockRule: null, expiryRule: null, unlockCombiner: 'and' } })
+  assert.equal((await local.planner.get('parent', 'h1')).tasks[0].unlock_rule, null)
+  await assert.rejects(local.planner.enqueue('parent', 'h1', 'device', 'invalid', { ...draft(), timing: { ...timing, unlockRule: { kind: 'fixed', date: '2026-02-30' } } }), /calendar date/)
+  assert.equal((await local.planner.pending('parent'))[0].id, 'clear')
+})
+
 test('P03 replacing an in-flight edit retains the newest draft and revision after an older acknowledgement', async t => {
   const f = await fixture(t)
   await f.local.planner.enqueue('parent', 'h1', 'device', 'edit1', draft('First edit'))

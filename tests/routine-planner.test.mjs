@@ -1,6 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { plannerTaskSchema, taskDescendants, orderPlannerTasks } from '../lib/routine-planner.ts'
+import { buildSync } from 'esbuild'
+import Module, { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
+const filename = fileURLToPath(new URL('../lib/routine-planner.ts', import.meta.url))
+const loaded = new Module(filename)
+loaded.require = createRequire(import.meta.url)
+loaded._compile(buildSync({ entryPoints: [filename], bundle: true, platform: 'node', format: 'cjs', write: false }).outputFiles[0].text, filename)
+const { plannerTaskSchema, taskDescendants, orderPlannerTasks } = loaded.exports
 
 const task = {
   taskId: 'b98ce792-81b7-4ceb-bbb2-1a17c8134901',

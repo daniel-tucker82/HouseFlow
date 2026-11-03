@@ -62,9 +62,19 @@ function zonedDateTimeToUtc(params: {
 }): Date {
   const { year, month, day, hour, minute, timeZone } = params
   const naiveUtcMs = Date.UTC(year, month - 1, day, hour, minute, 0, 0)
-  const naiveInstant = new Date(naiveUtcMs)
-  const offsetMinutes = getTimeZoneOffsetMinutes(naiveInstant, timeZone)
-  return new Date(naiveUtcMs - offsetMinutes * 60_000)
+  // Sample both sides of a possible timezone transition. Prefer the earlier
+  // instant when a clock time repeats; move forward by the gap when it skips.
+  // A single offset lookup can choose the wrong side even for ordinary times
+  // on a transition day (UTC and household calendar dates differ).
+  const offsets = new Set([-36, 0, 36].map(hours => getTimeZoneOffsetMinutes(new Date(naiveUtcMs + hours * 3_600_000), timeZone)))
+  const candidates = [...offsets].map(offset => {
+    const instant = new Date(naiveUtcMs - offset * 60_000)
+    const parts = getZonedDateTimeParts(instant, timeZone)
+    return { instant, wall: Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute) }
+  })
+  const exact = candidates.filter(candidate => candidate.wall === naiveUtcMs).sort((a, b) => a.instant.getTime() - b.instant.getTime())
+  if (exact.length) return exact[0].instant
+  return candidates.filter(candidate => candidate.wall > naiveUtcMs).sort((a, b) => a.wall - b.wall)[0]?.instant ?? candidates[0].instant
 }
 
 function convertUtcWallClockToTimeZoneInstant(wallClockUtc: Date, timeZone: string): Date {
@@ -87,7 +97,7 @@ function getZonedDateTimeParts(instant: Date, timeZone: string) {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-    hour12: false,
+    hourCycle: "h23",
   }).formatToParts(instant)
   const pick = (type: Intl.DateTimeFormatPartTypes) =>
     Number(parts.find((part) => part.type === type)?.value ?? "0")
@@ -120,6 +130,11 @@ function addDays(base: Date, days: number) {
   const next = new Date(base.getTime())
   next.setUTCDate(next.getUTCDate() + days)
   return next
+}
+
+function householdWallClock(instant: Date, timeZone: string) {
+  const parts = getZonedDateTimeParts(instant, timeZone)
+  return new Date(Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute))
 }
 
 export function parseUnlockRule(raw: unknown): UnlockRule | null {
@@ -194,37 +209,28 @@ export function resolveUnlockAt(rule: UnlockRule | null, generationAt: Date, tim
     return convertUtcWallClockToTimeZoneInstant(candidate, timeZone)
   }
   if (rule.kind === "after_generation_days") {
-    const candidate = atClock(addDays(generationAt, rule.days), rule.time)
+    const candidate = atClock(addDays(householdWallClock(generationAt, timeZone), rule.days), rule.time)
     return convertUtcWallClockToTimeZoneInstant(candidate, timeZone)
   }
   if (rule.kind === "weekday_after_generation") {
     const targetWeekday = ((rule.weekday % 7) + 7) % 7
-    let cursor = new Date(generationAt.getTime())
-    let matches = 0
-    while (matches < rule.nth) {
-      if (cursor.getUTCDay() === targetWeekday) {
-        const candidate = atClock(cursor, rule.time)
-        // Count "today" when it matches, but only if the resolved instant
-        // is not already in the past relative to generation time.
-        if (candidate.getTime() >= generationAt.getTime()) {
-          matches += 1
-          if (matches >= rule.nth) return convertUtcWallClockToTimeZoneInstant(candidate, timeZone)
-        }
-      }
-      if (matches < rule.nth) cursor = addDays(cursor, 1)
-    }
-    return convertUtcWallClockToTimeZoneInstant(atClock(cursor, rule.time), timeZone)
+    const baseline = householdWallClock(generationAt, timeZone)
+    let candidate = atClock(addDays(baseline, (targetWeekday - baseline.getUTCDay() + 7) % 7), rule.time)
+    if (convertUtcWallClockToTimeZoneInstant(candidate, timeZone).getTime() < generationAt.getTime()) candidate = addDays(candidate, 7)
+    candidate = addDays(candidate, (Math.max(1, rule.nth) - 1) * 7)
+    return convertUtcWallClockToTimeZoneInstant(candidate, timeZone)
   }
   if (rule.kind === "month_day_after_generation") {
-    let cursor = new Date(generationAt.getTime())
+    let cursor = householdWallClock(generationAt, timeZone)
     cursor.setUTCDate(1)
     while (true) {
       const lastDay = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 0)).getUTCDate()
       const day = Math.min(lastDay, rule.dayOfMonth)
       const candidate = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth(), day))
       const withClock = atClock(candidate, rule.time)
-      if (withClock.getTime() >= generationAt.getTime()) {
-        return convertUtcWallClockToTimeZoneInstant(withClock, timeZone)
+      const instant = convertUtcWallClockToTimeZoneInstant(withClock, timeZone)
+      if (instant.getTime() >= generationAt.getTime()) {
+        return instant
       }
       cursor = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 1))
     }
@@ -256,56 +262,28 @@ export function resolveExpiryAt(params: {
   }
   if (rule.kind === "weekday_after_unlock") {
     if (!unlockAt) return null
-    const zonedUnlock = getZonedDateTimeParts(unlockAt, timeZone)
-    const unlockWallClockUtc = new Date(
-      Date.UTC(
-        zonedUnlock.year,
-        zonedUnlock.month - 1,
-        zonedUnlock.day,
-        0,
-        0,
-        0,
-        0,
-      ),
-    )
-    const resolvedWallClockUtc = resolveUnlockAt(
+    return resolveUnlockAt(
       {
         kind: "weekday_after_generation",
         weekday: rule.weekday,
         nth: rule.nth,
         time: rule.time ?? null,
       },
-      unlockWallClockUtc,
-      "UTC",
+      unlockAt,
+      timeZone,
     )
-    if (!resolvedWallClockUtc) return null
-    return convertUtcWallClockToTimeZoneInstant(resolvedWallClockUtc, timeZone)
   }
   if (rule.kind === "month_day_after_unlock") {
     if (!unlockAt) return null
-    const zonedUnlock = getZonedDateTimeParts(unlockAt, timeZone)
-    const unlockWallClockUtc = new Date(
-      Date.UTC(
-        zonedUnlock.year,
-        zonedUnlock.month - 1,
-        zonedUnlock.day,
-        0,
-        0,
-        0,
-        0,
-      ),
-    )
-    const resolvedWallClockUtc = resolveUnlockAt(
+    return resolveUnlockAt(
       {
         kind: "month_day_after_generation",
         dayOfMonth: rule.dayOfMonth,
         time: rule.time ?? null,
       },
-      unlockWallClockUtc,
-      "UTC",
+      unlockAt,
+      timeZone,
     )
-    if (!resolvedWallClockUtc) return null
-    return convertUtcWallClockToTimeZoneInstant(resolvedWallClockUtc, timeZone)
   }
   return resolveUnlockAt(rule, generationAt, timeZone)
 }

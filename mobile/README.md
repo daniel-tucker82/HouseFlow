@@ -49,7 +49,7 @@ scheduled updates. The device keeps the latest server state separately from its
 pending edits, so delayed responses cannot undo a newer status after sync.
 
 The Routines tab provides native template and task management, assignments,
-prerequisites and rewards. Existing task edits update the screen immediately and
+prerequisites, rewards and task activation/expiry rules. Existing task edits update the screen immediately and
 commit to a separate SQLite queue. Unfinished task forms stay on this device;
 submitting a form atomically clears its draft and retains its saved operation.
 New routines and tasks also use durable requests with immutable creation IDs.
@@ -59,7 +59,17 @@ remain after item deletion to prevent resurrection. The queue is scoped to the
 account, preserves rejected requests for review, and stops uploading after a
 confirmed management-role revocation.
 
-Recurrence/time-rule editing, full run management/history, kiosk protection,
+Task timing supports fixed dates, calendar days, weekdays, month days, elapsed
+durations and rules relative to actual availability. Native date/time pickers
+use the household timezone; on short Android windows they appear inside the
+scrolling form to keep calendar dates and the Done control accessible. Timing
+uses the same durable edit queue as task details, including offline recovery.
+Omitted timing is preserved, while explicitly clearing it removes legacy saved
+times as well. Template rules resolve against each new run, not the edit time.
+Timezone conversion chooses the first occurrence of repeated clock times and
+moves missing times forward by the daylight-saving gap.
+
+Recurrence editing, full run management/history, kiosk protection,
 push delivery and store billing are still under development. Rename/delete/start
 actions currently require a connection; extending interruption recovery to run
 creation and the remaining management actions is still required.
@@ -92,6 +102,16 @@ One routine and two tasks produced exactly three creation receipts. Portrait
 and landscape planner layouts were inspected; a horizontal selector sizing bug
 found during this walkthrough was corrected. Starting the template then copied
 its current tasks into Today. Free-plan active-run admission was also exercised.
+
+Task timing was verified on the Android emulator with a temporary local Premium
+fixture: select a date and time with native pickers, set expiry after availability,
+save offline, force-stop/restart, reconnect, and confirm both rules in PostgreSQL.
+The server remained unchanged offline. Calendar selection and Done were also
+exercised in landscape; this caught and fixed the stock dialog's clipped calendar.
+The fixture was returned to Free and its timing cleared through the app.
+`tests/task-timing.test.cjs` covers validation, Free/Premium enforcement, calendar
+boundaries and full/half-hour DST transitions. SQLite and PostgreSQL planner tests
+cover timing durability, coalescing, rollback and stale retries.
 
 Changing Android system font size while the development app is running produced
 an Expo Router multiple-linking-handlers warning; a clean launch did not. This

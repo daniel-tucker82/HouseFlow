@@ -153,8 +153,8 @@ function PlannerWorkspace({ householdId }: { householdId: string }) {
           </Card>)}
         </View> : undefined} />
     </View>
-    {editorOpen && draft && data ? <PlannerTaskEditor key={draft.taskId} initial={draft} snapshot={data} busy={editorBusy} error={editorError}
-      onSave={value => void saveTask(value)} onClose={() => { if (!editorBusy) setEditorOpen(false) }} onDraft={persistDraft} /> : null}
+    {editorOpen && draft && data ? <PlannerTaskEditor key={draft.taskId} initial={draft} snapshot={data} timezone={state.household?.timezone ?? "UTC"} busy={editorBusy} error={editorError}
+      onSave={value => void saveTask(value)} onClose={() => { if (!editorBusy) setEditorOpen(false) }} onDraft={value => { setEditorError(null); persistDraft(value) }} /> : null}
     <Modal visible={Boolean(routineForm)} animationType="slide" presentationStyle="pageSheet" supportedOrientations={["portrait", "landscape-left", "landscape-right"]} onRequestClose={() => { if (!state.busy) setRoutineForm(null) }}>
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
         <Copy tone="heading">{routineForm?.id ? "Rename routine" : "New routine"}</Copy>

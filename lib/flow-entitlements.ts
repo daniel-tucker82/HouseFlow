@@ -36,7 +36,8 @@ export async function enforceFlowEntitlements(client: PoolClient, householdId: s
     throw new EntitlementError("Automatic completion settings require Premium.", 402)
   }
   if (free && ["createTask", "updateTask"].includes(action)) {
-    if (hasTimeRule(body.unlockRule) || hasTimeRule(body.expiryRule) ||
+    const timing = body.timing && typeof body.timing === "object" ? body.timing as Record<string, unknown> : null
+    if (hasTimeRule(body.unlockRule) || hasTimeRule(body.expiryRule) || hasTimeRule(timing?.unlockRule) || hasTimeRule(timing?.expiryRule) ||
       body.unlockAtOverride || body.expiryAtOverride || body.scheduledTime || body.unlock_at || body.expires_at) {
       throw new EntitlementError("Time-based activation and expiry require Premium.", 402)
     }

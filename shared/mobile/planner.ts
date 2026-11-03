@@ -1,5 +1,6 @@
 import type { Routine, RoutineOccurrence, Task } from "../../lib/types"
 import type { HouseholdMember } from "./contracts"
+import { validateTaskTiming, type TaskTiming } from "../scheduling"
 
 export interface PlannerSnapshot {
   householdId: string
@@ -20,6 +21,8 @@ export interface PlannerTaskDraft {
   isReward: boolean
   assigneeIds: string[]
   prerequisiteIds: string[]
+  /** Omitted for basic edits, so retained timing is unchanged after a downgrade. */
+  timing?: TaskTiming
 }
 
 export interface PlannerEdit {
@@ -51,6 +54,7 @@ export function validatePlannerDraft(draft: PlannerTaskDraft) {
   if (!draft.title.trim()) throw new Error("Enter a task name.")
   if (draft.title.trim().length > 200 || draft.notes.length > 4000) throw new Error("Use a name up to 200 characters and notes up to 4,000 characters.")
   if (draft.prerequisiteIds.includes(draft.taskId)) throw new Error("A task cannot depend on itself.")
+  if (draft.timing !== undefined) validateTaskTiming(draft.timing)
 }
 
 export function applyPlannerDraft(snapshot: PlannerSnapshot, draft: PlannerTaskDraft): PlannerSnapshot {
@@ -58,7 +62,9 @@ export function applyPlannerDraft(snapshot: PlannerSnapshot, draft: PlannerTaskD
   if (!snapshot.tasks.some(task => task.id === draft.taskId)) return snapshot
   return { ...snapshot,
     tasks: snapshot.tasks.map(task => task.id === draft.taskId ? { ...task, title: draft.title.trim(),
-      description: draft.notes.trim() || null, is_reward: draft.isReward, assignee_id: draft.assigneeIds[0] ?? null } : task),
+      description: draft.notes.trim() || null, is_reward: draft.isReward, assignee_id: draft.assigneeIds[0] ?? null,
+      ...(draft.timing === undefined ? {} : { unlock_rule: draft.timing.unlockRule, expiry_rule: draft.timing.expiryRule,
+        unlock_combiner: draft.timing.unlockCombiner, unlock_at: null, expires_at: null, scheduled_time: null }) } : task),
     taskAssignees: [...snapshot.taskAssignees.filter(row => row.task_id !== draft.taskId), ...draft.assigneeIds.map(user_id => ({ task_id: draft.taskId, user_id }))],
     dependencies: [...snapshot.dependencies.filter(row => row.target_task_id !== draft.taskId),
       ...draft.prerequisiteIds.map(source_task_id => ({ source_task_id, target_task_id: draft.taskId }))],

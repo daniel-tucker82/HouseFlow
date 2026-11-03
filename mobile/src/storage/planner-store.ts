@@ -79,12 +79,17 @@ export class PlannerStore {
       if (!await this.allowed(accountId, householdId, tx)) throw new Error("You no longer have permission to manage this household.")
       const cached = await this.cached(accountId, householdId, tx)
       if (!cached?.view.tasks.some(task => task.id === draft.taskId && task.routine_id === draft.routineId)) throw new Error("This task was removed. Refresh the routine.")
+      // A subsequent title-only save must not drop a timing edit still queued
+      // on this device (including one whose acknowledgement is in flight).
+      const previous = await tx.getFirstAsync<EditRow>("SELECT * FROM planner_edits WHERE account_id=? AND household_id=? AND task_id=?", accountId, householdId, draft.taskId)
+      const previousTiming = previous ? editFromRow(previous).draft.timing : undefined
+      const merged = draft.timing === undefined && previousTiming !== undefined ? { ...draft, timing: previousTiming } : draft
       await tx.runAsync(`INSERT INTO device_sequences VALUES (?, ?, 1) ON CONFLICT(account_id,device_id) DO UPDATE SET sequence=sequence+1`, accountId, deviceId)
       const counter = await tx.getFirstAsync<{ sequence: number }>("SELECT sequence FROM device_sequences WHERE account_id=? AND device_id=?", accountId, deviceId)
       if (!counter) throw new Error("Unable to save this edit safely.")
       await tx.runAsync(`INSERT INTO planner_edits(account_id,household_id,task_id,id,device_id,revision,data) VALUES (?,?,?,?,?,?,?)
         ON CONFLICT(account_id,household_id,task_id) DO UPDATE SET id=excluded.id,device_id=excluded.device_id,revision=excluded.revision,
-          data=excluded.data,state='pending',attempts=0,next_attempt_ms=0,error=NULL`, accountId, householdId, draft.taskId, id, deviceId, counter.sequence, JSON.stringify(draft))
+          data=excluded.data,state='pending',attempts=0,next_attempt_ms=0,error=NULL`, accountId, householdId, draft.taskId, id, deviceId, counter.sequence, JSON.stringify(merged))
       await this.write(accountId, householdId, cached.server, tx)
       await tx.runAsync("DELETE FROM device_settings WHERE account_id=? AND setting_key=?", accountId, `planner-task-draft:${householdId}`)
     })

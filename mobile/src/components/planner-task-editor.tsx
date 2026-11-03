@@ -1,9 +1,11 @@
-import { useState } from "react"
-import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Switch, TextInput, View } from "react-native"
+import { useEffect, useRef, useState } from "react"
+import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Switch, TextInput, View, type ScrollViewInstance } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { Check } from "lucide-react-native"
 import { plannerDescendants, type PlannerSnapshot, type PlannerTaskDraft } from "../../../shared/mobile/planner"
 import { Action, Card, Copy, styles, usePalette } from "./ui"
+import { timingForTask } from "../../../shared/scheduling"
+import { PlannerTaskTiming } from "./planner-task-timing"
 
 export function PlannerField({ label, value, onChange, multiline = false, maxLength = 200 }: {
   label: string; value: string; onChange: (value: string) => void; multiline?: boolean; maxLength?: number
@@ -25,12 +27,17 @@ export function PlannerChoice({ label, selected, onPress, detail }: { label: str
   </Pressable>
 }
 
-export function PlannerTaskEditor({ initial, snapshot, busy, error, onSave, onClose, onDraft }: {
+export function PlannerTaskEditor({ initial, snapshot, timezone, busy, error, onSave, onClose, onDraft }: {
   initial: PlannerTaskDraft; snapshot: PlannerSnapshot; busy: boolean; error: string | null;
+  timezone: string;
   onSave: (draft: PlannerTaskDraft) => void; onClose: () => void; onDraft: (draft: PlannerTaskDraft) => void
 }) {
   const [draft, setDraft] = useState(initial)
+  const form = useRef<ScrollViewInstance>(null)
+  useEffect(() => { if (error) form.current?.scrollTo({ y: 0, animated: true }) }, [error])
   const colors = usePalette()
+  const task = snapshot.tasks.find(item => item.id === draft.taskId)
+  const timing = draft.timing ?? timingForTask(task)
   const excluded = plannerDescendants(snapshot, draft.taskId)
   const candidates = snapshot.tasks.filter(task => !excluded.has(task.id) && (task.routine_id === draft.routineId || draft.prerequisiteIds.includes(task.id)))
   function update(patch: Partial<PlannerTaskDraft>) { const next = { ...draft, ...patch }; setDraft(next); onDraft(next) }
@@ -41,7 +48,7 @@ export function PlannerTaskEditor({ initial, snapshot, busy, error, onSave, onCl
     supportedOrientations={["portrait", "landscape-left", "landscape-right"]}>
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.content, { maxWidth: 720 }]}>
+        <ScrollView ref={form} keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.content, { maxWidth: 720 }]}>
           <View style={[styles.row, { justifyContent: "space-between", flexWrap: "wrap" }]}>
             <Copy tone="heading" style={{ flex: 1, minWidth: 160 }}>{draft.isNew ? "Add a task" : "Edit task"}</Copy><Action secondary label="Close" disabled={busy} onPress={onClose} />
           </View>
@@ -54,10 +61,11 @@ export function PlannerTaskEditor({ initial, snapshot, busy, error, onSave, onCl
           <Card><Copy tone="heading">Who’s doing it?</Copy><Copy tone="muted">Choose one or more people. Leave everyone unselected for an unassigned task.</Copy>
             {snapshot.members.map(member => <PlannerChoice key={member.id} label={member.name} selected={draft.assigneeIds.includes(member.id)} onPress={() => toggle("assigneeIds", member.id)} />)}
           </Card>
-          <Card><Copy tone="heading">What comes before?</Copy><Copy tone="muted">All selected tasks must be complete first.</Copy>
+          <Card><Copy tone="heading">What comes before?</Copy><Copy tone="muted">{timing.unlockRule && timing.unlockRule.kind !== "none" && timing.unlockCombiner === "or" ? "Completing all selected tasks or reaching the activation time makes this task available." : "All selected tasks must be complete first."}</Copy>
             {candidates.length ? candidates.map(task => <PlannerChoice key={task.id} label={task.title} selected={draft.prerequisiteIds.includes(task.id)} onPress={() => toggle("prerequisiteIds", task.id)} />)
               : <Copy tone="muted">There are no earlier tasks to choose from yet.</Copy>}
           </Card>
+          <PlannerTaskTiming value={timing} timezone={timezone} legacy={draft.timing === undefined && Boolean(task?.scheduled_time || task?.unlock_at || task?.expires_at)} onChange={timing => update({ timing })} />
           <Action label={busy ? "Saving…" : draft.isNew ? "Add task" : "Save changes"} disabled={busy || !draft.title.trim()} onPress={() => onSave(draft)} />
         </ScrollView>
       </KeyboardAvoidingView>

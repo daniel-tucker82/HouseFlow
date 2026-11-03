@@ -23,11 +23,13 @@ test('planner creation routes recover lost replies at capacity, reject altered r
     create table routines(id uuid primary key default gen_random_uuid(), household_id uuid, name text, type text, recurrence_rule text,
       complete_older_occurrences_on_new boolean, created_by text, updated_at timestamptz default now());
     create table tasks(id uuid primary key, household_id uuid, routine_id uuid, routine_occurrence_id uuid, title text, description text,
-      is_reward boolean, assignee_id text, status text, created_by text, position_x integer, position_y integer, updated_at timestamptz default now());
+      is_reward boolean, assignee_id text, status text, created_by text, position_x integer, position_y integer, updated_at timestamptz default now(),
+      unlock_rule jsonb, expiry_rule jsonb, unlock_combiner text default 'and', unlock_at timestamptz, expires_at timestamptz, scheduled_time timestamptz);
     create table task_assignees(task_id uuid,user_id text);
     create table task_dependencies(source_task_id uuid,target_task_id uuid);`)
   const migration = readFileSync(path.resolve(__dirname, '../database/0020_planner_creations.sql'), 'utf8')
   await db.query(migration); await db.query(migration)
+  await db.query(readFileSync(path.resolve(__dirname, '../database/0017_task_edit_versions.sql'), 'utf8'))
   const householdId = randomUUID(), taskId = randomUUID()
   await db.query("insert into users values ('parent'),('other'); insert into household_members values (null,'child')")
   await db.query("insert into households values($1,'Australia/Sydney')", [householdId])
@@ -57,6 +59,7 @@ test('planner creation routes recover lost replies at capacity, reject altered r
     loaded._compile(transformSync(readFileSync(filename, 'utf8'), { loader: 'ts', format: 'cjs' }).code, filename)
     return loaded.exports
   }
+  mocks['@/shared/scheduling'] = load('shared/scheduling.ts')
   for (const name of ['planner-creation', 'routine-planner', 'task-edit-version', 'save-planner-task']) mocks[`@/lib/${name}`] = load(`lib/${name}.ts`)
   const route = load('app/api/leader/flow/route.ts')
   async function send(body) {
@@ -79,8 +82,10 @@ test('planner creation routes recover lost replies at capacity, reject altered r
   assert.equal((await send(routineBody)).status, 402, 'another account cannot use the parent receipt')
   userId = 'parent'; denied = false
 
+  const timing = { unlockRule: { kind: 'after_generation_days', days: 1, time: '08:30' },
+    expiryRule: { kind: 'after_unlock', amount: 2, unit: 'hours' }, unlockCombiner: 'and' }
   const taskBody = { action: 'createTask', taskId, routineId, isNew: true, title: 'Pack bag', notes: '', isReward: false,
-    assigneeIds: ['child'], prerequisiteIds: [], creationId: randomUUID() }
+    assigneeIds: ['child'], prerequisiteIds: [], creationId: randomUUID(), timing }
   const createdTask = await send(taskBody)
   assert.equal(createdTask.status, 200)
   const taskResult = await createdTask.json()
@@ -88,6 +93,25 @@ test('planner creation routes recover lost replies at capacity, reject altered r
   assert.deepEqual(await (await send(taskBody)).json(), taskResult)
   assert.equal((await db.query('select count(*)::int n from tasks')).rows[0].n, 1)
   assert.equal((await db.query('select count(*)::int n from task_assignees')).rows[0].n, 1)
+  assert.deepEqual(taskResult.task.unlock_rule, timing.unlockRule)
+  assert.deepEqual(taskResult.task.expiry_rule, timing.expiryRule)
+  assert.equal(taskResult.task.unlock_at, null, 'templates defer resolution until a run starts')
+  denied = false
+  const update = { ...taskBody, creationId: undefined, action: 'updateTask', isNew: false, timing: undefined, title: 'Renamed', saveStreamId: randomUUID(), saveId: randomUUID(), saveRevision: 10 }
+  assert.equal((await send(update)).status, 200)
+  assert.deepEqual((await db.query('select unlock_rule from tasks where id=$1', [taskId])).rows[0].unlock_rule, timing.unlockRule, 'basic edits preserve timing')
+  const clear = { ...update, saveId: randomUUID(), saveRevision: 11, timing: { unlockRule: null, expiryRule: null, unlockCombiner: 'or' } }
+  await db.query(`create function fail_assignment() returns trigger language plpgsql as $$ begin raise exception 'Assignment interrupted'; end $$;
+    create trigger interrupt_assignment before insert on task_assignees for each row execute function fail_assignment()`)
+  assert.equal((await send(clear)).status, 500)
+  assert.deepEqual((await db.query('select unlock_rule from tasks where id=$1', [taskId])).rows[0].unlock_rule, timing.unlockRule, 'timing rolls back with assignments')
+  await db.query('drop trigger interrupt_assignment on task_assignees')
+  assert.equal((await send(clear)).status, 200, 'failed transactions do not consume a revision')
+  assert.equal((await send({ ...update, timing })).status, 200, 'late saves return current state')
+  const cleared = (await db.query('select * from tasks where id=$1', [taskId])).rows[0]
+  assert.equal(cleared.unlock_rule, null); assert.equal(cleared.expiry_rule, null); assert.equal(cleared.unlock_combiner, 'or')
+  assert.equal(cleared.position_x, taskResult.task.position_x)
+  assert.equal((await send({ ...clear, saveRevision: 12, timing: { ...timing, unlockRule: { kind: 'fixed', date: '2026-02-30' } } })).status, 400)
   await db.query('delete from tasks where id=$1', [taskId])
   assert.equal((await send(taskBody)).status, 410)
   await db.query('delete from routines where id=$1', [routineId])

@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { validateTaskTiming, type TaskTiming } from "@/shared/scheduling"
 
 export type PlannerDependency = { source_task_id: string; target_task_id: string }
 
@@ -11,6 +12,10 @@ export const plannerTaskSchema = z.object({
   isReward: z.boolean(),
   assigneeIds: z.array(z.string().min(1).max(250)).max(200),
   prerequisiteIds: z.array(z.string().uuid()).max(500),
+  timing: z.unknown().transform((value, ctx): TaskTiming => {
+    try { validateTaskTiming(value); return value }
+    catch (error) { ctx.addIssue({ code: "custom", message: error instanceof Error ? error.message : "Invalid task timing." }); return z.NEVER }
+  }).optional(),
 }).refine(value => !value.prerequisiteIds.includes(value.taskId), {
   message: "A task cannot depend on itself.", path: ["prerequisiteIds"],
 })

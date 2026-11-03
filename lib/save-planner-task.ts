@@ -7,8 +7,8 @@ export class PlannerSaveError extends Error {
   constructor(message: string, public status = 400) { super(message) }
 }
 
-/** Save basic task details, assignments and prerequisites as one operation.
- * Time rules, expiry rules and existing canvas positions are deliberately preserved.
+/** Save task details, assignments, prerequisites and optional timing atomically.
+ * Omitted timing and existing canvas positions are preserved.
  */
 export async function savePlannerTask(householdId: string, userId: string, raw: unknown, creation: PlannerCreation | null = null) {
   const parsed = plannerTaskSchema.safeParse(raw)
@@ -54,6 +54,15 @@ export async function savePlannerTask(householdId: string, userId: string, raw: 
       result = await client.query(`update tasks set title = $1, description = $2, is_reward = $3, assignee_id = $4, updated_at = now()
         where id = $5::uuid and household_id = $6::uuid and routine_id = $7::uuid and routine_occurrence_id is null returning *`,
       [input.title, input.notes.trim() || null, input.isReward, assignees[0] ?? null, input.taskId, householdId, input.routineId])
+    }
+    if (input.timing !== undefined) {
+      const { unlockRule, expiryRule, unlockCombiner } = input.timing
+      // Templates store rules. Each new run resolves its own instants against
+      // generation time in the household's timezone, never the edit/device time.
+      result = await client.query(`update tasks set unlock_rule=$1::jsonb, expiry_rule=$2::jsonb, unlock_combiner=$3,
+        unlock_at=null, expires_at=null, scheduled_time=null where id=$4::uuid and household_id=$5::uuid returning *`,
+      [unlockRule && unlockRule.kind !== "none" ? JSON.stringify(unlockRule) : null,
+        expiryRule && expiryRule.kind !== "none" ? JSON.stringify(expiryRule) : null, unlockCombiner, input.taskId, householdId])
     }
     await client.query("delete from task_assignees where task_id = $1::uuid", [input.taskId])
     await client.query("insert into task_assignees (task_id, user_id) select $1::uuid, unnest($2::text[])", [input.taskId, assignees])
