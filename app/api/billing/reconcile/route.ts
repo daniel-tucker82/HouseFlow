@@ -1,3 +1,4 @@
+import { withNativeKioskRequest } from "@/lib/native-kiosk-guard"
 import { auth } from "@clerk/nextjs/server"
 import { NextResponse } from "next/server"
 import { db } from "@/lib/db"
@@ -5,7 +6,7 @@ import { EntitlementError } from "@/lib/entitlements"
 import { enforceRequestLimit } from "@/lib/usage-controls"
 import { billingOrigin,reconcileHouseholdSubscription } from "@/lib/stripe-billing"
 
-export async function POST(request:Request) {
+async function handlePOST(request: Request) {
   try {
     const {userId} = await auth()
     if (!userId) throw new EntitlementError("Sign in required",401)
@@ -23,3 +24,5 @@ export async function POST(request:Request) {
       {status:error instanceof EntitlementError ? error.status : 503})
   }
 }
+
+export function POST(request: Request) { return withNativeKioskRequest(request, handlePOST) }

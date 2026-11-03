@@ -1,9 +1,10 @@
+import { withNativeKioskRequest } from "@/lib/native-kiosk-guard"
 import { NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
 import { db } from "@/lib/db"
 import { ensureCurrentUserRecord } from "@/lib/user-sync"
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   await ensureCurrentUserRecord()
@@ -26,3 +27,5 @@ export async function POST(request: Request) {
   }
   return NextResponse.json({ ok: true })
 }
+
+export function POST(request: Request) { return withNativeKioskRequest(request, handlePOST) }

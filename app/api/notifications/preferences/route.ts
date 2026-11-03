@@ -1,10 +1,11 @@
+import { withNativeKioskRequest } from "@/lib/native-kiosk-guard"
 import { NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
 import { db } from "@/lib/db"
 import { ensureCurrentUserRecord } from "@/lib/user-sync"
 import { getHouseholdMembershipAuthz } from "@/lib/household-authz"
 
-export async function GET(request: Request) {
+async function handleGET(request: Request) {
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   await ensureCurrentUserRecord()
@@ -52,7 +53,7 @@ export async function GET(request: Request) {
   return NextResponse.json({ preferences: result.rows[0] ?? null })
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   await ensureCurrentUserRecord()
@@ -137,3 +138,6 @@ export async function POST(request: Request) {
   )
   return NextResponse.json({ preferences: result.rows[0] ?? null })
 }
+
+export function GET(request: Request) { return withNativeKioskRequest(request, handleGET) }
+export function POST(request: Request) { return withNativeKioskRequest(request, handlePOST) }

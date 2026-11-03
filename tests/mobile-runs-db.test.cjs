@@ -56,6 +56,7 @@ test('run history pages accurately, retains microsecond ordering, isolates house
   }
   mocks['@/shared/scheduling'] = load('shared/scheduling.ts', true)
   mocks['@/lib/mobile-runs'] = load('lib/mobile-runs.ts')
+  mocks['@/lib/native-kiosk-guard'] = require('./helpers/native-kiosk.cjs').loadNativeKiosk(mocks)
   const route = load('app/api/mobile/runs/route.ts')
   const send = params => route.GET(new Request(`http://localhost/api/mobile/runs?${new URLSearchParams({ householdId: hh, ...params })}`))
   const first = await (await send({ view: 'past' })).json()

@@ -1,3 +1,4 @@
+import { withNativeKioskRequest } from "@/lib/native-kiosk-guard"
 import { auth } from "@clerk/nextjs/server"
 import { getHouseholdMemberViewData, getUserHouseholds } from "@/lib/data"
 import { normalizeRole } from "@/lib/household-authz"
@@ -7,7 +8,7 @@ import { EntitlementError } from "@/lib/entitlements"
 
 export const dynamic = "force-dynamic"
 
-export async function GET(request: Request) {
+async function handleGET(request: Request) {
   const { userId } = await auth()
   if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 })
   try {
@@ -31,3 +32,5 @@ export async function GET(request: Request) {
     return Response.json({ error: "Unable to load your household. Please try again." }, { status: 503 })
   }
 }
+
+export function GET(request: Request) { return withNativeKioskRequest(request, handleGET) }

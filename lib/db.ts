@@ -2,9 +2,10 @@ import { Pool } from "pg"
 
 declare global {
   var __houseflowPool: Pool | undefined
+  var __houseflowKioskGatePool: Pool | undefined
 }
 
-function createPool(): Pool {
+function createPool(max = 5): Pool {
   const connectionString = process.env.POSTGRES_URL
   if (!connectionString) {
     throw new Error("Missing POSTGRES_URL environment variable.")
@@ -12,7 +13,7 @@ function createPool(): Pool {
 
   const pool = new Pool({
     connectionString,
-    max: 5,
+    max,
     connectionTimeoutMillis: 10_000,
     idleTimeoutMillis: 10_000,
     maxLifetimeSeconds: 300,
@@ -60,5 +61,19 @@ export const db = new Proxy({} as Pool, {
       return (value as (...args: unknown[]) => unknown).bind(pool)
     }
     return value
+  },
+}) as Pool
+
+// Session admission locks live for the request. Keep their connections separate
+// from the queries they protect so concurrent requests cannot exhaust their own
+// working pool while waiting for another connection inside a handler.
+let productionKioskGatePool: Pool | undefined
+export const kioskGateDb = new Proxy({} as Pool, {
+  get(_target, prop) {
+    const pool = process.env.NODE_ENV === "production"
+      ? productionKioskGatePool ??= createPool(2)
+      : global.__houseflowKioskGatePool ??= createPool(2)
+    const value = Reflect.get(pool, prop)
+    return typeof value === "function" ? value.bind(pool) : value
   },
 }) as Pool

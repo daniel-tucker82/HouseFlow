@@ -1,10 +1,11 @@
+import { withNativeKioskRequest } from "@/lib/native-kiosk-guard"
 import { auth } from "@clerk/nextjs/server"
 import { acceptInviteByCode } from "@/lib/actions/household"
 import { ensureCurrentUserRecord } from "@/lib/user-sync"
 import { db } from "@/lib/db"
 import { EntitlementError } from "@/lib/entitlements"
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const { userId } = await auth()
   if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 })
   const body = await request.json().catch(() => null)
@@ -30,3 +31,5 @@ export async function POST(request: Request) {
     return Response.json({ error: "Unable to join the household right now. Please try again." }, { status: 503 })
   }
 }
+
+export function POST(request: Request) { return withNativeKioskRequest(request, handlePOST) }

@@ -1,10 +1,11 @@
+import { withNativeKioskRequest } from "@/lib/native-kiosk-guard"
 import { auth } from "@clerk/nextjs/server"
 import { enforceRequestLimit } from "@/lib/usage-controls"
 import { NextResponse } from "next/server"
 import { billingOrigin, stripeClient } from "@/lib/stripe-billing"
 import { EntitlementError, withHouseholdWrite } from "@/lib/entitlements"
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   try {
     const { userId } = await auth()
     if (!userId) throw new EntitlementError("Sign in required", 401)
@@ -27,3 +28,5 @@ export async function POST(request: Request) {
     return NextResponse.json({error:"Unable to open subscription management. Please try again."}, {status:503})
   }
 }
+
+export function POST(request: Request) { return withNativeKioskRequest(request, handlePOST) }

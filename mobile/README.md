@@ -366,3 +366,28 @@ typecheck, the production Next.js build and Android/iOS JavaScript exports passe
 These checks do not establish remote FCM/APNs reception or native iOS behavior.
 The Android notification icon still uses a placeholder silhouette and needs
 a dedicated monochrome asset before release.
+
+Native kiosk backend protection was verified on 2026-11-04 in isolated PostgreSQL
+schemas. Migration 0028 adds independent device/session locks, replay-safe
+activation and unlocking, and recovery through a different authenticated session
+of the same parent. Recovered sessions remain blocked. Restricted bootstrap data
+contains only selected members and their tasks; completion permissions are checked
+again under the household write lock. Authenticated parent APIs reject locked
+sessions even without a client kiosk flag. Activating a lock waits for previously
+admitted requests. Kiosks suppress queued and new native push deliveries without
+changing another device's preferences or sending a backlog after unlocking.
+
+Eight kiosk integration tests cover independent tablets, access changes, invalid
+credentials/configuration, interrupted transactions and all protected API routes.
+The completion-route test also covers real restricted completion and reopening.
+All 157 non-billing tests and 19 billing regression tests passed; billing
+database tests used their own temporary database, without Stripe network calls.
+Root/mobile lint and typecheck and the production Next.js build passed. Migration
+0028 was applied only to the local emulator test database. Deploy it before the
+guarded API routes or notification worker. Request admission uses a separate pool
+of at most two connections in addition to the existing five working connections;
+production connection capacity and latency still need measurement.
+
+This is backend coverage only. The native PIN screen, secure offline verifier,
+restart-persistent attempt throttling, restricted cache lifecycle and recovery UI
+are not yet connected. No device has been presented as a finished native kiosk.

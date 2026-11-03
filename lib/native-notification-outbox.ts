@@ -27,7 +27,9 @@ const recipientSelect = `select d.user_id,d.device_id,d.platform,d.permission,d.
   from household_members hm join households h on h.id=hm.household_id
   join native_notification_devices d on d.user_id=hm.user_id
   left join native_notification_preferences p on p.user_id=d.user_id and p.device_id=d.device_id and p.household_id=hm.household_id
-  where hm.household_id=$1`
+  where hm.household_id=$1 and not exists (
+    select 1 from native_kiosk_sessions k where k.device_id=d.device_id and k.state='locked'
+  )`
 
 /** Stale readiness/completion alerts are suppressed; history remains in the outbox. */
 async function currentEvent(client: PoolClient, event: NativeEvent): Promise<NativeEvent | null> {

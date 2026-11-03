@@ -46,6 +46,7 @@ test('schedule route preserves watermarks, rejects stale edits, replays safely a
   const authz = load('lib/household-authz.ts')
   mocks['@/lib/household-authz'] = { ...authz, getHouseholdMembershipAuthz: async () => ({ role }),
     getHouseholdKioskSettings: async () => ({ kioskActive: kiosk, sessionTokenHash: authz.sha256('token') }) }
+  mocks['@/lib/native-kiosk-guard'] = require('./helpers/native-kiosk.cjs').loadNativeKiosk(mocks)
   const route = load('app/api/leader/flow/route.ts'), { scheduleForRoutine } = mocks['@/shared/routine-schedule']
   const current = async () => (await db.query('select * from routines where id=$1', [routineId])).rows[0]
   const empty = { rules: [], completeOlderOccurrencesOnNew: false }

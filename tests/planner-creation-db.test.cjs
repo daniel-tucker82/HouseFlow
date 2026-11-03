@@ -74,6 +74,7 @@ test('planner creation routes recover lost replies at capacity, reject altered r
   const recurrenceFile = path.resolve(__dirname, '../lib/recurrence.ts'), recurrence = new Module(recurrenceFile, module)
   recurrence._compile(buildSync({ entryPoints: [recurrenceFile], bundle: true, platform: 'node', format: 'cjs', write: false }).outputFiles[0].text, recurrenceFile)
   mocks['@/lib/recurrence'] = recurrence.exports
+  mocks['@/lib/native-kiosk-guard'] = require('./helpers/native-kiosk.cjs').loadNativeKiosk(mocks)
   const route = load('app/api/leader/flow/route.ts')
   async function send(body) {
     return route.POST(new Request('http://localhost/api/leader/flow', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Task-Save-User': userId, Cookie: `houseflow_kiosk_session=${householdId}:token` }, body: JSON.stringify({ ...body, householdId }) }))

@@ -1,8 +1,9 @@
+import { withNativeKioskRequest } from "@/lib/native-kiosk-guard"
 import { NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
 import { db } from "@/lib/db"
 
-export async function GET(request: Request) {
+async function handleGET(request: Request) {
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -60,3 +61,5 @@ export async function GET(request: Request) {
     unreadCount: Number(unreadCount.rows[0]?.count ?? "0"),
   })
 }
+
+export function GET(request: Request) { return withNativeKioskRequest(request, handleGET) }

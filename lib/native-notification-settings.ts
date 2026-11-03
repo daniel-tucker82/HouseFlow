@@ -14,7 +14,7 @@ function deviceSnapshot(accountId: string, deviceId: string, row?: DeviceRow): N
     hasToken: row?.has_token ?? false, deviceName: row?.device_name ?? null, appVersion: row?.app_version ?? null }
 }
 function checkDeviceId(deviceId: string) { if (!notificationUuid.test(deviceId)) throw new NotificationSettingsError("Choose a valid device.") }
-async function verifyInstallation(client: PoolClient, deviceId: string, secret: string, create = false) {
+export async function verifyInstallation(client: PoolClient, deviceId: string, secret: string, create = false) {
   if (!/^[a-f0-9]{64}$/.test(secret)) throw new NotificationSettingsError("This device's secure registration is missing.", 403)
   const hash = createHash("sha256").update(secret).digest("hex")
   const stored = (await client.query<{ secret_hash: string }>("select secret_hash from native_notification_installations where device_id=$1", [deviceId])).rows[0]

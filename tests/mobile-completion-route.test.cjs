@@ -23,7 +23,8 @@ test('F01 O05 O07 native completion endpoint enforces real membership, prerequis
   const schema = `completion_route_${randomUUID().replaceAll('-', '')}`, admin = new Pool({ connectionString: url })
   await admin.query(`create schema ${schema}`)
   const db = new Pool({ connectionString: url, max: 5, options: `-c search_path=${schema}` })
-  t.after(async () => { await db.end(); await admin.query(`drop schema ${schema} cascade`); await admin.end() })
+  const kioskGateDb = new Pool({ connectionString: url, max: 2, options: `-c search_path=${schema}` })
+  t.after(async () => { await Promise.all([db.end(), kioskGateDb.end()]); await admin.query(`drop schema ${schema} cascade`); await admin.end() })
   // The historical migrations detect enum names globally. Clone their labels
   // into this test schema so existing public fixture types cannot redirect DDL.
   for (const name of ['app_role', 'routine_type', 'task_status', 'occurrence_status', 'notification_kind']) {
@@ -48,11 +49,11 @@ test('F01 O05 O07 native completion endpoint enforces real membership, prerequis
   const bundled = buildSync({ entryPoints: [operationFile], bundle: true, platform: 'node', format: 'cjs', write: false })
   const operationModule = new Module(operationFile, module)
   operationModule._compile(bundled.outputFiles[0].text, operationFile)
-  let userId = parent
+  let userId = parent, sessionId = null
   class EntitlementError extends Error {}
   const mocks = {
-    '@/lib/db': { db },
-    '@clerk/nextjs/server': { auth: async () => ({ userId }) },
+    '@/lib/db': { db, kioskGateDb },
+    '@clerk/nextjs/server': { auth: async () => ({ userId, sessionId }) },
     'next/server': { NextResponse: { json: Response.json }, after: () => {} },
     '@/lib/usage-controls': { enforceRequestLimit: async () => {} },
     '@/lib/flow-entitlements': { enforceFlowEntitlements: async () => ({ tier: 'premium', limits: { automation: true } }) },
@@ -69,6 +70,8 @@ test('F01 O05 O07 native completion endpoint enforces real membership, prerequis
   mocks['@/lib/task-edit-version'] = compile('lib/task-edit-version.ts', mocks)
   mocks['@/shared/scheduling'] = compile('shared/scheduling.ts', mocks)
   mocks['@/lib/time-rules'] = compile('lib/time-rules.ts', mocks)
+  const kiosk = require('./helpers/native-kiosk.cjs').loadNativeKiosk(mocks)
+  mocks['@/lib/native-kiosk-guard'] = kiosk
   const route = compile('app/api/leader/flow/route.ts', mocks)
   let sequence = 0
   function change(values = {}) {
@@ -147,4 +150,20 @@ test('F01 O05 O07 native completion endpoint enforces real membership, prerequis
   await assert.rejects(send({ ...create, title: 'Must roll back' }), /Interrupted task creation/)
   assert.equal((await db.query("select count(*)::int n from tasks where title='Must roll back'")).rows[0].n, 0)
   assert.equal((await db.query('select count(*)::int n from native_notification_events')).rows[0].n, 0)
+  await db.query('drop trigger fail_native_task on occurrence_tasks')
+  sessionId = 'sess_kiosk_route'
+  const kioskId = randomUUID(), exitSecret = 'b'.repeat(64), installationSecret = 'a'.repeat(64)
+  await kiosk.saveNativeKiosk(db, parent, sessionId, deviceId, installationSecret, { action: 'activate', id: kioskId,
+    householdId, visibleMemberIds: [child], editableMemberIds: [child], exitSecret })
+  const permitted = await send(change({ taskId: prerequisiteId }))
+  assert.equal(permitted.status, 200, JSON.stringify(permitted.data))
+  assert.equal(permitted.data.outcome, 'applied')
+  assert.equal((await db.query('select status from occurrence_tasks where occurrence_id=$1 and task_id=$2', [occurrenceId, prerequisiteId])).rows[0].status, 'completed')
+  assert.equal((await send(create)).status, 423, 'locked parent cannot create tasks')
+  assert.equal((await send(change({ taskId: prerequisiteId, completed: false, actorMemberId: parent }))).status, 403)
+  assert.equal((await send(change({ taskId: prerequisiteId, completed: false }))).status, 200, 'kiosk supports completing and reopening tasks')
+  await kiosk.saveNativeKiosk(db, parent, sessionId, deviceId, installationSecret, { action: 'unlock', id: kioskId, exitSecret })
+  await kiosk.saveNativeKiosk(db, parent, sessionId, deviceId, installationSecret, { action: 'activate', id: randomUUID(),
+    householdId, visibleMemberIds: [child], editableMemberIds: [], exitSecret })
+  assert.equal((await send(change({ taskId: prerequisiteId }))).status, 403, 'read-only kiosk cannot complete tasks')
 })

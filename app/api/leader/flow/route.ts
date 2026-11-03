@@ -1,3 +1,4 @@
+import { recheckNativeKioskFlow, withNativeKioskRequest } from "@/lib/native-kiosk-guard"
 import { createHouseholdWithAdmission } from "@/lib/household-admission"
 import { enforceRequestLimit, recordHouseholdUsage, recordHouseholdActivity } from "@/lib/usage-controls"
 import { after, NextResponse } from "next/server"
@@ -618,7 +619,7 @@ async function completeOlderRoutineOccurrences(
   )
 }
 
-export async function GET(request: Request) {
+async function handleGET(request: Request) {
   const started = Date.now()
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -953,8 +954,8 @@ export async function GET(request: Request) {
   })
 }
 
-export async function POST(request: Request) {
-  const { userId } = await auth()
+async function handlePOST(request: Request) {
+  const { userId, sessionId } = await auth()
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const saveUser = request.headers.get("X-Task-Save-User")
   if (saveUser && saveUser !== userId) {
@@ -999,6 +1000,7 @@ export async function POST(request: Request) {
     const result = await lockClient.query("select pg_try_advisory_lock(hashtextextended($1, 0)) as acquired", [householdId])
     locked = result.rows[0].acquired
     if (!locked) return NextResponse.json({ error: "Another household change is in progress. Please retry." }, { status: 429 })
+    await recheckNativeKioskFlow(lockClient, userId, sessionId, request)
     const created = creation ? await findPlannerCreation(lockClient, householdId, userId, creation) : null
     const entitlement = created ? await getHouseholdEntitlement(lockClient, householdId) : await enforceFlowEntitlements(lockClient, householdId, body)
     const response = await handleFlowPost(request, { userId, body, membership, creation, created, automationAllowed: entitlement.limits?.automation ?? false })
@@ -2767,3 +2769,6 @@ async function handleFlowPost(request: Request, context?: {
 
   return NextResponse.json({ error: "Unsupported action" }, { status: 400 })
 }
+
+export function GET(request: Request) { return withNativeKioskRequest(request, handleGET) }
+export function POST(request: Request) { return withNativeKioskRequest(request, handlePOST) }

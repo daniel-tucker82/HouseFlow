@@ -50,6 +50,7 @@ function setup(options = {}) {
     '@/lib/planner-creation': creationModule.exports,
     '@/lib/completion-operations': { CompletionOperationError: class CompletionOperationError extends Error {} },
   }
+  mocks['@/lib/native-kiosk-guard'] = require('./helpers/native-kiosk.cjs').loadNativeKiosk(mocks)
   const filename = path.resolve(__dirname, '../app/api/leader/flow/route.ts')
   const loaded = new Module(filename, module)
   loaded.require = id => {

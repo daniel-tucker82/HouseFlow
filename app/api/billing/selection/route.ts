@@ -1,9 +1,10 @@
+import { withNativeKioskRequest } from "@/lib/native-kiosk-guard"
 import { auth } from "@clerk/nextjs/server"
 import { NextResponse } from "next/server"
 import { EntitlementError, withHouseholdWrite } from "@/lib/entitlements"
 import { billingOrigin } from "@/lib/stripe-billing"
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const { userId } = await auth()
   if (!userId) return NextResponse.json({error:"Unauthorized"}, {status:401})
   try {
@@ -25,3 +26,5 @@ export async function POST(request: Request) {
     return NextResponse.json({error:error instanceof EntitlementError ? error.message : "Unable to select template"}, {status:error instanceof EntitlementError ? error.status : 400})
   }
 }
+
+export function POST(request: Request) { return withNativeKioskRequest(request, handlePOST) }

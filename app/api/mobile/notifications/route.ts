@@ -4,6 +4,7 @@ import { ensureCurrentUserRecord } from "@/lib/user-sync"
 import { EntitlementError } from "@/lib/entitlements"
 import { readNativeNotificationSettings, saveNativeNotificationSettings } from "@/lib/native-notification-settings"
 import { NotificationSettingsError } from "@/shared/mobile/notification-settings"
+import { withNativeKioskRequest } from "@/lib/native-kiosk-guard"
 
 export const dynamic = "force-dynamic"
 async function handle(request: Request, write: boolean) {
@@ -32,5 +33,5 @@ async function handle(request: Request, write: boolean) {
     return Response.json({ error: "Unable to sync notification settings. Your saved changes can retry." }, { status: 503 })
   }
 }
-export function GET(request: Request) { return handle(request, false) }
-export function POST(request: Request) { return handle(request, true) }
+export function GET(request: Request) { return withNativeKioskRequest(request, request => handle(request, false)) }
+export function POST(request: Request) { return withNativeKioskRequest(request, request => handle(request, true)) }
