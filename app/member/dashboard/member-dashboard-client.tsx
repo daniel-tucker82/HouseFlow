@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { useRouter } from "next/navigation"
-import { Check, CircleCheck, Gift, LoaderCircle, LockKeyhole, LogOut, Menu, Search, Settings, Sparkles, Users, X } from "lucide-react"
+import { Circle, CircleCheck, Gift, LoaderCircle, LockKeyhole, LogOut, Menu, Search, Settings, Sparkles, Undo2, Users, X } from "lucide-react"
 import { UserButton, useClerk } from "@clerk/nextjs"
 import { saveMemberDashboardLanePreferences } from "@/lib/actions/member-dashboard"
 import { MemberLanesDraftPicker } from "@/components/member-lanes-draft-picker"
@@ -170,15 +170,15 @@ function MemberTaskRow({ task, currentMemberId, isEditable, pending, memberNameB
   return <li className="member-task" data-status={task.status} data-reward={task.is_reward}>
     <button type="button" onClick={() => onOpen(task)} className="min-w-0 flex-1 p-3.5 text-left">
       <span className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        {task.is_reward ? <Gift className="size-3" /> : locked ? <LockKeyhole className="size-3" /> : done ? <CircleCheck className="size-3" /> : <span className="size-1.5 rounded-full bg-primary" />}
-        {task.is_reward ? "Reward" : done ? "Completed" : locked ? "Up next" : "Ready to do"}
+        {done ? <CircleCheck className="size-3" /> : task.is_reward ? <Gift className="size-3" /> : locked ? <LockKeyhole className="size-3" /> : <span className="size-1.5 rounded-full bg-primary" />}
+        {done ? "Completed" : locked ? "Up next" : "Ready to do"}{task.is_reward && " · Reward"}
       </span>
       <span className={cn("block text-sm font-medium leading-5", done && "text-muted-foreground line-through")}>{task.title}</span>
       <span className="mt-1.5 block text-[11px] leading-4 text-muted-foreground">{locked ? lockMessage(task, { currentMemberId, memberNameById, hasHydrated }) : !isEditable ? "View only" : task.occurrence_title ?? "Household task"}</span>
     </button>
-    <button type="button" disabled={locked || Boolean(pending) || !isEditable} onClick={() => void onToggle(task, currentMemberId)} aria-label={locked ? task.title + ": locked" : !isEditable ? task.title + ": view only" : done ? "Undo completion of " + task.title : "Complete " + task.title} className={cn("m-2 ml-0 flex w-12 shrink-0 flex-col items-center justify-center gap-1 rounded-lg text-[10px] font-semibold transition-colors disabled:cursor-not-allowed", locked || !isEditable ? "text-muted-foreground" : done ? "text-primary hover:bg-primary/10" : "bg-primary/8 text-primary hover:bg-primary hover:text-white")}>
-      {pending === task.id ? <LoaderCircle className="size-4 animate-spin" /> : locked || !isEditable ? <LockKeyhole className="size-4" /> : <Check className="size-4" />}
-      {pending === task.id ? "Saving" : locked ? "Locked" : !isEditable ? "View" : done ? "Undo" : "Done"}
+    <button type="button" disabled={locked || Boolean(pending) || !isEditable} onClick={() => void onToggle(task, currentMemberId)} aria-label={locked ? task.title + ": locked" : !isEditable ? task.title + ": view only" : done ? "Undo completion of " + task.title : "Mark complete: " + task.title} className={cn("m-2 ml-0 flex w-20 shrink-0 flex-col items-center justify-center gap-1 rounded-lg px-2 text-[10px] font-semibold transition-colors disabled:cursor-not-allowed", locked || !isEditable ? "text-muted-foreground" : done ? "text-primary hover:bg-primary/10" : "border border-primary/25 bg-primary/5 text-primary hover:bg-primary hover:text-white")}>
+      {pending === task.id ? <LoaderCircle className="size-4 animate-spin" /> : locked || !isEditable ? <LockKeyhole className="size-4" /> : done ? <Undo2 className="size-4" /> : <Circle className="size-4" />}
+      {pending === task.id ? "Saving" : locked ? "Locked" : !isEditable ? "View" : done ? "Undo" : "Mark complete"}
     </button>
   </li>
 }
