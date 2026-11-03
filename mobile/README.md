@@ -1181,3 +1181,48 @@ passed. Tests verify a durable scheduled retry, unchanged phase acknowledgement,
 reset failure backoff, stale-worker rejection and a Stripe page checkpoint
 resuming after its processing budget is exhausted. No native module or public
 deletion endpoint is introduced by this follow-up.
+
+### RevenueCat customer erasure
+
+`deleteAccountNativeData()` implements the native provider phase internally.
+It reads the accepted request from PostgreSQL, checks the current worker lease
+and retired household billing identity before every provider call, and records
+per-customer progress. Transferred households are outside its deletion scope.
+It requires `REVENUECAT_PROJECT_ID` and `REVENUECAT_V2_SECRET_KEY`, independently
+of the purchase feature gate, V1 credentials and product catalogue. The V2 key
+needs customer read/write, subscription read and purchase read permissions.
+
+The adapter proves project access before interpreting a missing customer and
+inspects all alias, subscription and purchase pages without an environment
+filter. Unexpected aliases, foreign ownership, mixed environments and stores
+other than Apple/Google stop deletion. Pagination cannot redirect credentials
+to another origin or customer. Requests have an eight-second maximum timeout
+within the invocation budget; errors persist only a safe internal code.
+
+RevenueCat's DELETE response queues asynchronous work. The adapter saves that
+checkpoint and uses the durable retry mechanism, confirming erasure only with
+a subsequent V2 GET/404. A lost DELETE response recovers the same way. V1
+Get-or-Create is never used. If the customer remains after five minutes, the
+worker revalidates scope before reissuing deletion. This follows RevenueCat's
+[customer deletion guidance](https://www.revenuecat.com/docs/dashboard-and-metrics/customer-profile#delete-customer).
+It does **not** cancel Apple/Google subscriptions; the confirmation flow must
+explain this and provide the existing store management links.
+
+Local subscription bindings remain unchanged. Before enabling account deletion,
+still verify restore protection across provider erasure/recreation, prevent
+the old SDK identity from recreating data, and implement follow-up erasure for
+late provider events. Identity deletion, the confirmation/status endpoints,
+native/web UI and local data purge are also unfinished. No public deletion
+action or scheduled worker is enabled by this adapter.
+
+Provider-double tests use isolated real PostgreSQL schemas and cover asynchronous
+confirmation, interrupted requests, misleading 404s, scope/alias isolation,
+pagination, stale leases, durable waits, per-customer budget recovery and HTTP
+timeouts. Local RevenueCat credentials are not configured, so this is not yet
+evidence of a successful deletion against RevenueCat itself.
+
+Verification on 2026-11-04: the general regression run passed 372 checks without
+skips or cancellations. After adding an HTTP abort check, all 16 focused native
+deletion checks passed. Root lint, the final changed-file lint check, standalone
+TypeScript checks and the production build also passed. Test schemas were
+isolated; no RevenueCat requests or production database changes were made.

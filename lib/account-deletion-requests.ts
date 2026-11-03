@@ -19,7 +19,7 @@ export interface AccountDeletionWork {
     clocksComplete: boolean; clockCursor: string | null
     scans: { testClock: string | null; cursor: string | null; complete: boolean }[]
   }
-  retiredNativeAccounts: { id: string; projectId: string; environment: "production" | "sandbox" }[]
+  retiredNativeAccounts: { id: string; projectId: string; environment: "production" | "sandbox"; requestedAt?: string; completed?: boolean }[]
   orphanProfileIds: string[]
   householdIds: string[]
   deviceIds: string[]
