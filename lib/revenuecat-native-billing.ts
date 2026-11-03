@@ -134,7 +134,7 @@ export async function fetchVerifiedNativeSubscriptions(account: NativeBillingAcc
     }
     if (item.gives_access && through === null) throw new RevenueCatVerificationError("response")
     verified.push({ id, originalCustomerId: account.id, environment: account.environment, store: product.store,
-      productId: product.revenuecatProductId, status, autoRenewalStatus, givesAccess: item.gives_access,
+      productId: product.revenuecatProductId, status, autoRenewalStatus, givesAccess: item.gives_access, pendingPayment: item.pending_payment,
       accessThrough: through === null ? null : new Date(through).toISOString() })
   }
   return verified

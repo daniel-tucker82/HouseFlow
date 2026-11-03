@@ -4,6 +4,7 @@ import type { PlannerEdit, PlannerSnapshot } from "../../../shared/mobile/planne
 import type { RunPage, RunSnapshot, RunView } from "../../../shared/mobile/runs"
 import type { NativeNotificationDevice, NotificationSettingsOperation, NotificationSettingsSnapshot } from "../../../shared/mobile/notification-settings"
 import { parseNativeKioskSession, type NativeKioskOperation, type NativeKioskResult } from "../../../shared/mobile/kiosk"
+import type { NativeBillingAction, NativeBillingScope, NativeBillingSetup, NativeBillingStatus, NativeBillingStore } from "../../../shared/mobile/billing"
 
 export interface BootstrapResult { accountId: string; households: HouseholdSummary[]; board: BoardSnapshot | null }
 
@@ -47,6 +48,37 @@ export class MobileApi implements SyncTransport {
   }
 
   async serverTime() { return (await this.request<{ serverTimeMs: number }>("/api/mobile/time")).serverTimeMs }
+
+  private validateBilling<T extends NativeBillingScope>(result: T, householdId: string): T {
+    if (result.accountId !== this.accountId || result.sessionId !== this.sessionId || result.deviceId !== this.deviceId || result.householdId !== householdId) {
+      throw new Error("This billing reply belongs to a different account, household or sign-in. Refresh before continuing.")
+    }
+    return result
+  }
+  async billingStatus(householdId: string) {
+    return this.validateBilling(await this.request<NativeBillingStatus>(`/api/mobile/billing?householdId=${encodeURIComponent(householdId)}`), householdId)
+  }
+  async prepareBilling(householdId: string, store: NativeBillingStore) {
+    const result = this.validateBilling(await this.request<NativeBillingSetup>("/api/mobile/billing", { action: "prepare", householdId, store }), householdId)
+    if (result.store !== store || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(result.billingCustomerId) ||
+      !(store === "app_store" ? /^appl_[a-zA-Z0-9]+$/ : /^goog_[a-zA-Z0-9]+$/).test(result.publicSdkKey) ||
+      !["production", "sandbox"].includes(result.environment) || !Array.isArray(result.products) || result.products.length !== 2 ||
+      new Set(result.products.map(product => product.interval)).size !== 2 ||
+      result.products.some(product => !["monthly", "yearly"].includes(product.interval) || typeof product.storeProductId !== "string" || !product.storeProductId.length)) {
+      throw new Error("Cyntch returned an invalid store configuration.")
+    }
+    return result
+  }
+  async billingPurchase(action: Extract<NativeBillingAction, { action: "begin" | "cancel" }>) {
+    const result = this.validateBilling(await this.request<NativeBillingScope & { operationId: string; expiresAt?: string }>("/api/mobile/billing", action), action.householdId)
+    if (result.operationId !== action.operationId || (action.action === "begin" && (!result.expiresAt || !Number.isFinite(Date.parse(result.expiresAt))))) {
+      throw new Error("The purchase reply did not match this attempt. Refresh billing before continuing.")
+    }
+    return result
+  }
+  async verifyBilling(householdId: string) {
+    return this.validateBilling(await this.request<NativeBillingStatus>("/api/mobile/billing", { action: "verify", householdId }), householdId)
+  }
 
   async kioskSettings() {
     const result = await this.request<NativeKioskResult>("/api/mobile/kiosk", undefined, await this.notificationHeaders())

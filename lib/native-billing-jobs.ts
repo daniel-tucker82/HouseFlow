@@ -93,8 +93,11 @@ export async function processNativeBillingJobs(pool: Pool, config: RevenueCatCon
       // Recheck paid access hourly, more often during billing trouble and near
       // expiry. Empty/fully expired accounts get a daily missed-event check.
       let nextCheckSeconds = subscriptions.some(item => item.givesAccess) ? 3600 : 86400
+      const purchase = await pool.query(`select 1 from billing_purchase_attempts where household_id=$1::uuid
+        and environment=$2 and provider<>'stripe' and state in ('reserved','submitted') and expires_at>now() limit 1`, [job.household_id,job.environment])
+      if (purchase.rowCount) nextCheckSeconds = 60
       for (const item of subscriptions) {
-        if (["in_grace_period", "in_billing_retry", "incomplete"].includes(item.status)) nextCheckSeconds = Math.min(nextCheckSeconds, 300)
+        if (item.pendingPayment || ["in_grace_period", "in_billing_retry", "incomplete"].includes(item.status)) nextCheckSeconds = Math.min(nextCheckSeconds, 300)
         const expiry = item.accessThrough ? Date.parse(item.accessThrough) : 0
         if (item.givesAccess && expiry > Date.now()) nextCheckSeconds = Math.min(nextCheckSeconds, Math.max(30, (expiry - Date.now()) / 1000 + 5))
       }

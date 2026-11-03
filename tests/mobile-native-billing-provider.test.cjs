@@ -57,7 +57,8 @@ test('all pages use authenticated uncached requests restricted to the same custo
 
 test('cancellation, renewal and pending payments follow the verified access decision without inventing expiry', async () => {
   for (const change of [{ auto_renewal_status: 'will_not_renew' }, { pending_payment: true }, { status: 'unknown' }]) {
-    assert.equal((await verify([page([subscription(change)])]))[0].givesAccess, true)
+    const result = (await verify([page([subscription(change)])]))[0]
+    assert.equal(result.givesAccess, true); assert.equal(result.pendingPayment, change.pending_payment ?? false)
   }
   for (const status of ['expired', 'incomplete', 'in_billing_retry', 'paused']) {
     const [result] = await verify([page([subscription({ status, gives_access: false, ends_at: null, current_period_ends_at: null })])])

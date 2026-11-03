@@ -56,7 +56,7 @@ test('store entitlements preserve household ownership, newest verification, web 
   const sandbox = await lib.ensureNativeBillingAccount(db, other, 'proj_test', 'sandbox')
   const future = new Date(Date.now() + 86400_000).toISOString(), past = new Date(Date.now() - 1000).toISOString()
   const subscription = (id = 'subscription_apple', overrides = {}) => ({ id, originalCustomerId: account.id, environment: 'production', store: 'app_store',
-    productId: 'prod_monthly', status: 'active', autoRenewalStatus: 'will_renew', givesAccess: true, accessThrough: future, ...overrides })
+    productId: 'prod_monthly', status: 'active', autoRenewalStatus: 'will_renew', givesAccess: true, pendingPayment: false, accessThrough: future, ...overrides })
   async function apply(items, who = account) {
     const attempt = await lib.beginNativeBillingVerification(db, who.id)
     return lib.applyNativeBillingSnapshot(db, who.id, attempt.revision, items)

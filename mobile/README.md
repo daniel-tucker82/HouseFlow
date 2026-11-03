@@ -598,6 +598,72 @@ isolation and retired accounts. It also exercises the actual webhook/cron handle
 with signed synthetic requests and verifies the household scheduler integration.
 Provider reference: [RevenueCat webhook authentication, retries and event handling](https://www.revenuecat.com/docs/integrations/webhooks).
 
+## Native billing admission and recovery
+
+`GET/POST /api/mobile/billing` now supports household plan status, identified
+store setup, purchase admission, cancellation and durable purchase/restore
+verification. Requests must match the authenticated account and session and carry
+the installation's device ID. Members can read plan limits; only the household
+owner can access provider details or billing actions. The existing kiosk guard
+protects both native billing and web checkout. Mobile API replies are checked
+against account, session, household, device and operation before use.
+
+Migration `0032_billing_purchase_attempts.sql` adds a shared household purchase
+reservation and preserves verified `pending_payment` state. Apply 0030–0032 before
+enabling native billing. Reservations are isolated by production/sandbox
+environment; sandbox verification cannot retire a production hold. A mobile
+attempt reserves ten minutes for preflight;
+permission to open the store sheet extends it once to 24 hours. Replaying an ID
+does not extend that hold or revive an expired/released attempt. Cancellation is
+scoped to the original account/session/device. Provider verification is queued
+before the external purchase so termination cannot lose the recovery work.
+Unresolved native attempts receive a server check every minute, subject to
+provider failure backoff. A confirmed subscription retires its temporary hold
+and resumes the usual hourly or billing-trouble verification cadence. Pending payments and paused/retrying/unknown store
+subscriptions block a second subscription even when they grant no Premium access.
+
+Before native purchase permission is returned, current RevenueCat and Stripe
+state is fetched outside the household write transaction; ownership, Premium
+access and the reservation are then checked again under the household lock.
+Client purchase claims never grant access. Restore/refresh requests commit a
+verification job before returning; provider outages preserve the retry.
+
+With native billing enabled, web checkout uses the same reservation and verifies
+prior native billing activity. A new web attempt holds one hour; a reused open
+Checkout retains its actual provider expiry. Stripe create retries reuse the
+persisted integration label, expiry and idempotency key, including after a lost
+provider response. Another device/provider/interval cannot start while that
+attempt remains open. With the gate off, existing web checkout requires no new
+reservation table. Stripe prices and tax configuration are unchanged.
+
+Add the store-specific **public** SDK keys as `REVENUECAT_IOS_PUBLIC_KEY` and
+`REVENUECAT_ANDROID_PUBLIC_KEY` on the server. Only the matching public key,
+approved product IDs and opaque household customer ID are returned to the app.
+Secret provider keys remain server-only. React Native Purchases 11 is installed
+and included in the rebuilt Android development app. Other development builds
+must also be rebuilt before using its native SDK. The purchase/restore screens
+and SDK interaction flow still need connecting.
+
+Reservations protect Cyntch-initiated flows. A delayed external store approval
+can outlive a reservation, so duplicate detection and provider management remain
+necessary; this is not a promise that unrelated store actions can be locked.
+Store credentials/catalogs, real purchase sheets, live sandbox lifecycle events
+and store submission remain unverified. The production gate remains off.
+
+`tests/mobile-native-billing-actions.test.cjs` covers real PostgreSQL reservations,
+cross-device/web competition, network work without the household lock, late
+entitlement changes, lost Stripe responses, pending payments, durable recovery,
+API identity fences, kiosk denial and feature-off compatibility. Provider
+transports are synthetic; no real purchases are made.
+
+Verification on 2026-11-04: 226 general regression checks and 19 isolated web
+billing checks passed, along with root/mobile lint and typecheck, the Next.js
+production build, Android/iOS JavaScript exports and the Android native build.
+Installing the new APK over the emulator app preserved the authenticated session,
+cached household/task states and device/household notification revisions. The app
+returned to its native task board. This does not verify iOS native compilation or
+store purchase UI; those remain outstanding.
+
 Verification on 2026-11-04: regression suites passed, including 15 signed-webhook,
 durable-job and scheduler checks plus the existing 19 isolated web-billing tests.
 Root/mobile lint and typecheck and the production Next.js build passed; both new

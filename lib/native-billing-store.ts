@@ -25,6 +25,7 @@ export type VerifiedNativeSubscription = {
   status: string
   autoRenewalStatus: string
   givesAccess: boolean
+  pendingPayment: boolean
   // Actual verified expiry, including an explicitly verified store grace period.
   // No indefinite access or invented grace period on provider failure.
   accessThrough: string | null
@@ -64,7 +65,7 @@ function validateSnapshot(account: NativeBillingAccount, subscriptions: Verified
   const ids = new Set<string>()
   for (const item of subscriptions) {
     if (!item || !text(item.id) || ids.has(item.id) || !text(item.productId) || !text(item.status, 80) || !text(item.autoRenewalStatus, 80) ||
-      !["app_store", "play_store"].includes(item.store) || typeof item.givesAccess !== "boolean" ||
+      !["app_store", "play_store"].includes(item.store) || typeof item.givesAccess !== "boolean" || typeof item.pendingPayment !== "boolean" ||
       (item.accessThrough !== null && (typeof item.accessThrough !== "string" || !Number.isFinite(Date.parse(item.accessThrough)))) ||
       (item.givesAccess && !item.accessThrough)) throw new NativeBillingError("invalid_snapshot")
     if (item.originalCustomerId !== account.id || item.environment !== account.environment) throw new NativeBillingError("identity_mismatch")
@@ -101,18 +102,26 @@ export async function applyNativeBillingSnapshot(pool: Pool, accountId: string, 
     validateSnapshot(current, subscriptions)
     for (const item of [...subscriptions].sort((a, b) => a.id.localeCompare(b.id))) {
       const saved = await client.query(`insert into native_subscriptions
-        (project_id,subscription_id,account_id,store,product_id,status,auto_renewal_status,gives_access,access_through,verified_at)
-        values($1,$2,$3::uuid,$4,$5,$6,$7,$8,$9::timestamptz,clock_timestamp())
+        (project_id,subscription_id,account_id,store,product_id,status,auto_renewal_status,gives_access,access_through,pending_payment,verified_at)
+        values($1,$2,$3::uuid,$4,$5,$6,$7,$8,$9::timestamptz,$10,clock_timestamp())
         on conflict (project_id,subscription_id) do update set
           store=excluded.store, product_id=excluded.product_id, status=excluded.status,
           auto_renewal_status=excluded.auto_renewal_status, gives_access=excluded.gives_access,
-          access_through=excluded.access_through, verified_at=excluded.verified_at
+          access_through=excluded.access_through, pending_payment=excluded.pending_payment, verified_at=excluded.verified_at
         where native_subscriptions.account_id=excluded.account_id`,
-      [current.project_id,item.id,accountId,item.store,item.productId,item.status,item.autoRenewalStatus,item.givesAccess,item.accessThrough])
+      [current.project_id,item.id,accountId,item.store,item.productId,item.status,item.autoRenewalStatus,item.givesAccess,item.accessThrough,item.pendingPayment])
       if (!saved.rowCount) throw new NativeBillingError("purchase_already_bound")
     }
-    await client.query(`update native_subscriptions set gives_access=false,access_through=null,status='not_returned',verified_at=clock_timestamp()
+    await client.query(`update native_subscriptions set gives_access=false,access_through=null,pending_payment=false,status='not_returned',verified_at=clock_timestamp()
       where account_id=$1::uuid and not (subscription_id=any($2::text[]))`, [accountId, subscriptions.map(item => item.id)])
+    // Once the store confirms a subscription, its verified record prevents a
+    // duplicate. Retire the temporary hold so successful purchases don't cause
+    // minute-by-minute recovery checks for the rest of the 24-hour window.
+    await client.query(`update billing_purchase_attempts p set state='released',updated_at=now()
+      where p.household_id=$1::uuid and p.environment=$3 and p.state in ('reserved','submitted') and exists (
+        select 1 from native_subscriptions s where s.account_id=$2::uuid and s.store=p.provider
+          and (s.pending_payment or (s.gives_access and s.access_through>now()) or s.status not in ('expired','not_returned')))`,
+    [current.household_id,accountId,current.environment])
     await client.query(`update native_billing_accounts set applied_revision=$2::bigint,verified_at=clock_timestamp()
       where id=$1::uuid`, [accountId, revision])
     await client.query("commit")
