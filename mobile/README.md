@@ -641,14 +641,72 @@ Add the store-specific **public** SDK keys as `REVENUECAT_IOS_PUBLIC_KEY` and
 approved product IDs and opaque household customer ID are returned to the app.
 Secret provider keys remain server-only. React Native Purchases 11 is installed
 and included in the rebuilt Android development app. Other development builds
-must also be rebuilt before using its native SDK. The purchase/restore screens
-and SDK interaction flow still need connecting.
+must also be rebuilt before using its native SDK. The native settings card and
+SDK interaction flow are connected as described below.
 
 Reservations protect Cyntch-initiated flows. A delayed external store approval
 can outlive a reservation, so duplicate detection and provider management remain
 necessary; this is not a promise that unrelated store actions can be locked.
 Store credentials/catalogs, real purchase sheets, live sandbox lifecycle events
 and store submission remain unverified. The production gate remains off.
+
+## Native subscription settings and interruption recovery
+
+Settings shows the selected household's server-confirmed plan, limits, billing
+sources and verification state. Owners can request monthly/annual store prices,
+purchase, restore and open management for the current device's store. Localized
+prices come from the store; the app rechecks product, amount and currency before
+purchase. Google purchases use the approved auto-renewing base plan rather than
+an automatically selected trial offer. Existing subscriptions block another
+purchase, including pending payment and subscriptions needing attention.
+
+The SDK loads on demand. A process-wide queue keeps the opaque household identity
+unchanged throughout each store operation; no anonymous identity is created.
+Account, session, selected household, connectivity and kiosk access are checked
+at asynchronous boundaries. Explicit sign-out fences new requests immediately,
+before persistence or React unmount. A sheet already presented by the OS retains
+its original household identity until its callback completes.
+
+SQLite schema 10 stores only scoped operation IDs and recovery stages, never
+receipts or SDK customer objects. Purchase intent is durable before admission or
+store presentation. Restart cancels an untouched preflight or verifies an
+uncertain store result; it never reopens a purchase automatically. A remounted
+runtime waits for an operation still executing in this process, preventing early
+verification from discarding a live restore. Late responses cannot overwrite
+another household's state or a replacement operation. Recovery metadata can still
+be saved after sign-out or kiosk entry; new presentation cannot.
+
+Store/network calls hold no local database transaction. Task completion remains
+independently writable while the store sheet waits. Pending recovery uses durable
+backoff and lifecycle/connectivity events. Idle plans do not continuously poll.
+Only server-verified entitlements can enable Premium.
+
+`tests/mobile-billing-client.test.cjs` exercises the actual SQLite store and
+controller with synthetic provider responses, including disk failure, lost
+acknowledgements, process restart, active-sheet remounts, household/account/kiosk
+changes, price changes, pending payment and concurrent task saving. SDK adapter
+tests cover identity serialization, approved base-plan selection and cancellation.
+
+Android emulator checks cover the actual server-backed Free plan and synthetic
+price displays in portrait, landscape and enlarged text. The two price cards sit
+side by side on a wide screen and stack when text is enlarged. Display fixtures
+are temporary runtime-only values and are removed after inspection; they do not
+enable billing or make purchases. Physical-device and iOS checks remain required.
+
+This is not yet the complete subscription release: store accounts/catalogs and
+real sandbox lifecycle verification remain outstanding, as do policy/support
+links and actionable management for Stripe and other-platform subscriptions.
+Those sources currently show provider instructions. Web reservations also still
+need a polished change/cancel recovery flow. Keep the production billing gate off
+until the complete purchase and management flows have been verified.
+
+Verification on 2026-11-04: 241 general checks (including 15 native billing client
+checks) and 19 isolated web billing checks passed. Root/mobile lint and typecheck,
+the Next.js production build and Android/iOS JavaScript exports passed. The
+existing Android development APK includes the SDK; this stage changes JavaScript
+and the local SQLite schema only. Emulator inspection confirmed the existing
+session, task states and notification revisions were retained. These checks do
+not establish real store purchases, iOS native compilation or physical performance.
 
 `tests/mobile-native-billing-actions.test.cjs` covers real PostgreSQL reservations,
 cross-device/web competition, network work without the household lock, late

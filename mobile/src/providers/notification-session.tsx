@@ -1,19 +1,21 @@
 import { useAuth } from "@clerk/expo"
 import * as Network from "expo-network"
-import { createContext, useContext, useEffect, useRef, useState, type PropsWithChildren } from "react"
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type PropsWithChildren } from "react"
 import { AppState, View } from "react-native"
 import { Action, Copy, Loading, styles } from "../components/ui"
 import { NotificationSessionController, notificationRevocationTransport } from "../services/notification-session-controller"
 import { resetNativeNotificationSession } from "../services/notification-native-session"
 import { getDeviceId, getInstallationSecret, openLocalStore } from "../storage/native-store"
 
-const NotificationSessionContext = createContext<{ signOut: () => Promise<void> } | null>(null)
+const NotificationSessionContext = createContext<{ signOut: () => Promise<void>; isSessionActive: (accountId: string, sessionId: string) => boolean } | null>(null)
 
 /** Lives outside the signed-in runtime so offline sign-outs can finish later. */
 export function NotificationSessionProvider({ children }: PropsWithChildren) {
   const { isLoaded, isSignedIn, userId, sessionId, signOut } = useAuth({ treatPendingAsSignedOut: false })
   const identity = isLoaded ? isSignedIn && userId && sessionId ? `${userId}:${sessionId}` : "signed-out" : null
   const [ready, setReady] = useState<string | null>(null)
+  const readyIdentity = useRef<string | null>(null)
+  const isSessionActive = useCallback((accountId: string, sessionId: string) => readyIdentity.current === `${accountId}:${sessionId}`, [])
   const [error, setError] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
   const queue = useRef<Promise<unknown>>(Promise.resolve())
@@ -50,15 +52,19 @@ export function NotificationSessionProvider({ children }: PropsWithChildren) {
         await signOutRef.current({ sessionId })
         return
       }
+      readyIdentity.current = identity
       setError(null); setReady(identity)
     })
     queue.current = work.catch(cause => { if (!cancelled) setError(cause instanceof Error ? cause.message : "Unable to open your account on this device.") })
-    return () => { cancelled = true; network?.remove(); app?.remove(); controller?.stop(); if (revoker.current === controller) revoker.current = null }
+    return () => { cancelled = true; readyIdentity.current = null; network?.remove(); app?.remove(); controller?.stop(); if (revoker.current === controller) revoker.current = null }
   }, [isLoaded, isSignedIn, userId, sessionId, identity, attempt])
 
   async function leave() {
     if (!userId || !sessionId) return
     const session = { accountId: userId, sessionId }
+    // Fence delayed native actions immediately, before React unmounts children
+    // or the durable sign-out waits for another local transaction.
+    readyIdentity.current = null
     setReady(null); setError(null)
     const work = queue.current.then(async () => {
       const store = await openLocalStore()
@@ -73,7 +79,7 @@ export function NotificationSessionProvider({ children }: PropsWithChildren) {
 
   if (error) return <View style={styles.center} accessibilityRole="alert"><Copy>{error}</Copy><Action label="Try again" onPress={() => { setError(null); setAttempt(value => value + 1) }} /></View>
   if (!identity || ready !== identity) return <Loading label="Opening Cyntch…" />
-  return <NotificationSessionContext value={{ signOut: leave }}>{children}</NotificationSessionContext>
+  return <NotificationSessionContext value={{ signOut: leave, isSessionActive }}>{children}</NotificationSessionContext>
 }
 
 export function useNotificationSession() {

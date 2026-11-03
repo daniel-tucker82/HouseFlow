@@ -46,6 +46,7 @@ export class BoardController {
   }
 
   getSnapshot = () => this.state
+  getSelectedHouseholdId = () => this.selected ?? null
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
   private update(patch: Partial<BoardState>) {
     if (this.stopped) return

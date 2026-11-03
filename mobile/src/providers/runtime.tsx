@@ -2,7 +2,7 @@ import { useAuth } from "@clerk/expo"
 import { CryptoDigestAlgorithm, digestStringAsync, randomUUID } from "expo-crypto"
 import * as Network from "expo-network"
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake"
-import { createContext, useContext, useEffect, useRef, useState, useSyncExternalStore, type PropsWithChildren } from "react"
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type PropsWithChildren } from "react"
 import { AppState, View } from "react-native"
 import { MobileApi } from "../services/api"
 import { BoardController } from "../services/board-controller"
@@ -10,17 +10,27 @@ import { PlannerController } from "../services/planner-controller"
 import { RunsController } from "../services/runs-controller"
 import { NotificationController } from "../services/notification-controller"
 import { createNotificationDevice } from "../services/notification-device"
+import { BillingController } from "../services/billing-controller"
+import { nativeBillingSdk } from "../services/billing-native"
+import { useKiosk } from "./kiosk"
+import { useNotificationSession } from "./notification-session"
 import { getDeviceId, getInstallationSecret, openLocalStore } from "../storage/native-store"
 import type { LocalStore } from "../storage/local-store"
 import { Action, Copy, Loading, styles } from "../components/ui"
 
-interface Runtime { controller: BoardController; planner: PlannerController; runs: RunsController; notifications: NotificationController; api: MobileApi; store: LocalStore; keepAwake: boolean; syncPaused: boolean; setKeepAwake: (enabled: boolean) => Promise<void> }
+interface Runtime { controller: BoardController; planner: PlannerController; runs: RunsController; notifications: NotificationController; billing: BillingController; api: MobileApi; store: LocalStore; keepAwake: boolean; syncPaused: boolean; setKeepAwake: (enabled: boolean) => Promise<void> }
 const RuntimeContext = createContext<Runtime | null>(null)
 
 export function RuntimeProvider({ children, accountId, sessionId, restricted = false, canSync = true }: PropsWithChildren<{ accountId: string; sessionId: string; restricted?: boolean; canSync?: boolean }>) {
-  const { getToken } = useAuth()
+  const { getToken, userId: currentAccountId, sessionId: currentSessionId, isSignedIn } = useAuth({ treatPendingAsSignedOut: false })
+  const { controller: kiosk } = useKiosk()
+  const { isSessionActive } = useNotificationSession()
   const tokenRef = useRef(getToken)
-  useEffect(() => { tokenRef.current = getToken }, [getToken])
+  const identityRef = useRef({ accountId: currentAccountId, sessionId: currentSessionId, signedIn: isSignedIn })
+  useLayoutEffect(() => {
+    tokenRef.current = getToken
+    identityRef.current = { accountId: currentAccountId, sessionId: currentSessionId, signedIn: isSignedIn }
+  }, [getToken, currentAccountId, currentSessionId, isSignedIn])
   const [runtime, setRuntime] = useState<Omit<Runtime, "keepAwake" | "syncPaused" | "setKeepAwake"> | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
@@ -33,12 +43,18 @@ export function RuntimeProvider({ children, accountId, sessionId, restricted = f
     let planner: PlannerController | undefined
     let runs: RunsController | undefined
     let notifications: NotificationController | undefined
+    let billing: BillingController | undefined
     let boardSubscription: (() => void) | undefined
     let network: ReturnType<typeof Network.addNetworkStateListener> | undefined
     let app: ReturnType<typeof AppState.addEventListener> | undefined
     void (async () => {
       const [store, deviceId] = await Promise.all([openLocalStore(), getDeviceId()])
-      const api = new MobileApi(process.env.EXPO_PUBLIC_API_URL ?? "https://www.cyntch.com", accountId, deviceId, () => tokenRef.current(), getInstallationSecret, sessionId)
+      const matchesIdentity = () => !cancelled && isSessionActive(accountId,sessionId) && identityRef.current.signedIn === true && identityRef.current.accountId === accountId && identityRef.current.sessionId === sessionId
+      const api = new MobileApi(process.env.EXPO_PUBLIC_API_URL ?? "https://www.cyntch.com", accountId, deviceId, async () => {
+        if (!matchesIdentity()) return null
+        const token = await tokenRef.current()
+        return matchesIdentity() ? token : null
+      }, getInstallationSecret, sessionId)
       const displaySetting = await store.setting<boolean>(accountId, "keep-awake")
       if (cancelled) return
       controller = new BoardController(store, accountId, deviceId, api, randomUUID)
@@ -46,25 +62,30 @@ export function RuntimeProvider({ children, accountId, sessionId, restricted = f
       runs = new RunsController(store, accountId, api, controller)
       notifications = new NotificationController(store.notifications.forSession(accountId, sessionId), accountId, api, createNotificationDevice(store.notificationSessions), randomUUID,
         Date.now, selection => digestStringAsync(CryptoDigestAlgorithm.SHA256, selection))
-      boardSubscription = controller.subscribe(() => { if (controller && !restricted) { void planner?.selectHousehold(controller.getSnapshot().board?.household ?? null); runs?.observe(controller.getSnapshot()); if (canSync) notifications?.observe(controller.getSnapshot()) } })
+      billing = new BillingController(store.billing, { accountId, sessionId, deviceId }, api, nativeBillingSdk, householdId => {
+        const protection = kiosk.getSnapshot()
+        return matchesIdentity() && !restricted && canSync && protection.ready && !protection.changing && !protection.record && controller?.getSelectedHouseholdId() === householdId
+      }, randomUUID)
+      boardSubscription = controller.subscribe(() => { if (controller && !restricted) { void planner?.selectHousehold(controller.getSnapshot().board?.household ?? null); runs?.observe(controller.getSnapshot()); billing?.selectHousehold(controller.getSnapshot().board?.household ?? null); if (canSync) notifications?.observe(controller.getSnapshot()) } })
       const connected = (state: Network.NetworkState) => {
         const online = canSync && state.isConnected === true && state.isInternetReachable !== false
-        controller?.setConnectivity(online); planner?.setConnectivity(!restricted && online); notifications?.setConnectivity(!restricted && online)
+        controller?.setConnectivity(online); planner?.setConnectivity(!restricted && online); notifications?.setConnectivity(!restricted && online); billing?.setConnectivity(!restricted && online)
       }
       network = Network.addNetworkStateListener(connected)
-      app = AppState.addEventListener("change", state => { setActive(state === "active"); controller?.setActive(state === "active"); planner?.setActive(!restricted && state === "active"); runs?.setActive(!restricted && state === "active"); notifications?.setActive(!restricted && canSync && state === "active") })
+      app = AppState.addEventListener("change", state => { setActive(state === "active"); controller?.setActive(state === "active"); planner?.setActive(!restricted && state === "active"); runs?.setActive(!restricted && state === "active"); notifications?.setActive(!restricted && canSync && state === "active"); billing?.setActive(!restricted && canSync && state === "active") })
       setAwake(displaySetting === true)
-      setRuntime({ controller, planner, runs, notifications, api, store })
+      setRuntime({ controller, planner, runs, notifications, billing, api, store })
       controller.setActive(AppState.currentState === "active")
       planner.setActive(!restricted && AppState.currentState === "active")
       runs.setActive(!restricted && AppState.currentState === "active")
       notifications.setActive(!restricted && canSync && AppState.currentState === "active")
+      billing.setActive(!restricted && canSync && AppState.currentState === "active")
       await controller.start()
       if (!restricted && canSync) await notifications.start()
       connected(await Network.getNetworkStateAsync())
     })().catch(cause => { if (!cancelled) setError(cause instanceof Error ? cause.message : "Unable to open your saved household") })
-    return () => { cancelled = true; network?.remove(); app?.remove(); boardSubscription?.(); controller?.stop(); planner?.stop(); runs?.stop(); notifications?.stop() }
-  }, [accountId, sessionId, attempt, restricted, canSync])
+    return () => { cancelled = true; network?.remove(); app?.remove(); boardSubscription?.(); controller?.stop(); planner?.stop(); runs?.stop(); notifications?.stop(); billing?.stop() }
+  }, [accountId, sessionId, attempt, restricted, canSync, kiosk, isSessionActive])
 
   useEffect(() => {
     let cancelled = false
@@ -103,4 +124,8 @@ export function useRuns() {
 export function useNotifications() {
   const { notifications } = useRuntime()
   return useSyncExternalStore(notifications.subscribe, notifications.getSnapshot, notifications.getSnapshot)
+}
+export function useBilling() {
+  const { billing } = useRuntime()
+  return useSyncExternalStore(billing.subscribe, billing.getSnapshot, billing.getSnapshot)
 }

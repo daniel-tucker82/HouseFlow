@@ -4,6 +4,7 @@ import { PlannerStore } from "./planner-store"
 import { NotificationStore } from "./notification-store"
 import { NotificationSessionStore } from "./notification-session-store"
 import { NotificationInbox } from "./notification-inbox"
+import { BillingStore } from "./billing-store"
 import { KioskStore, kioskRestriction, requireKioskParentAccess } from "./kiosk-store"
 import { restrictKioskBoard } from "../../../shared/mobile/kiosk"
 import { mergeRunPages, runView, summarizeRun, type RunPage, type RunSnapshot, type RunSummary, type RunView } from "../../../shared/mobile/runs"
@@ -84,7 +85,8 @@ export class LocalStore {
   readonly notificationSessions: NotificationSessionStore
   readonly notificationInbox: NotificationInbox
   readonly kiosk: KioskStore
-  constructor(private readonly database: LocalDatabase) { this.planner = new PlannerStore(database); this.notifications = new NotificationStore(database); this.notificationSessions = new NotificationSessionStore(database); this.notificationInbox = new NotificationInbox(database); this.kiosk = new KioskStore(database) }
+  readonly billing: BillingStore
+  constructor(private readonly database: LocalDatabase) { this.planner = new PlannerStore(database); this.notifications = new NotificationStore(database); this.notificationSessions = new NotificationSessionStore(database); this.notificationInbox = new NotificationInbox(database); this.kiosk = new KioskStore(database); this.billing = new BillingStore(database) }
 
   async initialize() {
     await this.database.execAsync(`
@@ -124,13 +126,14 @@ export class LocalStore {
         account_id TEXT NOT NULL, household_id TEXT NOT NULL, view TEXT NOT NULL, data TEXT NOT NULL,
         PRIMARY KEY(account_id,household_id,view)
       );
-      PRAGMA user_version = 9;
+      PRAGMA user_version = 10;
     `)
     await this.kiosk.initialize()
     await this.planner.initialize()
     await this.notifications.initialize()
     await this.notificationSessions.initialize()
     await this.notificationInbox.initialize()
+    await this.billing.initialize()
   }
 
   async getBoard(accountId: string, householdId: string, connection: SqlConnection = this.database) {
