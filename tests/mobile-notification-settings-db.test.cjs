@@ -23,6 +23,7 @@ test('native notification settings isolate devices/households/accounts and safel
   await db.query(migration); await db.query(migration)
   await db.query(readFileSync(path.resolve(__dirname, '../database/0027_native_notification_sessions.sql'), 'utf8'))
   await db.query(readFileSync(path.resolve(__dirname, '../database/0028_native_kiosk_sessions.sql'), 'utf8'))
+  await db.query(readFileSync(path.resolve(__dirname, '../database/0029_native_kiosk_recovery_receipts.sql'), 'utf8'))
   await db.query("insert into users values('parent'),('other'),('daughter'),('son')")
   const household = randomUUID(), secondHousehold = randomUUID(), privateHousehold = randomUUID(), phone = randomUUID(), tablet = randomUUID()
   await db.query("insert into households values($1,'Australia/Sydney'),($2,'UTC'),($3,'UTC')", [household, secondHousehold, privateHousehold])

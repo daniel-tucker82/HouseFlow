@@ -16,6 +16,9 @@ export function kioskSnapshot(row: KioskRow): NativeKioskSession {
     visibleMemberIds: row.visible_member_ids, editableMemberIds: row.editable_member_ids, state: row.state }
 }
 export async function readKioskForSession(client: PoolClient, accountId: string, sessionId: string) {
+  if ((await client.query("select 1 from native_kiosk_recoveries where user_id=$1 and session_id=$2 limit 1", [accountId, sessionId])).rows[0]) {
+    throw new KioskError("This sign-in session has ended. Sign in again.", 401)
+  }
   return (await client.query<KioskRow>("select * from native_kiosk_sessions where user_id=$1 and session_id=$2 order by sequence desc limit 1", [accountId, sessionId])).rows[0] ?? null
 }
 export async function readNativeKiosk(pool: Pool, accountId: string, sessionId: string, deviceId: string, secret: string) {
@@ -32,7 +35,7 @@ export async function readNativeKiosk(pool: Pool, accountId: string, sessionId: 
   } finally { client.release() }
 }
 
-/** Session lock precedes device and household locks, also used by protected requests. */
+/** Session lock precedes operation, device and household locks. */
 export async function saveNativeKiosk(pool: Pool, accountId: string, sessionId: string, deviceId: string, secret: string, input: unknown) {
   validateKioskIdentity(deviceId, sessionId)
   const operation = parseKioskOperation(input), client = await pool.connect()
@@ -41,21 +44,40 @@ export async function saveNativeKiosk(pool: Pool, accountId: string, sessionId: 
     await client.query("set local lock_timeout='5s'")
     // Recovery retires the old authenticated session. Lock that session before
     // the installation so an earlier task request finishes before recovery.
-    const target = operation.action === "recover" ? (await client.query<KioskRow>("select * from native_kiosk_sessions where id=$1", [operation.id])).rows[0] : null
-    if (target && (target.user_id !== accountId || target.device_id !== deviceId)) throw new KioskError("This kiosk belongs to a different parent or device.", 403)
-    const protectedSession = target?.session_id ?? sessionId
+    const protectedSession = operation.action === "recover" ? operation.previousSessionId : sessionId
+    if (operation.action === "recover" && protectedSession === sessionId) throw new KioskError("Sign out and authenticate the parent account again to recover the kiosk PIN.", 403)
     await client.query("select pg_advisory_xact_lock(hashtextextended($1,0))", [kioskSessionKey(protectedSession)])
+    await client.query("select pg_advisory_xact_lock(hashtextextended($1,0))", [`native-kiosk-operation:${operation.id}`])
     await client.query("select pg_advisory_xact_lock(hashtextextended($1,0))", [`native-device:${deviceId}`])
-    await verifyInstallation(client, deviceId, secret, operation.action === "activate")
+    await verifyInstallation(client, deviceId, secret, true)
+    const previous = await readKioskForSession(client, accountId, sessionId)
     let row = (await client.query<KioskRow>("select * from native_kiosk_sessions where id=$1 for update", [operation.id])).rows[0]
     if (row && (row.user_id !== accountId || row.device_id !== deviceId)) throw new KioskError("This kiosk belongs to a different parent or device.", 403)
+    const receipt = (await client.query<{ user_id: string; device_id: string; session_id: string }>("select user_id,device_id,session_id from native_kiosk_recoveries where kiosk_id=$1", [operation.id])).rows[0]
+    const cancellation = (await client.query<{ user_id: string; device_id: string; session_id: string; exit_secret_hash: string }>("select * from native_kiosk_cancellations where kiosk_id=$1", [operation.id])).rows[0]
+    if (cancellation && (cancellation.user_id !== accountId || cancellation.device_id !== deviceId || cancellation.session_id !== protectedSession)) throw new KioskError("This kiosk request belongs to a different sign-in or device.", 409)
+    if (operation.action === "recover") {
+      if ((row && row.session_id !== protectedSession) || (receipt && (receipt.user_id !== accountId || receipt.device_id !== deviceId || receipt.session_id !== protectedSession))) throw new KioskError("This recovery does not match the original kiosk.", 409)
+      if (previous && previous.state !== "unlocked") throw new KioskError("Use a new parent sign-in to recover this kiosk.", 403)
+      if ((await client.query("select 1 from native_kiosk_sessions where device_id=$1 and state='locked' and id<>$2", [deviceId, operation.id])).rows[0]) throw new KioskError("This device has a newer kiosk lock. Recover that lock instead.", 409)
+      await client.query(`insert into native_kiosk_recoveries(kiosk_id,user_id,device_id,session_id,recovered_by_session_id)
+        values($1,$2,$3,$4,$5) on conflict(kiosk_id) do nothing`, [operation.id, accountId, deviceId, protectedSession, sessionId])
+      if (row?.state === "locked") row = (await client.query<KioskRow>("update native_kiosk_sessions set state='recovered',ended_at=now() where id=$1 returning *", [row.id])).rows[0]
+      await client.query(`update native_notification_devices set permission='denied',expo_push_token=null,session_id=null,revision=revision+1,updated_at=now()
+        where device_id=$1 and user_id=$2 and session_id=$3`, [deviceId, accountId, protectedSession])
+      await client.query(`update native_notification_deliveries set state='suppressed',lease_id=null,lease_until=null
+        where device_id=$1 and user_id=$2 and session_id=$3 and state in ('queued','sending')`, [deviceId, accountId, protectedSession])
+      await client.query("commit")
+      return { kiosk: row ? kioskSnapshot(row) : null, recovery: { id: operation.id, accountId, deviceId, sessionId: protectedSession } }
+    }
+    if (receipt) throw new KioskError("This kiosk activation has been recovered. Create a new kiosk session.", 409)
     if (operation.action === "activate") {
+      if (cancellation) throw new KioskError("This kiosk activation was cancelled. Create a new kiosk session.", 409)
       const requestHash = hash(JSON.stringify(operation))
       if (row) {
         if (row.session_id !== sessionId || row.request_hash !== requestHash) throw new KioskError("This kiosk request has already been used for different settings.", 409)
         if (row.state === "recovered") throw new KioskError("This sign-in session has ended. Sign in again.", 401)
       } else {
-        const previous = await readKioskForSession(client, accountId, sessionId)
         if (previous?.state === "recovered") throw new KioskError("This sign-in session has ended. Sign in again.", 401)
         const active = (await client.query("select 1 from native_kiosk_sessions where state='locked' and (device_id=$1 or (user_id=$2 and session_id=$3))", [deviceId, accountId, sessionId])).rows[0]
         if (active) throw new KioskError("Unlock the current kiosk before changing its configuration.", 423)
@@ -71,19 +93,18 @@ export async function saveNativeKiosk(pool: Pool, accountId: string, sessionId: 
         await client.query("update native_notification_deliveries set state='suppressed',lease_id=null,lease_until=null where device_id=$1 and state in ('queued','sending')", [deviceId])
       }
     } else {
-      if (!row) throw new KioskError("This kiosk session is no longer available.", 404)
-      if (operation.action === "unlock") {
-        if (row.session_id !== sessionId || row.state === "recovered") throw new KioskError("Sign in with the parent account to recover this kiosk.", 401)
-        if (!timingSafeEqual(Buffer.from(row.exit_secret_hash, "hex"), Buffer.from(hash(operation.exitSecret), "hex"))) throw new KioskError("The protected kiosk key does not match.", 403)
-      } else {
-        if (row.session_id === sessionId) throw new KioskError("Sign out and authenticate the parent account again to recover the kiosk PIN.", 403)
-        const current = await readKioskForSession(client, accountId, sessionId)
-        if (current && current.state !== "unlocked") throw new KioskError("Use a new parent sign-in to recover this kiosk.", 403)
+      if (!row) {
+        const exitHash = hash(operation.exitSecret)
+        if (cancellation && !timingSafeEqual(Buffer.from(cancellation.exit_secret_hash, "hex"), Buffer.from(exitHash, "hex"))) throw new KioskError("The protected kiosk key does not match.", 403)
+        await client.query(`insert into native_kiosk_cancellations(kiosk_id,user_id,device_id,session_id,exit_secret_hash)
+          values($1,$2,$3,$4,$5) on conflict(kiosk_id) do nothing`, [operation.id, accountId, deviceId, sessionId, exitHash])
+        await client.query("commit")
+        return { kiosk: null, cancelledActivation: { id: operation.id, accountId, deviceId, sessionId } }
       }
+      if (row.session_id !== sessionId || row.state === "recovered") throw new KioskError("Sign in with the parent account to recover this kiosk.", 401)
+      if (!timingSafeEqual(Buffer.from(row.exit_secret_hash, "hex"), Buffer.from(hash(operation.exitSecret), "hex"))) throw new KioskError("The protected kiosk key does not match.", 403)
       if (row.state === "locked") {
-        row = (await client.query<KioskRow>("update native_kiosk_sessions set state=$2,ended_at=now() where id=$1 returning *", [row.id, operation.action === "recover" ? "recovered" : "unlocked"])).rows[0]
-        if (operation.action === "recover") await client.query(`update native_notification_devices set permission='denied',expo_push_token=null,session_id=null,revision=revision+1,updated_at=now()
-          where device_id=$1 and user_id=$2 and session_id=$3`, [deviceId, accountId, row.session_id])
+        row = (await client.query<KioskRow>("update native_kiosk_sessions set state='unlocked',ended_at=now() where id=$1 returning *", [row.id])).rows[0]
       }
     }
     await client.query("commit")

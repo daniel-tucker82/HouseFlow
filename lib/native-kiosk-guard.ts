@@ -12,7 +12,7 @@ async function restrictRequest(client: PoolClient, request: Request, row: KioskR
   const url = new URL(request.url)
   if (request.method === "GET" && url.pathname === "/api/mobile/time") return request
   const membership = (await client.query<{ role: string }>("select role from household_members where household_id=$1 and user_id=$2", [row.household_id, row.user_id])).rows[0]
-  if (!membership || normalizeRole(membership.role) !== "manager") throw new KioskError("Parent access to this household changed. Kiosk mode remains locked.", 423)
+  if (!membership || normalizeRole(membership.role) !== "manager") throw new KioskError("Parent access to this household changed. Kiosk mode remains locked.", 423, "kiosk_access_changed")
   if (request.method === "GET" && url.pathname === "/api/mobile/bootstrap") {
     const requested = url.searchParams.get("householdId")
     if (requested && requested !== row.household_id) throw new KioskError("Unlock kiosk mode to switch households.", 423)
@@ -87,9 +87,11 @@ export async function guardNativeKioskRequest(pool: Pool, request: Request, acco
 export async function withNativeKioskRequest(request: Request, work: (request: Request) => Promise<Response>) {
   const { userId, sessionId } = await auth()
   if (!userId || !sessionId) return work(request)
+  const expectedSession = request.headers.get("X-Cyntch-Session")
+  if (expectedSession && expectedSession !== sessionId) return Response.json({ error: "Your sign-in changed. Please try again." }, { status: 403 })
   try { return await guardNativeKioskRequest(kioskGateDb, request, userId, sessionId, work) }
   catch (error) {
-    if (error instanceof KioskError) return Response.json({ error: error.message }, { status: error.status, headers: { "Cache-Control": "no-store" } })
+    if (error instanceof KioskError) return Response.json({ error: error.message, ...(error.code ? { code: error.code } : {}) }, { status: error.status, headers: { "Cache-Control": "no-store" } })
     console.error("[native-kiosk] Unable to check device restrictions", { name: error instanceof Error ? error.name : "UnknownError", code: (error as { code?: string })?.code })
     return Response.json({ error: "Unable to verify device access. Please try again." }, { status: 503 })
   }

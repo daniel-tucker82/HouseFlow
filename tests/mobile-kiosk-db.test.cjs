@@ -76,7 +76,7 @@ test('K03 server restrictions ignore missing/spoofed flags and expose only permi
     await assert.rejects(f.guard(f.request(pathname, body, { 'X-Cyntch-Kiosk': 'false', 'X-Cyntch-Device': randomUUID() }), async () => assert.fail('Restricted handler executed')), error => error.status === 423)
   }
   const snapshot = { household: { id: f.householdId, role: 'manager' }, members: [{id:'child'}, {id:'hidden'}], tasks: [
-    { id: f.taskId, assignee_ids:['child','hidden'], blocking_task_title:'Private prerequisite' }, { id:f.hiddenTask, assignee_ids:['hidden'] } ] }
+    { id: f.taskId, assignee_ids:['child','hidden'], blocking_task_title:'Private prerequisite', blocking_task_id:f.hiddenTask, blocking_task_assignee_ids:['hidden'] }, { id:f.hiddenTask, assignee_ids:['hidden'] } ] }
   const result = await f.guard(f.request('/api/mobile/bootstrap'), async request => {
     assert.equal(new URL(request.url).searchParams.get('householdId'), f.householdId)
     return Response.json({ accountId:'parent', households:[snapshot.household,{id:f.other}], board:snapshot })
@@ -84,6 +84,7 @@ test('K03 server restrictions ignore missing/spoofed flags and expose only permi
   const data = await result.json()
   assert.equal(data.households.length,1); assert.deepEqual(data.board.members,[{id:'child'}]); assert.equal(data.board.tasks.length,1)
   assert.deepEqual(data.board.tasks[0].assignee_ids,['child']); assert.equal(data.board.tasks[0].blocking_task_title,null)
+  assert.equal(data.board.tasks[0].blocking_task_id,null); assert.deepEqual(data.board.tasks[0].blocking_task_assignee_ids,[])
   await assert.rejects(f.guard(f.request('/api/mobile/bootstrap?householdId='+f.other)), error=>error.status===423)
   const change = { action:'setOccurrenceTaskCompleted', householdId:f.householdId, occurrenceId:f.occurrenceId, taskId:f.taskId,
     actorMemberId:'child', completed:true, clientOperation:{deviceId:f.deviceId} }
@@ -96,24 +97,83 @@ test('K03 server restrictions ignore missing/spoofed flags and expose only permi
     await assert.rejects(f.guard(f.request('/api/mobile/completions',{...change,...patch})), error=>[403,423].includes(error.status))
   }
   await f.db.query("update household_members set role='supervisor' where household_id=$1 and user_id='parent'", [f.householdId])
-  await assert.rejects(f.guard(f.request('/api/mobile/bootstrap')), error=>error.status===423)
+  await assert.rejects(f.guard(f.request('/api/mobile/bootstrap')), error=>error.status===423&&error.code==='kiosk_access_changed')
+  const denied=await f.lib.withNativeKioskRequest(f.request('/api/mobile/bootstrap'),async()=>assert.fail('Removed manager reached bootstrap'))
+  assert.equal(denied.status,423); assert.equal((await denied.json()).code,'kiosk_access_changed')
+  const replaced=await f.lib.withNativeKioskRequest(f.request('/api/mobile/bootstrap',undefined,{'X-Cyntch-Session':'sess_other'}),async()=>assert.fail('Wrong session reached bootstrap'))
+  assert.equal(replaced.status,403)
 })
 
 test('K04 recovery requires a different parent session, retires the old one, and does not unlock a second device', { skip: !url }, async t => {
   const f = await fixture(t), first = f.activation(), other = f.activation(), otherDevice = randomUUID()
   await f.save(first); await f.save(other,{deviceId:otherDevice,sessionId:'sess_second'})
-  await assert.rejects(f.save({action:'recover',id:first.id}),error=>error.status===403)
-  await assert.rejects(f.save({action:'recover',id:first.id},{userId:'child',sessionId:'sess_child'}),error=>error.status===403)
+  const recovery = {action:'recover',id:first.id,previousSessionId:f.auth.sessionId}
+  await assert.rejects(f.save(recovery),error=>error.status===403)
+  await assert.rejects(f.save(recovery,{userId:'child',sessionId:'sess_child'}),error=>error.status===403)
   await assert.rejects(f.guard(f.request('/api/leader/flow',undefined,{'X-Cyntch-Device':f.deviceId}),undefined,{sessionId:'sess_reauthenticated'}),error=>error.status===423)
-  const recovered = await f.save({action:'recover',id:first.id},{sessionId:'sess_reauthenticated'})
+  const recovered = await f.save(recovery,{sessionId:'sess_reauthenticated'})
   assert.equal(recovered.kiosk.state,'recovered')
-  assert.deepEqual(await f.save({action:'recover',id:first.id},{sessionId:'sess_reauthenticated'}),recovered)
+  assert.deepEqual(await f.save(recovery,{sessionId:'sess_reauthenticated'}),recovered)
   await assert.rejects(f.guard(f.request('/api/leader/flow')),error=>error.status===401)
   await assert.rejects(f.save(f.activation()),error=>error.status===401)
   await assert.rejects(f.save(first),error=>error.status===401)
   await assert.rejects(f.lib.readNativeKiosk(f.db,'parent','sess_tablet',f.deviceId,f.secret),error=>error.status===401)
   assert.equal((await f.guard(f.request('/api/leader/flow'),undefined,{sessionId:'sess_reauthenticated'})).status,200)
   assert.equal((await f.db.query('select state from native_kiosk_sessions where id=$1',[other.id])).rows[0].state,'locked')
+})
+
+test('K04 recovery records an unreceived activation and prevents late activation or old-session access', { skip: !url }, async t => {
+  const f=await fixture(t), activation=f.activation(), parent={sessionId:'sess_recovered_parent'}
+  const operation={action:'recover',id:activation.id,previousSessionId:f.auth.sessionId}
+  const recovered=await f.save(operation,parent)
+  assert.equal(recovered.kiosk,null)
+  assert.deepEqual(recovered.recovery,{id:activation.id,accountId:'parent',deviceId:f.deviceId,sessionId:f.auth.sessionId})
+  assert.deepEqual(await f.save(operation,parent),recovered,'lost recovery replies replay the durable receipt')
+  await assert.rejects(f.save(activation),error=>error.status===401)
+  await assert.rejects(f.save(f.activation()),error=>error.status===401)
+  await assert.rejects(f.guard(f.request('/api/leader/flow')),error=>error.status===401)
+  await assert.rejects(f.lib.readNativeKiosk(f.db,'parent',f.auth.sessionId,f.deviceId,f.secret),error=>error.status===401)
+  assert.equal((await f.guard(f.request('/api/leader/flow'),undefined,parent)).status,200)
+  await assert.rejects(f.save(activation,parent),error=>error.status===409,'a new sign-in cannot reuse the cancelled activation ID')
+  const newer=f.activation()
+  await f.save(newer,parent)
+  await assert.rejects(f.save(operation,{sessionId:'sess_newer_recovery'}),error=>error.status===409,'an old receipt must not unlock a newer kiosk')
+  assert.equal((await f.db.query('select state from native_kiosk_sessions where id=$1',[newer.id])).rows[0].state,'locked')
+})
+
+test('K04 PIN unlock cancels unreceived activation without retiring parent access and wins a concurrent activation', { skip: !url }, async t => {
+  const f=await fixture(t), first=f.activation(), unlock={action:'unlock',id:first.id,exitSecret:f.exitSecret}
+  const result=await f.save(unlock)
+  assert.equal(result.kiosk,null)
+  assert.deepEqual(result.cancelledActivation,{id:first.id,accountId:'parent',deviceId:f.deviceId,sessionId:f.auth.sessionId})
+  assert.deepEqual(await f.save(unlock),result)
+  await assert.rejects(f.save({...unlock,exitSecret:'d'.repeat(64)}),error=>error.status===403)
+  await assert.rejects(f.save(first),error=>error.status===409)
+  assert.equal((await f.guard(f.request('/api/leader/flow'))).status,200)
+  const next=f.activation()
+  const concurrent=await Promise.allSettled([f.save(next),f.save({...unlock,id:next.id})])
+  assert.equal(concurrent[1].status,'fulfilled')
+  if(concurrent[0].status==='rejected') assert.equal(concurrent[0].reason.status,409)
+  assert.equal((await f.db.query("select count(*)::int n from native_kiosk_sessions where state='locked'")).rows[0].n,0)
+  assert.equal((await f.guard(f.request('/api/leader/flow'))).status,200)
+  assert.equal((await f.save(f.activation())).kiosk.state,'locked','a fresh activation remains available on the same parent session')
+})
+
+test('K04 concurrent activation/recovery has one final recovered outcome; failed recovery rolls back its receipt', { skip: !url }, async t => {
+  const f=await fixture(t), activation=f.activation(), parent={sessionId:'sess_recovered_parent'}
+  const recovery={action:'recover',id:activation.id,previousSessionId:f.auth.sessionId}
+  const results=await Promise.allSettled([f.save(activation),f.save(recovery,parent)])
+  assert.equal(results[1].status,'fulfilled')
+  if(results[0].status==='rejected') assert.equal(results[0].reason.status,401)
+  assert.equal((await f.db.query("select count(*)::int n from native_kiosk_sessions where state='locked'")).rows[0].n,0)
+  assert.equal((await f.db.query('select count(*)::int n from native_kiosk_recoveries')).rows[0].n,1)
+  await assert.rejects(f.save(activation),error=>error.status===401)
+  const device=randomUUID(), failed={action:'recover',id:randomUUID(),previousSessionId:'sess_failed_activation'}
+  await f.db.query("create function fail_kiosk_recovery() returns trigger language plpgsql as $$ begin raise exception 'Receipt write interrupted'; end $$; create trigger fail_kiosk_recovery before insert on native_kiosk_recoveries for each row execute function fail_kiosk_recovery()")
+  await assert.rejects(f.save(failed,{deviceId:device,sessionId:'sess_new_parent'}),/Receipt write interrupted/)
+  assert.equal((await f.db.query('select count(*)::int n from native_kiosk_recoveries where kiosk_id=$1',[failed.id])).rows[0].n,0)
+  assert.equal((await f.db.query('select count(*)::int n from native_notification_installations where device_id=$1',[device])).rows[0].n,0)
+  assert.equal((await f.guard(f.request('/api/leader/flow'),undefined,{sessionId:failed.previousSessionId})).status,200)
 })
 
 test('K01 kiosk API validates account/session/installation proof and manager configuration before activation', { skip: !url }, async t => {

@@ -31,6 +31,8 @@ export interface BoardTask {
   assignee_ids: string[]
   lock_type: "none" | "prerequisite" | "time"
   blocking_task_title: string | null
+  blocking_task_id?: string | null
+  blocking_task_assignee_ids?: string[]
   unlock_at: string | null
   expires_at: string | null
 }
