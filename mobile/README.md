@@ -391,3 +391,30 @@ production connection capacity and latency still need measurement.
 This is backend coverage only. The native PIN screen, secure offline verifier,
 restart-persistent attempt throttling, restricted cache lifecycle and recovery UI
 are not yet connected. No device has been presented as a finished native kiosk.
+
+The offline PIN verifier is now implemented separately from the unfinished kiosk
+UI. It stores a six-digit PIN's verifier, random device secret and server exit
+capability exclusively in OS secure storage, using WHEN_UNLOCKED_THIS_DEVICE_ONLY
+on iOS. Each attempt is durably reserved before verification. Five failures start
+a 30-second cooldown, increasing to a 15-minute cap. A process restart restarts
+the outstanding cooldown, so changing the wall clock or repeatedly reopening the
+app cannot skip it. Checking the PIN does no network work and starts no polling
+timer. Missing/corrupt secure data or write failures require recovery or a retry;
+they never release an unlock capability. This protects the app lock, not a rooted
+device or a compromised OS keychain.
+
+Six controlled verifier tests passed for retries, concurrent attempts, secure
+storage failures and interruption during verification. On the Android 36 emulator,
+the real SecureStore-backed verifier accepted the correct PIN, persisted five
+failures, retained its cooldown after the background app process was killed and
+relaunched, and successfully removed the temporary test credential. Root/mobile
+lint and typecheck and Android/iOS JavaScript exports passed. Native iOS storage
+behavior, the PIN UI and the complete kiosk lifecycle remain unverified.
+
+Before exposing activation in the app, integrate the durable local lock with
+cache pruning, in-flight response fencing, protected navigation and offline task
+updates. Parent recovery must also resolve activation whose server acknowledgement
+was lost. If the original activation never reached the server, the current recover
+endpoint returns 404; the integration needs an authenticated cancellation receipt
+that also prevents a late original activation from relocking the device. Do not
+treat an unconfirmed activation or missing credential as permission to unlock.

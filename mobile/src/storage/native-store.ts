@@ -2,6 +2,7 @@ import * as SQLite from "expo-sqlite"
 import * as SecureStore from "expo-secure-store"
 import { getRandomBytesAsync, randomUUID } from "expo-crypto"
 import { LocalStore, type LocalDatabase, type SqlConnection, type SqlValue } from "./local-store"
+export { nativeKioskVault } from "./native-kiosk-vault"
 
 // Expo opens a separate connection for exclusive transactions. Serialize writers so
 // rapid taps and acknowledgements cannot contend for the same SQLite write lock.
