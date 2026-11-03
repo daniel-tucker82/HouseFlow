@@ -1,6 +1,7 @@
 import type { PoolClient } from "pg"
 import { getHouseholdEntitlement } from "@/lib/entitlements"
 import { retainedTaskLimit } from "@/lib/billing-policy"
+import { paidHouseholdAccessSql } from "@/lib/billing-access"
 
 // Trusted SQL fragment: callers join tasks as t. It preserves dependency-only
 // progress on downgrade while ignoring saved timing rules without deleting them.
@@ -8,9 +9,7 @@ export const TASK_AUTOMATION_ALLOWED_SQL = process.env.FREEMIUM_ENFORCEMENT_ENAB
   select 1 from households eh
   left join owner_entitlements eo on eo.user_id = eh.leader_id
   left join household_billing eb on eb.household_id = eh.id
-  where eh.id = t.household_id and (eo.user_id is not null or (
-    eb.billing_hold is null and eb.subscription_status in ('active', 'past_due', 'canceled') and eb.paid_through > now()
-  ))
+  where eh.id = t.household_id and (eo.user_id is not null or ${paidHouseholdAccessSql("eh.id", "eb")})
 )`
 
 export async function occurrenceAutomationAllowed(client: PoolClient, occurrenceId: string) {

@@ -1,7 +1,8 @@
 import { clerkClient } from "@clerk/nextjs/server"
 import type { PoolClient } from "pg"
 import { db } from "@/lib/db"
-import { householdLimits, resolveHouseholdTier, retainedTaskLimit, type HouseholdTier } from "@/lib/billing-policy"
+import { householdLimits, retainedTaskLimit, type HouseholdTier } from "@/lib/billing-policy"
+import { paidHouseholdAccessSql } from "@/lib/billing-access"
 
 const OWNER_EMAIL = "daniel@nexusaspyre.com"
 
@@ -30,7 +31,7 @@ export async function ensurePermanentOwnerGrant(userId: string, client: PoolClie
 
 export async function getHouseholdEntitlement(client: PoolClient, householdId: string) {
   const result = await client.query(
-    `select h.leader_id, b.subscription_status, b.paid_through, b.free_routine_id, b.billing_hold
+    `select h.leader_id, b.free_routine_id, ${paidHouseholdAccessSql("h.id", "b")} as paid_access
      from households h left join household_billing b on b.household_id = h.id
      where h.id = $1::uuid`, [householdId],
   )
@@ -38,8 +39,7 @@ export async function getHouseholdEntitlement(client: PoolClient, householdId: s
   if (!row) throw new EntitlementError("Household not found", 404)
   const ownerGrant = await ensurePermanentOwnerGrant(row.leader_id, client)
   const rolloutPending = process.env.FREEMIUM_ENFORCEMENT_ENABLED === "false"
-  const tier = ownerGrant ? "owner" : rolloutPending ? "premium" :
-    resolveHouseholdTier({ownerGrant, subscriptionStatus: row.billing_hold ? "suspended" : row.subscription_status ?? "none", paidThrough: row.paid_through})
+  const tier: HouseholdTier = ownerGrant ? "owner" : rolloutPending || row.paid_access ? "premium" : "free"
   return {tier, rolloutPending, limits: householdLimits(tier, process.env), freeRoutineId: row.free_routine_id as string | null, leaderId: row.leader_id as string}
 }
 

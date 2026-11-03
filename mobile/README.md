@@ -474,3 +474,68 @@ synced successfully. Evidence: `cyntch-font-scale-pin-retained.png` and
 `cyntch-font-scale-build.log` in the local Codex temporary directory. Root/mobile
 lint and mobile typecheck passed. This verifies a development APK replacement,
 not store delivery, database-version migration or the complete OS/device matrix.
+
+## Native subscription verification foundation
+
+Migration `0030_native_billing.sql` adds household billing identities and verified
+Apple/Google subscription records separately from Stripe. An identity is an opaque
+UUID, reused on reinstall and bound to one household/environment. Deleting a
+household retires its identity while retaining purchase ownership; restore cannot
+silently attach an old purchase to another household. RevenueCat must use identified
+customer IDs from these records, with **Keep with original App User ID** configured
+for both production and sandbox. Anonymous purchases and store family-sharing must
+not be enabled: Cyntch already shares Premium with the household's members.
+
+Server verification uses RevenueCat API V2 to check original/current customer,
+store, ownership, environment, approved product and access state. Pagination must
+finish before any access changes commit. API V1 is used only when a grace period
+requires its explicit expiry, checked against the same subscription transaction.
+Provider failures retain the last verified deadline; they never extend it.
+Database revisions are reserved before network requests so a delayed response
+cannot overwrite a more recent completed verification. No database transaction is
+held during provider requests, and credentials cannot follow redirects/pagination
+to a different origin/customer.
+
+The same paid-access predicate now covers household quotas, automation and free
+household admission. A Stripe hold does not revoke an independent valid store
+purchase, and revoking a store purchase does not erase paid Stripe or permanent
+owner access. Downgrades retain household data.
+
+This foundation is **disabled by default and is not a complete purchase flow**.
+No store/RevenueCat account was provisioned, no purchase SDK was installed, and no
+real store purchase or remote verification was performed in this stage. Before
+enabling it, finish authenticated billing endpoints, durable lifecycle webhooks
+and reconciliation, duplicate-purchase prevention, purchase/restore/management UI,
+provider configuration and the B01–B04 device/sandbox tests. The migration has only
+been applied inside disposable local test schemas, not production.
+
+Server configuration, once the full flow is ready:
+
+- `NATIVE_BILLING_ENABLED=true` and `NATIVE_BILLING_ENVIRONMENT=production`.
+  Sandbox is permitted only with an explicit development/test or Vercel preview
+  runtime; a production Vercel environment cannot accept sandbox grants.
+- `REVENUECAT_PROJECT_ID`, `REVENUECAT_V2_SECRET_KEY` (read subscriptions), and
+  `REVENUECAT_V1_SECRET_KEY` belong in protected server configuration, never the app.
+- `REVENUECAT_NATIVE_PRODUCTS` is a JSON array of four objects containing
+  `revenuecatProductId`, `storeProductId`, `store` (`app_store`/`play_store`) and
+  `interval` (`monthly`/`yearly`). These are real provider/catalog identifiers, not
+  client-supplied product choices. Both intervals are required for each store.
+
+`tests/mobile-native-billing-db.test.cjs` uses real isolated PostgreSQL transactions
+to verify lifecycle access, household isolation, retirement, rollback, out-of-order
+responses, sandbox exclusion, scheduler access and admission limits.
+`tests/mobile-native-billing-provider.test.cjs` uses synthetic provider responses
+to exercise pagination, ownership, current access decisions, explicit grace expiry,
+malformed responses and safe transport failures. These tests do not establish
+live RevenueCat/store compatibility; that remains a release prerequisite.
+
+Verification on 2026-11-04: all 197 non-billing regression tests (including the 18
+native billing checks), 19 isolated web-billing tests, root/mobile lint and
+typecheck, and the production Next.js build passed. No live charge, production
+database change or production deployment was made.
+
+Provider references checked on 2026-11-04: [Expo IAP](https://docs.expo.dev/guides/in-app-purchases/),
+[RevenueCat V2 subscription model](https://www.revenuecat.com/docs/api-v2/subscription-data-model),
+[customer subscriptions](https://www.revenuecat.com/docs/api-v2/customer/resources),
+[V1 grace expiry](https://www.revenuecat.com/docs/api-v1/customer-info-model), and
+[restore behaviour](https://www.revenuecat.com/docs/projects/restore-behavior).

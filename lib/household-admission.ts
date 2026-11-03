@@ -1,6 +1,7 @@
 import { db } from "@/lib/db"
 import { ensurePermanentOwnerGrant, EntitlementError } from "@/lib/entitlements"
 import { clerkClient } from "@clerk/nextjs/server"
+import { paidHouseholdAccessSql } from "@/lib/billing-access"
 
 export async function createHouseholdWithAdmission(userId: string, name: string, timezone: string) {
   if (name.length < 2 || name.length > 120) throw new EntitlementError("Household name must be 2–120 characters.", 400)
@@ -24,8 +25,7 @@ export async function createHouseholdWithAdmission(userId: string, name: string,
       const free = await client.query(`select count(*)::int as n from households h
         left join owner_entitlements o on o.user_id = h.leader_id
         left join household_billing b on b.household_id = h.id
-        where o.user_id is null and not coalesce(
-          b.billing_hold is null and b.subscription_status in ('active','past_due','canceled') and b.paid_through > now(), false)`)
+        where o.user_id is null and not ${paidHouseholdAccessSql("h.id", "b")}`)
       if (free.rows[0].n >= cap) {
         await client.query("insert into household_waitlist (user_id) values ($1) on conflict do nothing", [userId])
         await client.query("commit")
