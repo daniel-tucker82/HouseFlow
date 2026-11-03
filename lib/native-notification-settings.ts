@@ -3,7 +3,7 @@ import type { PoolClient } from "pg"
 import { db } from "@/lib/db"
 import { normalizeRole } from "@/lib/household-authz"
 import { defaultNotificationPreferences, type DeviceNotificationPreferences } from "@/shared/mobile/notification-catalog"
-import { NotificationSettingsError, notificationUuid, parseNotificationSettingsOperation, restrictNotificationPreferences,
+import { NotificationSettingsError, notificationUuid, notificationSessionId, parseNotificationSettingsOperation, restrictNotificationPreferences,
   type NativeNotificationDevice, type NotificationSettingsSnapshot, type NotificationSettingsOperation } from "@/shared/mobile/notification-settings"
 
 type DeviceRow = { revision: string; platform: "android" | "ios"; permission: NativeNotificationDevice["permission"]; has_token: boolean; device_name: string | null; app_version: string | null }
@@ -53,16 +53,20 @@ export async function readNativeNotificationSettings(userId: string, deviceId: s
 }
 
 /** Frozen operation IDs and revisions protect token rotation, sign-out and preference retries. */
-export async function saveNativeNotificationSettings(userId: string, deviceId: string, installationSecret: string, input: unknown) {
+export async function saveNativeNotificationSettings(userId: string, deviceId: string, installationSecret: string, input: unknown, sessionId: string) {
   checkDeviceId(deviceId)
+  if (!notificationSessionId.test(sessionId)) throw new NotificationSettingsError("Sign in again before registering notifications.", 401)
   const operation = parseNotificationSettingsOperation(input)
-  const hash = createHash("sha256").update(JSON.stringify(operation)).digest("hex")
+  const hash = createHash("sha256").update(JSON.stringify(operation)).update(operation.action === "registerDevice" ? sessionId : "").digest("hex")
   const client = await db.connect()
   try {
     await client.query("begin")
     // One physical installation can change accounts; serialize those registrations too.
     await client.query("select pg_advisory_xact_lock(hashtextextended($1,0))", [`native-device:${deviceId}`])
     await verifyInstallation(client, deviceId, installationSecret, operation.action === "registerDevice")
+    if ((await client.query("select 1 from native_notification_revocations where device_id=$1 and account_id=$2 and session_id=$3", [deviceId, userId, sessionId])).rowCount) {
+      throw new NotificationSettingsError("This sign-in session no longer receives notifications.", 403)
+    }
     const access = operation.action === "savePreferences" ? await membership(client, userId, operation.householdId, true) : null
     const receipt = (await client.query<{ request_hash: string; result: { device?: NativeNotificationDevice; settings?: NotificationSettingsSnapshot } }>(`select request_hash,result from native_notification_operations
       where user_id=$1 and device_id=$2 and operation_id=$3`, [userId, deviceId, operation.operationId])).rows[0]
@@ -74,7 +78,7 @@ export async function saveNativeNotificationSettings(userId: string, deviceId: s
       await client.query("commit"); return { ...replay, replayed: true }
     }
     let result: { device?: NativeNotificationDevice; settings?: NotificationSettingsSnapshot }
-    if (operation.action === "registerDevice") result = { device: await register(client, userId, deviceId, operation) }
+    if (operation.action === "registerDevice") result = { device: await register(client, userId, deviceId, operation, sessionId) }
     else {
       const device = (await client.query(deviceSelect, [userId, deviceId])).rows[0]
       if (!device) throw new NotificationSettingsError("Register this device before saving its notifications.", 409)
@@ -94,7 +98,7 @@ export async function saveNativeNotificationSettings(userId: string, deviceId: s
   } catch (error) { await client.query("rollback"); throw error } finally { client.release() }
 }
 
-async function register(client: PoolClient, userId: string, deviceId: string, operation: Extract<NotificationSettingsOperation, { action: "registerDevice" }>) {
+async function register(client: PoolClient, userId: string, deviceId: string, operation: Extract<NotificationSettingsOperation, { action: "registerDevice" }>, sessionId: string) {
   if (operation.token) await client.query("select pg_advisory_xact_lock(hashtextextended($1,0))", [`native-token:${operation.token}`])
   const current = (await client.query<DeviceRow>(`${deviceSelect} for update`, [userId, deviceId])).rows[0]
   if ((current?.revision ?? "0") !== operation.baseRevision) throw new NotificationSettingsError("This device registration changed. Refresh it before saving again.", 409)
@@ -104,9 +108,28 @@ async function register(client: PoolClient, userId: string, deviceId: string, op
   // Bump the former registration's revision so its delayed unsent update cannot reclaim it.
   if (operation.token) await client.query(`update native_notification_devices set expo_push_token=null,revision=revision+1,updated_at=now()
     where expo_push_token=$1 and (user_id<>$2 or device_id<>$3)`, [operation.token, userId, deviceId])
-  await client.query(`insert into native_notification_devices(user_id,device_id,platform,permission,expo_push_token,device_name,app_version)
-    values($1,$2,$3,$4,$5,$6,$7) on conflict(user_id,device_id) do update set platform=excluded.platform,permission=excluded.permission,
-    expo_push_token=excluded.expo_push_token,device_name=excluded.device_name,app_version=excluded.app_version,revision=native_notification_devices.revision+1,updated_at=now()`,
-    [userId, deviceId, operation.platform, operation.permission, operation.token, operation.deviceName, operation.appVersion])
+  await client.query(`insert into native_notification_devices(user_id,device_id,platform,permission,expo_push_token,device_name,app_version,session_id)
+    values($1,$2,$3,$4,$5,$6,$7,$8) on conflict(user_id,device_id) do update set platform=excluded.platform,permission=excluded.permission,
+    expo_push_token=excluded.expo_push_token,session_id=excluded.session_id,device_name=excluded.device_name,app_version=excluded.app_version,revision=native_notification_devices.revision+1,updated_at=now()`,
+    [userId, deviceId, operation.platform, operation.permission, operation.token, operation.deviceName, operation.appVersion, sessionId])
   return deviceSnapshot(userId, deviceId, (await client.query<DeviceRow>(deviceSelect, [userId, deviceId])).rows[0])
+}
+
+/** Installation capability permits sign-out cleanup after its Clerk session ends.
+ * It can only disable one named session on this installation, never enable push.
+ */
+export async function revokeNativeNotificationSession(deviceId: string, secret: string, accountId: string, sessionId: string) {
+  checkDeviceId(deviceId)
+  if (typeof accountId !== "string" || !accountId.length || accountId.length > 200 || !notificationSessionId.test(sessionId)) throw new NotificationSettingsError("Invalid notification session.")
+  const client = await db.connect()
+  try {
+    await client.query("begin")
+    await client.query("select pg_advisory_xact_lock(hashtextextended($1,0))", [`native-device:${deviceId}`])
+    await verifyInstallation(client, deviceId, secret, true)
+    await client.query(`insert into native_notification_revocations(device_id,account_id,session_id) values($1,$2,$3) on conflict do nothing`, [deviceId, accountId, sessionId])
+    await client.query(`update native_notification_devices set expo_push_token=null,session_id=null,revision=revision+1,updated_at=now()
+      where device_id=$1 and user_id=$2 and session_id=$3`, [deviceId, accountId, sessionId])
+    await client.query("commit")
+    return { deviceId, accountId, sessionId, revoked: true }
+  } catch (error) { await client.query("rollback"); throw error } finally { client.release() }
 }

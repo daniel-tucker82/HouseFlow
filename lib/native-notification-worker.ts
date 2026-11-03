@@ -25,7 +25,7 @@ async function finishSend(pool: Pool, job: ClaimedNativeDelivery, response: Expo
         next_attempt_at=now()+$4*interval '1 second',completed_at=case when $5 then now() else null end where id=$1`,
       [job.id, failed ? "failed" : "queued", response.code, retrySeconds(row.attempts), failed])
       if (response.code === "DeviceNotRegistered") await client.query(`update native_notification_devices set expo_push_token=null,revision=revision+1,updated_at=now()
-        where user_id=$1 and expo_push_token=$2`, [job.message.data.accountId, job.message.to])
+        where user_id=$1 and expo_push_token=$2 and session_id=$3`, [job.message.data.accountId, job.message.to, job.message.data.sessionId])
     }
     await client.query("commit")
   } catch (error) { await client.query("rollback"); throw error } finally { client.release() }
@@ -56,7 +56,7 @@ export async function checkNativePushReceipts(pool: Pool, provider: NativePushPr
     const client = await pool.connect()
     try {
       await client.query("begin")
-      const current = (await client.query<{ token_hash: string; user_id: string; device_id: string; expired: boolean }>(`select token_hash,user_id,device_id,
+      const current = (await client.query<{ token_hash: string; user_id: string; device_id: string; session_id: string | null; expired: boolean }>(`select token_hash,user_id,device_id,session_id,
         accepted_at<now()-interval '24 hours' as expired from native_notification_deliveries
         where id=$1 and lease_id=$2 and state='awaiting_receipt' for update`, [job.id, lease])).rows[0]
       if (!current) { await client.query("commit"); continue }
@@ -68,9 +68,9 @@ export async function checkNativePushReceipts(pool: Pool, provider: NativePushPr
         next_attempt_at=now()+interval '5 minutes',completed_at=case when $3 in ('provider_accepted','failed') then now() else null end,
         ticket_id=case when $3='queued' then null else ticket_id end where id=$1 and lease_id=$2`, [job.id, lease, state, code])
       if (code === "DeviceNotRegistered") {
-        // Match the exact token that was sent; an old receipt cannot revoke a rotated token.
+        // Expo tokens can stay the same across logins. Match both token and session.
         await client.query(`update native_notification_devices set expo_push_token=null,revision=revision+1,updated_at=now()
-          where user_id=$1 and device_id=$2 and encode(sha256(convert_to(expo_push_token,'UTF8')),'hex')=$3`, [current.user_id, current.device_id, current.token_hash])
+          where user_id=$1 and device_id=$2 and encode(sha256(convert_to(expo_push_token,'UTF8')),'hex')=$3 and session_id=$4`, [current.user_id, current.device_id, current.token_hash, current.session_id])
       }
       await client.query("commit")
     } catch (error) { await client.query("rollback"); throw error } finally { client.release() }

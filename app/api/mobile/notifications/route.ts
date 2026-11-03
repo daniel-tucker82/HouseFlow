@@ -7,9 +7,10 @@ import { NotificationSettingsError } from "@/shared/mobile/notification-settings
 
 export const dynamic = "force-dynamic"
 async function handle(request: Request, write: boolean) {
-  const { userId } = await auth()
+  const { userId, sessionId } = await auth()
   if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 })
   if (request.headers.get("X-Task-Save-User") !== userId) return Response.json({ error: "Your account changed. Sign in again before saving." }, { status: 403 })
+  if (!sessionId || request.headers.get("X-Cyntch-Session") !== sessionId) return Response.json({ error: "Your sign-in session changed. Please try again." }, { status: 403 })
   const deviceId = request.headers.get("X-Cyntch-Device")?.toLowerCase() ?? ""
   const installationSecret = request.headers.get("X-Cyntch-Installation") ?? ""
   try {
@@ -21,7 +22,7 @@ async function handle(request: Request, write: boolean) {
       let body: unknown
       try { body = JSON.parse(raw) } catch { throw new NotificationSettingsError("The notification settings are invalid.") }
       await ensureCurrentUserRecord()
-      result = await saveNativeNotificationSettings(userId, deviceId, installationSecret, body)
+      result = await saveNativeNotificationSettings(userId, deviceId, installationSecret, body, sessionId)
     } else result = await readNativeNotificationSettings(userId, deviceId, installationSecret, new URL(request.url).searchParams.get("householdId"))
     return Response.json(result, { headers: { "Cache-Control": "no-store" } })
   } catch (error) {

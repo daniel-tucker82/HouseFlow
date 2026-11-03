@@ -17,7 +17,7 @@ import { Action, Copy, Loading, styles } from "../components/ui"
 interface Runtime { controller: BoardController; planner: PlannerController; runs: RunsController; notifications: NotificationController; api: MobileApi; store: LocalStore; keepAwake: boolean; setKeepAwake: (enabled: boolean) => Promise<void> }
 const RuntimeContext = createContext<Runtime | null>(null)
 
-export function RuntimeProvider({ children, accountId }: PropsWithChildren<{ accountId: string }>) {
+export function RuntimeProvider({ children, accountId, sessionId }: PropsWithChildren<{ accountId: string; sessionId: string }>) {
   const { getToken } = useAuth()
   const tokenRef = useRef(getToken)
   useEffect(() => { tokenRef.current = getToken }, [getToken])
@@ -38,13 +38,13 @@ export function RuntimeProvider({ children, accountId }: PropsWithChildren<{ acc
     let app: ReturnType<typeof AppState.addEventListener> | undefined
     void (async () => {
       const [store, deviceId] = await Promise.all([openLocalStore(), getDeviceId()])
-      const api = new MobileApi(process.env.EXPO_PUBLIC_API_URL ?? "https://www.cyntch.com", accountId, deviceId, () => tokenRef.current(), getInstallationSecret)
+      const api = new MobileApi(process.env.EXPO_PUBLIC_API_URL ?? "https://www.cyntch.com", accountId, deviceId, () => tokenRef.current(), getInstallationSecret, sessionId)
       const displaySetting = await store.setting<boolean>(accountId, "keep-awake")
       if (cancelled) return
       controller = new BoardController(store, accountId, deviceId, api, randomUUID)
       planner = new PlannerController(store.planner, accountId, deviceId, api, randomUUID, async () => { await controller?.refresh() })
       runs = new RunsController(store, accountId, api, controller)
-      notifications = new NotificationController(store.notifications, accountId, api, createNotificationDevice(), randomUUID)
+      notifications = new NotificationController(store.notifications.forSession(accountId, sessionId), accountId, api, createNotificationDevice(store.notificationSessions), randomUUID)
       boardSubscription = controller.subscribe(() => { if (controller) { void planner?.selectHousehold(controller.getSnapshot().board?.household ?? null); runs?.observe(controller.getSnapshot()); notifications?.observe(controller.getSnapshot()) } })
       const connected = (state: Network.NetworkState) => {
         const online = state.isConnected === true && state.isInternetReachable !== false
@@ -63,7 +63,7 @@ export function RuntimeProvider({ children, accountId }: PropsWithChildren<{ acc
       connected(await Network.getNetworkStateAsync())
     })().catch(cause => { if (!cancelled) setError(cause instanceof Error ? cause.message : "Unable to open your saved household") })
     return () => { cancelled = true; network?.remove(); app?.remove(); boardSubscription?.(); controller?.stop(); planner?.stop(); runs?.stop(); notifications?.stop() }
-  }, [accountId, attempt])
+  }, [accountId, sessionId, attempt])
 
   useEffect(() => {
     let cancelled = false

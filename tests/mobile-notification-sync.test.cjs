@@ -240,19 +240,21 @@ test('token lookup or native subscription failure does not disable an existing r
 
 test('native notification adapter creates Android channels before asking permission and honors iOS provisional status', async () => {
   const events = [], permission = { status: 'denied', canAskAgain: true }, platform = { OS: 'android' }, constants = { expoConfig: { extra: { eas: { projectId: 'test-project' } } } }
-  let tokenListener, tokenOptions
+  let tokenListener, tokenOptions, cleanupVersion = null
   const notifications = {
     IosAuthorizationStatus: { AUTHORIZED: 2, DENIED: 1, PROVISIONAL: 3, EPHEMERAL: 4 }, AndroidImportance: { HIGH: 6 }, AndroidNotificationVisibility: { PRIVATE: 2 },
     getPermissionsAsync: async () => permission,
     setNotificationChannelAsync: async (id, options) => { assert.equal(options.sound, undefined, 'use the system default, not a missing custom sound'); events.push(id) }, requestPermissionsAsync: async () => { events.push('permission'); return { ...permission, status: 'granted' } },
     getExpoPushTokenAsync: async options => { tokenOptions = options; return { data: 'ExpoPushToken[adapter]' } },
     addPushTokenListener: listener => { tokenListener = listener; return { remove: () => events.push('removed') } },
+    clearLastNotificationResponse: () => {}, dismissAllNotificationsAsync: async () => {},
+    cancelAllScheduledNotificationsAsync: async () => {}, unregisterForNotificationsAsync: async () => {},
   }
   const mocks = { 'expo-notifications': notifications, 'expo-constants': constants, 'expo-application': { nativeApplicationVersion: '1.0.0' }, 'expo-device': { deviceName: 'Phone' }, 'react-native': { Platform: platform, Linking: { openSettings: async () => events.push('settings') } } }
   const filename = path.join(root, 'mobile/src/services/notification-device.ts')
   const compiled = buildSync({ entryPoints: [filename], bundle: true, platform: 'node', format: 'cjs', external: Object.keys(mocks), write: false })
   const loaded = new Module(filename, module); loaded.require = id => mocks[id] ?? require(id); loaded._compile(compiled.outputFiles[0].text, filename)
-  const adapter = loaded.exports.createNotificationDevice()
+  const adapter = loaded.exports.createNotificationDevice({ cleanupVersion: async () => cleanupVersion, completeCleanup: async () => { cleanupVersion = null } })
   assert.equal((await adapter.inspect()).permission, 'denied'); assert.equal(events.length, 0, 'inspection never prompts')
   assert.equal((await adapter.requestPermission()).permission, 'granted')
   assert.equal(events.at(-1), 'permission'); assert.equal(events.filter(value => value.startsWith('cyntch-')).length, 15)
@@ -260,6 +262,8 @@ test('native notification adapter creates Android channels before asking permiss
   permission.status = 'granted'; permission.ios.status = 1; assert.equal((await adapter.inspect()).permission, 'denied', 'iOS status takes precedence over generic permission')
   const remove = adapter.listenForTokenChange(() => events.push('rotated')), nativeToken = { type: 'android', data: 'rolled-native-token' }
   tokenListener(nativeToken); await adapter.token(); assert.deepEqual(tokenOptions.devicePushToken, nativeToken, 'token listener does not trigger recursive native token requests')
+  cleanupVersion = 1; await adapter.token()
+  assert.equal(tokenOptions.devicePushToken, undefined, 'a token observed before native cleanup must be reacquired')
   remove(); await adapter.openSettings(); assert.equal(events.at(-1), 'settings')
   constants.expoConfig.extra.eas.projectId = null; await assert.rejects(adapter.token(), /not available in this build/)
 })

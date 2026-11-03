@@ -14,6 +14,7 @@ export class MobileApi implements SyncTransport {
     private readonly deviceId: string,
     private readonly token: () => Promise<string | null>,
     private readonly installationSecret?: () => Promise<string>,
+    private readonly sessionId?: string,
   ) {
     const url = new URL(baseUrl)
     if (url.protocol !== "https:" && !__DEV__) throw new Error("Cyntch requires a secure connection")
@@ -47,8 +48,8 @@ export class MobileApi implements SyncTransport {
   async serverTime() { return (await this.request<{ serverTimeMs: number }>("/api/mobile/time")).serverTimeMs }
 
   private async notificationHeaders() {
-    if (!this.installationSecret) throw new Error("This device's secure registration is not available.")
-    return { "X-Cyntch-Installation": await this.installationSecret() }
+    if (!this.installationSecret || !this.sessionId) throw new Error("This device's secure registration is not available.")
+    return { "X-Cyntch-Installation": await this.installationSecret(), "X-Cyntch-Session": this.sessionId }
   }
   async notificationSettings(householdId?: string) {
     const result = await this.request<{ device: NativeNotificationDevice; settings: NotificationSettingsSnapshot | null }>(

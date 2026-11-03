@@ -140,12 +140,33 @@ requires explicit review. Foreground/reconnect retries use persisted backoff.
 Permission inspection does not prompt. Android creates one channel per event type
 before asking permission; iOS provisional permission is distinguished from normal
 alerts. Token refresh failures preserve existing registrations and queued tokens.
-The installation secret is retained in SecureStore. Token rotation is observed,
-but complete sign-out cleanup, background settings sync, kiosk integration and
-device-side push presentation/tap handling remain to be implemented. An EAS project ID and
+The installation secret is retained in SecureStore. Token rotation is observed.
+Background settings sync, kiosk integration and device-side push presentation/tap
+handling remain to be implemented. An EAS project ID and
 FCM/APNs credentials must be configured before push can register and deliver.
 This build reports their absence while allowing preference editing. A registration
 or a passing JavaScript export is not evidence of delivered push.
+
+Migration `0027_native_notification_sessions.sql` binds registrations and queued
+deliveries to the authenticated Clerk session. The API checks that the session
+header matches the current token. Sign-out commits a local revocation before
+ending authentication; a separate controller can upload it while signed out,
+including after restart. Its installation capability can only disable the named
+session. Server tombstones and the installation transaction lock reject late
+registration/replay even when revocation arrives first. Old-session delivery
+jobs are suppressed, and old provider errors cannot disable a newer session
+even if its Expo token is unchanged.
+
+Local sign-out removes only the device registration cache. Household preferences,
+unfinished task edits and planner changes remain account-isolated. Notification
+cache writes also check the local session inside their SQLite transaction.
+Native tray/scheduled-notification/token cleanup is durable and serialized with
+token creation. A stalled provider operation times out for the notification UI
+while retaining its ordering; task saving and sign-in do not wait for it. Native
+cleanup retries on resume/reconnect and before token registration. Notifications
+already handed to APNs/FCM cannot be recalled by server revocation alone; native
+presentation/tap safeguards and real-device delivery checks are still required
+before enabling the delivery gate.
 
 Migration `0025_native_notification_events.sql` captures all 15 native event types
 in the transaction that changes a task, run or household membership. It records
@@ -301,3 +322,15 @@ and mobile lint/typecheck passed. Migrations 0025 and 0026 were applied only to 
 local emulator test database. The delivery gate remains off; this verification
 does not establish real FCM/APNs delivery, physical-device performance or production
 scheduler throughput.
+
+Session cleanup was verified on the Android emulator on 2026-11-04: sign out with
+Wi-Fi and mobile data disabled, force-stop and relaunch to the signed-out screen,
+inspect the persisted pending revocation, reconnect without signing in, and
+confirm the server tombstone. Native email-code sign-in then created a different
+session and registered it with the local API; saved household notification
+preferences retained revision 7. The build lacks FCM/APNs credentials, so actual
+provider token invalidation remains unverified. Controlled native tests cover
+cleanup failure, interruption, ordering, repeated connectivity events and timeout.
+All 137 non-billing tests passed with real local PostgreSQL fixtures; root/mobile
+lint and typecheck, the production Next.js build and Android/iOS JavaScript exports
+passed. Migration 0027 was applied only to the local emulator test database.

@@ -7,6 +7,8 @@ import { Linking, Platform } from "react-native"
 import { notificationCatalog } from "../../../shared/mobile/notification-catalog"
 import type { NotificationPermission } from "../../../shared/mobile/notification-settings"
 import type { RegistrationIntent } from "../storage/notification-store"
+import type { NotificationSessionStore } from "../storage/notification-session-store"
+import { nativeNotificationGeneration, resetNativeNotificationSession, waitForNativeNotification, withNativeNotificationSession } from "./notification-native-session"
 
 export interface NotificationPermissionState { permission: NotificationPermission; canAskAgain: boolean }
 export interface NotificationDevice {
@@ -26,8 +28,9 @@ function permissionState(status: Notifications.NotificationPermissionsStatus): N
   }
   return { permission, canAskAgain: status.canAskAgain }
 }
-export function createNotificationDevice(): NotificationDevice {
-  let nativeToken: Notifications.DevicePushToken | undefined
+export function createNotificationDevice(sessions: NotificationSessionStore): NotificationDevice {
+  let nativeToken: { token: Notifications.DevicePushToken; generation: number } | undefined
+  let tokenRequest: Promise<string> | undefined
   return {
     inspect: async () => permissionState(await Notifications.getPermissionsAsync()),
     requestPermission: async () => {
@@ -40,10 +43,20 @@ export function createNotificationDevice(): NotificationDevice {
     token: async () => {
       const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId
       if (!projectId) throw new Error("Push notifications are not available in this build yet. Your notification choices can still be saved.")
-      return (await Notifications.getExpoPushTokenAsync({ projectId, devicePushToken: nativeToken })).data
+      tokenRequest ??= (async () => {
+        await resetNativeNotificationSession(sessions)
+        return withNativeNotificationSession(async () => {
+          if (await sessions.cleanupVersion() !== null) throw new Error("Notification sign-out is still finishing. Please try again.")
+          return (await Notifications.getExpoPushTokenAsync({ projectId,
+            devicePushToken: nativeToken?.generation === nativeNotificationGeneration() ? nativeToken.token : undefined })).data
+        })
+      })().finally(() => { tokenRequest = undefined })
+      return waitForNativeNotification(tokenRequest)
     },
     details: () => ({ platform: Platform.OS === "ios" ? "ios" : "android", deviceName: Device.deviceName ?? Device.modelName, appVersion: Application.nativeApplicationVersion }),
-    listenForTokenChange: listener => { const subscription = Notifications.addPushTokenListener(token => { nativeToken = token; listener() }); return () => subscription.remove() },
+    listenForTokenChange: listener => { const subscription = Notifications.addPushTokenListener(token => {
+      nativeToken = { token, generation: nativeNotificationGeneration() }; listener()
+    }); return () => subscription.remove() },
     openSettings: () => Linking.openSettings(),
   }
 }

@@ -3,6 +3,7 @@ import { parseNotificationPreferences, type NativeNotificationDevice, type Notif
 import { retryDelayMs } from "../../../shared/mobile/sync-policy"
 import type { HouseholdSummary } from "../../../shared/mobile/contracts"
 import type { LocalDatabase, SqlConnection } from "./local-store"
+import type { NotificationSession } from "./notification-session-store"
 
 export type RegistrationIntent = Omit<RegisterNotificationDevice, "action" | "operationId" | "baseRevision">
 export type NotificationServerSnapshot = NativeNotificationDevice | NotificationSettingsSnapshot
@@ -16,7 +17,8 @@ interface StoredRow { scope: string; data: string }
 
 /** One desired state per scope; an in-flight request is immutable until acknowledged. */
 export class NotificationStore {
-  constructor(private readonly database: LocalDatabase) {}
+  constructor(private readonly database: LocalDatabase, private readonly session?: NotificationSession) {}
+  forSession(accountId: string, sessionId: string) { return new NotificationStore(this.database, { accountId, sessionId }) }
   async initialize() {
     await this.database.execAsync(`CREATE TABLE IF NOT EXISTS native_notification_settings (
       account_id TEXT NOT NULL, scope TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(account_id,scope));`)
@@ -30,9 +32,13 @@ export class NotificationStore {
     return (await tx.getAllAsync<StoredRow>("SELECT scope,data FROM native_notification_settings WHERE account_id=? ORDER BY scope='device' DESC,scope", accountId)).map(row => JSON.parse(row.data) as NotificationSettingRow)
   }
   private async write(tx: SqlConnection, accountId: string, row: NotificationSettingRow) {
+    await this.allowed(accountId, row.scope, tx)
     await tx.runAsync("INSERT INTO native_notification_settings VALUES(?,?,?) ON CONFLICT(account_id,scope) DO UPDATE SET data=excluded.data", accountId, row.scope, JSON.stringify(row))
   }
   private async allowed(accountId: string, scope: string, tx: SqlConnection) {
+    if (this.session && (this.session.accountId !== accountId || !await tx.getFirstAsync("SELECT 1 FROM notification_sessions WHERE account_id=? AND session_id=? AND revoked=0", accountId, this.session.sessionId))) {
+      throw new Error("This notification session has ended.")
+    }
     if (scope !== "device" && await tx.getFirstAsync("SELECT household_id FROM revoked_households WHERE account_id=? AND household_id=?", accountId, scope)) throw new Error("Access to this household has been removed.")
   }
   async reconcile(accountId: string, households: HouseholdSummary[], tx: SqlConnection) {

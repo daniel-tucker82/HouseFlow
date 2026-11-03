@@ -10,13 +10,14 @@ import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context"
 import { CircleCheck, History, ListChecks, Settings, Users } from "lucide-react-native"
 import { Action, Copy, Loading, styles, usePalette } from "../components/ui"
 import { RuntimeProvider } from "../providers/runtime"
+import { NotificationSessionProvider } from "../providers/notification-session"
 
 function Application() {
-  const { isLoaded, isSignedIn, userId } = useAuth({ treatPendingAsSignedOut: false })
+  const { isLoaded, isSignedIn, userId, sessionId } = useAuth({ treatPendingAsSignedOut: false })
   const [authOpen, setAuthOpen] = useState(false)
   const colors = usePalette()
   return <>
-    {!isLoaded ? <Loading label="Opening Cyntch…" /> : isSignedIn && userId ? <RuntimeProvider key={userId} accountId={userId}>
+    {!isLoaded ? <Loading label="Opening Cyntch…" /> : isSignedIn && userId && sessionId ? <RuntimeProvider key={`${userId}:${sessionId}`} accountId={userId} sessionId={sessionId}>
       <Tabs screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: colors.background },
         tabBarActiveTintColor: colors.primary, tabBarInactiveTintColor: colors.muted,
         tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border }, tabBarLabelStyle: { fontSize: 12 } }}>
@@ -46,6 +47,6 @@ function Application() {
 export default function RootLayout() {
   const key = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY
   return <SafeAreaProvider><StatusBar style="auto" />{key ? <ClerkProvider publishableKey={key} tokenCache={tokenCache} __experimental_resourceCache={resourceCache}>
-    <Application />
+    <NotificationSessionProvider><Application /></NotificationSessionProvider>
   </ClerkProvider> : <View style={styles.center}><Copy tone="heading">Cyntch setup is incomplete</Copy><Copy>This build is missing its sign-in configuration.</Copy></View>}</SafeAreaProvider>
 }

@@ -1,4 +1,3 @@
-import { useAuth } from "@clerk/expo"
 import { UserButton } from "@clerk/expo/native-components"
 import { Alert, ScrollView, Switch, View } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
@@ -6,9 +5,10 @@ import { Action, Card, Copy, styles, usePalette } from "../components/ui"
 import { useBoard, useNotifications, usePlanner, useRuntime } from "../providers/runtime"
 import { PlannerPendingCreations } from "../components/planner-pending-creations"
 import { NotificationSettingsCard } from "../components/notification-settings"
+import { useNotificationSession } from "../providers/notification-session"
 
 export default function SettingsScreen() {
-  const { signOut } = useAuth()
+  const { signOut } = useNotificationSession()
   const { controller, planner, keepAwake, setKeepAwake } = useRuntime()
   const state = useBoard()
   const planning = usePlanner()

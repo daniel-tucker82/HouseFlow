@@ -21,6 +21,7 @@ export interface SaveNotificationPreferences extends SettingOperation {
 export type NotificationSettingsOperation = RegisterNotificationDevice | SaveNotificationPreferences
 export class NotificationSettingsError extends Error { constructor(message: string, public status = 400) { super(message) } }
 export const notificationUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+export const notificationSessionId = /^sess_[A-Za-z0-9_-]{1,200}$/
 
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new NotificationSettingsError("Choose valid notification settings.")

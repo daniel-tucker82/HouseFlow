@@ -2,6 +2,7 @@ import type { BoardSnapshot, CompletionChange, CompletionResult, HouseholdSummar
 import { retryDelayMs } from "../../../shared/mobile/sync-policy"
 import { PlannerStore } from "./planner-store"
 import { NotificationStore } from "./notification-store"
+import { NotificationSessionStore } from "./notification-session-store"
 import { mergeRunPages, runView, summarizeRun, type RunPage, type RunSnapshot, type RunSummary, type RunView } from "../../../shared/mobile/runs"
 
 export type SqlValue = string | number | null
@@ -77,7 +78,8 @@ function acknowledged<T extends BoardSnapshot>(server: T, occurrenceId: string, 
 export class LocalStore {
   readonly planner: PlannerStore
   readonly notifications: NotificationStore
-  constructor(private readonly database: LocalDatabase) { this.planner = new PlannerStore(database); this.notifications = new NotificationStore(database) }
+  readonly notificationSessions: NotificationSessionStore
+  constructor(private readonly database: LocalDatabase) { this.planner = new PlannerStore(database); this.notifications = new NotificationStore(database); this.notificationSessions = new NotificationSessionStore(database) }
 
   async initialize() {
     await this.database.execAsync(`
@@ -117,10 +119,11 @@ export class LocalStore {
         account_id TEXT NOT NULL, household_id TEXT NOT NULL, view TEXT NOT NULL, data TEXT NOT NULL,
         PRIMARY KEY(account_id,household_id,view)
       );
-      PRAGMA user_version = 6;
+      PRAGMA user_version = 7;
     `)
     await this.planner.initialize()
     await this.notifications.initialize()
+    await this.notificationSessions.initialize()
   }
 
   async getBoard(accountId: string, householdId: string, connection: SqlConnection = this.database) {

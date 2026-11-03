@@ -20,12 +20,14 @@ test('native notification settings isolate devices/households/accounts and safel
     create table household_members(household_id uuid,user_id text,role text,primary key(household_id,user_id))`)
   const migration = readFileSync(path.resolve(__dirname, '../database/0024_native_notification_settings.sql'), 'utf8')
   await db.query(migration); await db.query(migration)
+  await db.query(readFileSync(path.resolve(__dirname, '../database/0027_native_notification_sessions.sql'), 'utf8'))
   await db.query("insert into users values('parent'),('other'),('daughter'),('son')")
   const household = randomUUID(), secondHousehold = randomUUID(), privateHousehold = randomUUID(), phone = randomUUID(), tablet = randomUUID()
   await db.query("insert into households values($1,'Australia/Sydney'),($2,'UTC'),($3,'UTC')", [household, secondHousehold, privateHousehold])
   await db.query("insert into household_members values($1,'parent','manager'),($1,'daughter','member'),($1,'son','member'),($2,'parent','manager'),($3,'other','manager')", [household, secondHousehold, privateHousehold])
   let userId = 'parent'
-  const mocks = { '@/lib/db': { db }, '@clerk/nextjs/server': { auth: async () => ({ userId }) },
+  let sessionId = 'sess_parent'
+  const mocks = { '@/lib/db': { db }, '@clerk/nextjs/server': { auth: async () => ({ userId, sessionId }) },
     '@/lib/household-authz': { normalizeRole: role => role === 'leader' ? 'manager' : role },
     '@/lib/usage-controls': { enforceRequestLimit: async () => {} }, '@/lib/user-sync': { ensureCurrentUserRecord: async () => {} },
     '@/lib/entitlements': { EntitlementError: class extends Error {} } }
@@ -43,11 +45,11 @@ test('native notification settings isolate devices/households/accounts and safel
   const secrets = new Map()
   function secret(deviceId) { if (!secrets.has(deviceId)) secrets.set(deviceId, randomBytes(32).toString('hex')); return secrets.get(deviceId) }
   async function post(deviceId, body, account = userId, installationSecret = secret(deviceId)) {
-    const response = await route.POST(new Request('http://localhost/api/mobile/notifications', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Task-Save-User': account, 'X-Cyntch-Device': deviceId, 'X-Cyntch-Installation': installationSecret }, body: JSON.stringify(body) }))
+    const response = await route.POST(new Request('http://localhost/api/mobile/notifications', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Task-Save-User': account, 'X-Cyntch-Device': deviceId, 'X-Cyntch-Installation': installationSecret, 'X-Cyntch-Session': sessionId }, body: JSON.stringify(body) }))
     return { status: response.status, data: await response.json() }
   }
   async function get(deviceId, householdId) {
-    const response = await route.GET(new Request(`http://localhost/api/mobile/notifications${householdId ? `?householdId=${householdId}` : ''}`, { headers: { 'X-Task-Save-User': userId ?? '', 'X-Cyntch-Device': deviceId, 'X-Cyntch-Installation': secret(deviceId) } }))
+    const response = await route.GET(new Request(`http://localhost/api/mobile/notifications${householdId ? `?householdId=${householdId}` : ''}`, { headers: { 'X-Task-Save-User': userId ?? '', 'X-Cyntch-Device': deviceId, 'X-Cyntch-Installation': secret(deviceId), 'X-Cyntch-Session': sessionId } }))
     assert.equal(response.headers.get('cache-control'), response.status === 401 ? null : 'no-store')
     return { status: response.status, data: await response.json() }
   }
@@ -56,6 +58,9 @@ test('native notification settings isolate devices/households/accounts and safel
   assert.equal((await get(phone, household)).data.settings.preferences.enabled, false, 'no registration implies no push')
   assert.equal((await db.query('select count(*) from native_notification_devices')).rows[0].count, '0', 'reads do not register a device')
   const phoneRegistration = register('ExpoPushToken[phone]')
+  const wrongSession = await route.POST(new Request('http://localhost/api/mobile/notifications', { method: 'POST',
+    headers: { 'X-Task-Save-User': userId, 'X-Cyntch-Device': phone, 'X-Cyntch-Installation': secret(phone), 'X-Cyntch-Session': 'sess_stale' }, body: JSON.stringify(phoneRegistration) }))
+  assert.equal(wrongSession.status, 403, 'an old runtime cannot use a newer Clerk session token')
   assert.equal((await post(phone, phoneRegistration)).status, 200)
   assert.equal((await post(phone, phoneRegistration)).data.replayed, true)
   assert.equal((await post(phone, phoneRegistration, userId, randomBytes(32).toString('hex'))).status, 403, 'device IDs alone cannot replay or transfer a registration')
@@ -143,5 +148,31 @@ test('native notification settings isolate devices/households/accounts and safel
   assert.equal(unchanged.revision, '1'); assert.equal(unchanged.preferences.enabled, true, 'receipt failure rolls back preferences and their version together')
   await db.query('drop trigger native_receipt_failure on native_notification_operations')
   assert.equal((await post('invalid-device', register('ExpoPushToken[invalid]'))).status, 400)
+  const revokeRoute = load('app/api/mobile/notifications/revoke/route.ts')
+  async function revoke(id, account, session, proof = secret(id)) {
+    return revokeRoute.POST(new Request('http://localhost/api/mobile/notifications/revoke', { method: 'POST',
+      headers: { 'X-Cyntch-Device': id, 'X-Cyntch-Installation': proof }, body: JSON.stringify({ accountId: account, sessionId: session }) }))
+  }
   userId = null; assert.equal((await get(phone)).status, 401)
+  assert.equal((await revoke(rollbackDevice, 'parent', sessionId, randomBytes(32).toString('hex'))).status, 403)
+  assert.equal((await revoke(rollbackDevice, 'parent', sessionId)).status, 200, 'installation proof can revoke after Clerk sign-out')
+  assert.equal((await revoke(rollbackDevice, 'parent', sessionId)).status, 200)
+  userId = 'parent'
+  assert.equal((await get(rollbackDevice)).data.device.hasToken, false)
+  assert.equal((await post(rollbackDevice, register('ExpoPushToken[late]', '2'))).status, 403, 'late registrations from the revoked session stay blocked')
+  sessionId = 'sess_parent_new'
+  assert.equal((await post(rollbackDevice, register('ExpoPushToken[new_session]', '2'))).status, 200)
+  assert.equal((await revoke(rollbackDevice, 'parent', 'sess_parent')).status, 200)
+  assert.equal((await get(rollbackDevice)).data.device.hasToken, true, 'an old revocation cannot deactivate a newer login')
+  const early = randomUUID()
+  assert.equal((await revoke(early, 'parent', sessionId)).status, 200)
+  assert.equal((await post(early, register('ExpoPushToken[late_first_registration]'))).status, 403, 'revocation wins even before the first registration reaches the server')
+  const racing = randomUUID(), racingSecret = secret(racing)
+  const service = mocks['@/lib/native-notification-settings']
+  await Promise.allSettled([
+    service.saveNativeNotificationSettings('parent', racing, racingSecret, register('ExpoPushToken[race]'), 'sess_race'),
+    service.revokeNativeNotificationSession(racing, racingSecret, 'parent', 'sess_race'),
+  ])
+  assert.equal((await get(racing)).data.device.hasToken, false, 'the device lock makes revocation win a concurrent first registration')
+  await assert.rejects(service.saveNativeNotificationSettings('parent', racing, racingSecret, register('ExpoPushToken[race_retry]'), 'sess_race'), /no longer receives/)
 })

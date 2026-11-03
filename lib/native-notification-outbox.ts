@@ -11,17 +11,17 @@ interface NativeEvent {
 interface Recipient {
   user_id: string; device_id: string; platform: "android" | "ios"; permission: string;
   expo_push_token: string | null; preferences: unknown; role: string; timezone: string;
-  member_ids: string[]; created_at: Date;
+  member_ids: string[]; created_at: Date; session_id: string | null;
 }
 export interface NativePushMessage {
   to: string; title: string; body: string; sound: "default"; priority: "high";
   channelId: string; collapseId: string; tag: string; threadId: string; ttl: number;
-  data: { version: 1; deliveryId: string; accountId: string; householdId: string; eventId: string;
+  data: { version: 2; sessionId: string; deliveryId: string; accountId: string; householdId: string; eventId: string;
     kind: MobileNotificationKind; occurrenceId?: string; taskId?: string };
 }
 export interface ClaimedNativeDelivery { id: string; leaseId: string; message: NativePushMessage }
 
-const recipientSelect = `select d.user_id,d.device_id,d.platform,d.permission,d.expo_push_token,d.created_at,
+const recipientSelect = `select d.user_id,d.device_id,d.platform,d.permission,d.expo_push_token,d.created_at,d.session_id,
   p.preferences,hm.role,h.timezone,
   array(select user_id from household_members where household_id=h.id) as member_ids
   from household_members hm join households h on h.id=hm.household_id
@@ -61,7 +61,7 @@ async function currentEvent(client: PoolClient, event: NativeEvent): Promise<Nat
 }
 
 function eligible(event: NativeEvent, recipient: Recipient, now: Date) {
-  if (!recipient.expo_push_token || !["granted", "provisional"].includes(recipient.permission)
+  if (!recipient.session_id || !recipient.expo_push_token || !["granted", "provisional"].includes(recipient.permission)
     || recipient.created_at > event.occurred_at || event.expires_at <= now) return null
   try {
     const role = normalizeRole(recipient.role)
@@ -94,7 +94,7 @@ function messageFor(id: string, event: NativeEvent, recipient: Recipient, detail
   return { to: recipient.expo_push_token!, title: "Cyntch", body: `${details && name ? `${name}: ` : ""}${genericBody[event.kind]}`,
     sound: "default", priority: "high", channelId: `cyntch-${event.kind}`, collapseId: id, tag: id, threadId: event.household_id,
     ttl: Math.max(1, Math.floor((event.expires_at.getTime() - now.getTime()) / 1000)),
-    data: { version: 1, deliveryId: id, accountId: recipient.user_id, householdId: event.household_id,
+    data: { version: 2, sessionId: recipient.session_id!, deliveryId: id, accountId: recipient.user_id, householdId: event.household_id,
       eventId: event.id, kind: event.kind, ...(occurrenceId ? { occurrenceId } : {}), ...(taskId ? { taskId } : {}) } }
 }
 
@@ -114,8 +114,8 @@ export async function expandNativeNotificationEvents(pool: Pool, limit = 50) {
         const recipients = (await client.query<Recipient>(recipientSelect, [event.household_id])).rows
         for (const recipient of recipients) {
           if (!eligible(current, recipient, now)) continue
-          queued += (await client.query(`insert into native_notification_deliveries(event_id,user_id,device_id)
-            values($1,$2,$3) on conflict(event_id,user_id,device_id) do nothing`, [event.id, recipient.user_id, recipient.device_id])).rowCount ?? 0
+          queued += (await client.query(`insert into native_notification_deliveries(event_id,user_id,device_id,session_id)
+            values($1,$2,$3,$4) on conflict(event_id,user_id,device_id) do nothing`, [event.id, recipient.user_id, recipient.device_id, recipient.session_id])).rowCount ?? 0
         }
       }
       await client.query("update native_notification_events set state=$2 where id=$1", [event.id, event.expires_at <= now ? "expired" : "expanded"])
@@ -132,7 +132,7 @@ export async function claimNativeNotificationDeliveries(pool: Pool, limit = 100)
   const client = await pool.connect()
   try {
     await client.query("begin")
-    const jobs = (await client.query<{ id: string; event_id: string; user_id: string; device_id: string }>(`select id,event_id,user_id,device_id
+    const jobs = (await client.query<{ id: string; event_id: string; user_id: string; device_id: string; session_id: string | null }>(`select id,event_id,user_id,device_id,session_id
       from native_notification_deliveries where next_attempt_at<=now()
         and (state='queued' or (state='sending' and lease_until<=now()))
       order by next_attempt_at,created_at,id limit $1 for update skip locked`, [Math.max(1, Math.min(100, Math.floor(limit)))])).rows
@@ -143,7 +143,7 @@ export async function claimNativeNotificationDeliveries(pool: Pool, limit = 100)
       const current = event && event.expires_at > now ? await currentEvent(client, event) : null
       const recipient = current ? (await client.query<Recipient>(`${recipientSelect} and d.user_id=$2 and d.device_id=$3`, [current.household_id, job.user_id, job.device_id])).rows[0] : null
       const preferences = current && recipient ? eligible(current, recipient, now) : null
-      if (!current || !recipient || !preferences) {
+      if (!current || !recipient || !preferences || job.session_id !== recipient.session_id) {
         await client.query(`update native_notification_deliveries set state=$2,completed_at=now(),lease_id=null,lease_until=null,
           last_error_code=$3 where id=$1`, [job.id, event?.expires_at <= now ? "expired" : "suppressed", event?.expires_at <= now ? "expired" : "no_longer_eligible"])
         continue

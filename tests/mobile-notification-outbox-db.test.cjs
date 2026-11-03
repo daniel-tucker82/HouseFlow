@@ -41,7 +41,7 @@ async function fixture(t) {
   async function device(name, user = name, permission = 'granted') {
     const id = randomUUID()
     await db.query("insert into native_notification_installations(device_id,secret_hash) values($1,repeat('a',64))", [id])
-    await db.query("insert into native_notification_devices(user_id,device_id,platform,permission,expo_push_token) values($1,$2,'android',$3,$4)", [user, id, permission, permission === 'denied' ? null : `ExpoPushToken[${name}]`])
+    await db.query("insert into native_notification_devices(user_id,device_id,platform,permission,expo_push_token,session_id) values($1,$2,'android',$3,$4,$5)", [user, id, permission, permission === 'denied' ? null : `ExpoPushToken[${name}]`, `sess_${user}`])
     devices[name] = id
     return id
   }
@@ -91,6 +91,8 @@ test('native outbox independently selects devices, filters household access and 
   assert.equal(claims.filter(job => job.message.data.kind === 'routine_started').length, 2)
   assert.equal(claims.filter(job => job.message.data.kind === 'task_available').length, 3)
   for (const { id, message } of claims) {
+    assert.equal(message.data.version, 2)
+    assert.equal(message.data.sessionId, `sess_${message.data.accountId}`)
     assert.equal(message.channelId, `cyntch-${message.data.kind}`)
     assert.equal(message.collapseId, id); assert.equal(message.tag, id)
     assert.ok(!JSON.stringify(message).includes('Private') && !JSON.stringify(message).includes('New child'))
@@ -104,6 +106,8 @@ test('native outbox rechecks revocation, permission, quiet hours and stale task 
     disabled: f => f.preferences('parent', { ...f.parentPreferences, enabled: false }),
     quiet: f => f.preferences('parent', { ...f.parentPreferences, quietHours: { start: '22:00', end: '22:00' } }),
     permission: f => f.db.query("update native_notification_devices set permission='denied',expo_push_token=null where user_id='parent'"),
+    signedOut: f => f.db.query("update native_notification_devices set session_id=null where user_id='parent'"),
+    newSession: f => f.db.query("update native_notification_devices set session_id='sess_new_login' where user_id='parent'"),
     revoked: f => f.db.query("delete from household_members where household_id=$1 and user_id='parent'", [f.household]),
     demoted: f => f.db.query("update household_members set role='member' where household_id=$1 and user_id='parent'", [f.household]),
     invalid: f => f.preferences('parent', { ...f.parentPreferences, timezone: 'Invalid/Zone' }),
@@ -223,6 +227,28 @@ test('a sender finishing after its lease was reclaimed cannot change the new att
     assert.equal(job.attempts, 2)
   }
   assert.equal((await f.db.query("select count(*)::int n from native_notification_devices where user_id in ('child','supervisor') and expo_push_token is not null")).rows[0].n, 2)
+})
+
+test('old send failures and receipts cannot disable a newer sign-in even when its Expo token is unchanged', { skip: !url }, async t => {
+  for (const stage of ['send', 'receipt']) await t.test(stage, async sub => {
+    const f = await fixture(sub); await f.onlyAvailability()
+    let release, started
+    const waiting = new Promise(resolve => { started = resolve })
+    const tickets = new Map()
+    const provider = {
+      send: async messages => {
+        if (stage === 'send') { started(); await new Promise(resolve => { release = resolve }); return messages.map(() => ({ status: 'error', code: 'DeviceNotRegistered' })) }
+        return messages.map(message => { const id = randomUUID(); tickets.set(id, message); return { status: 'ok', id } })
+      },
+      receipts: async ids => { started(); await new Promise(resolve => { release = resolve }); return Object.fromEntries(ids.map(id => [id, { status: 'error', code: 'DeviceNotRegistered' }])) },
+    }
+    if (stage === 'receipt') { await drain(f.db, provider); await f.db.query("update native_notification_deliveries set next_attempt_at=now() where state='awaiting_receipt'") }
+    const running = drain(f.db, provider)
+    await waiting
+    await f.db.query("update native_notification_devices set session_id='sess_new_login' where user_id='parent'")
+    release(); await running
+    assert.equal((await f.db.query("select expo_push_token from native_notification_devices where user_id='parent' and device_id=$1", [f.devices.parent])).rows[0].expo_push_token, 'ExpoPushToken[parent]')
+  })
 })
 
 test('reopening does not revive the earlier readiness event when the task becomes startable a second time', { skip: !url }, async t => {
