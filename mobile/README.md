@@ -1005,7 +1005,7 @@ prevent resurrection.
 PostgreSQL, Stripe, native billing and Clerk adapters are described below.
 Provider integration tests use newly created Stripe test-mode customers and
 Clerk development accounts only. No existing user account or live billing
-customer has been erased. Do not expose acceptance until Apple token revocation,
+customer has been erased. Do not expose acceptance until real Apple revocation,
 restore protection, status recovery, disclosures and confirmation flows are
 implemented and verified. Shared authored content, notification
 snapshots, orphan profiles, store subscription handling, out-of-band identity
@@ -1211,7 +1211,7 @@ explain this and provide the existing store management links.
 Local subscription bindings remain unchanged. Before enabling account deletion,
 still verify restore protection across provider erasure/recreation, prevent
 the old SDK identity from recreating data, and implement follow-up erasure for
-late provider events. Linked Apple identity revocation, the confirmation/status
+late provider events. Real Apple revocation verification, the confirmation/status
 endpoints, native/web UI and local data purge are also unfinished. No public deletion
 action or scheduled worker is enabled by this adapter.
 
@@ -1232,7 +1232,8 @@ isolated; no RevenueCat requests or production database changes were made.
 `acceptAccountDeletion()` now requires the issuer from Clerk's verified session
 claims as a separate server argument. Never take it from a request payload.
 The issuer is saved with the durable work so cleanup can verify the provider
-after sign-in sessions cease to exist. No new SQL migration is needed.
+after sign-in sessions cease to exist. Issuer capture needs no schema change;
+the Apple outcome field introduced below requires migration 0037.
 
 `deleteAccountIdentity()` runs only after the other three phases have completed.
 It verifies the Clerk instance and its domains against that saved issuer, then
@@ -1245,18 +1246,19 @@ request limit within its invocation budget. It validates the selected user and
 DELETE acknowledgement, then confirms absence with GET. A lost response or
 worker interruption can resume without deleting another account. Only the
 coordinator clears the account/work identifiers after all phases succeed.
-No profile, OAuth token, provider error message or API credential is persisted.
+No profile, plaintext OAuth token, provider error message or API credential is
+persisted. Apple's encrypted temporary retry checkpoint is described below.
 
-Linked Apple identities currently stop this phase before DELETE: upstream token
-revocation and its durable interrupted recovery remain to be implemented. Clerk
-deletion alone is not treated as proof of Apple revocation. The observed local
+Linked Apple identities now run upstream token revocation before DELETE, with
+encrypted interrupted recovery. Clerk deletion alone is not treated as proof
+of Apple revocation. The observed local
 development instance enables Google sign-in; that does not prove production
 or future Apple configuration. Self-deletion through Clerk's own profile UI and
 out-of-band provider deletion must also be handled in the completed flow.
 
 Ten PostgreSQL/provider-double checks cover issuer validation, tenant isolation,
 lost responses, identity mismatch, phase ordering, stale leases, durable waits,
-HTTP timeouts and the Apple guard. `tests/integration/account-deletion-clerk.cjs`
+HTTP timeouts and malformed Apple account data. `tests/integration/account-deletion-clerk.cjs`
 also passed against the configured Clerk development instance. It creates a
 uniquely marked test account, verifies the actual DELETE response, discards that
 response deliberately, confirms GET/404 recovery and durable completion, then
@@ -1274,3 +1276,63 @@ Verification on 2026-11-04: all 383 general regression checks passed without
 skips or cancellations; root lint, standalone TypeScript checks and the
 production build passed. No native modules, public deletion action or cron
 worker were enabled by this change.
+
+### Sign in with Apple revocation and recovery
+
+`revokeAccountAppleIdentity()` now runs within the identity worker. It retrieves
+tokens from the authenticated Clerk Backend API, follows the complete paginated
+result, and matches the external account and Apple subject. The Clerk-returned
+ID token selects an explicitly configured Apple client ID; this decoding never
+authenticates a client request or grants application access. Unexpected subjects,
+providers, clients or ambiguous token responses leave deletion pending.
+
+Before contacting Apple, the worker saves the access token encrypted with
+AES-256-GCM. Authenticated context binds it to the Clerk instance, Cyntch account,
+deletion request, external account, Apple client and encryption-key version.
+The worker creates a five-minute ES256 client secret from the configured P-256
+Apple key, then sends a bounded form POST to Apple's fixed revocation endpoint.
+An empty HTTP 200 confirms revocation, including a previously revoked token,
+as documented by [Apple's revocation API](https://developer.apple.com/documentation/signinwithapplerestapi/revoke-tokens).
+The encrypted credential is removed immediately after that acknowledgement.
+
+A lost response or expired worker leaves the encrypted credential available
+for a later lease, even if Clerk can no longer refresh the token or its user
+has been removed. The worker does not re-fetch a token after that checkpoint.
+API keys, client secrets and plaintext tokens are never saved or logged. A
+fresh identity read before Clerk deletion checks for newly linked Apple accounts.
+
+Configure these **server-only secrets** before enabling Apple sign-in/deletion:
+
+- `APPLE_SIGN_IN_CLIENTS`: a JSON array of `{clientId, teamId, keyId, privateKey}`.
+  Each entry must match an Apple App ID or Services ID used by the Clerk flow,
+  its ten-character Team ID and key ID, and the associated P-256 private PEM key.
+  Include each supported native/web client explicitly; duplicate client IDs fail.
+- `ACCOUNT_DELETION_TOKEN_KEYS`: JSON `{current, keys}`, where `current` names the
+  key used for new checkpoints and `keys` maps version names to base64-encoded
+  32-byte random keys. Keep older versions available until pending checkpoints
+  using them have drained. These keys are separate from the Apple signing key
+  and must not be included in public/mobile configuration.
+
+When a complete Clerk result contains no matching token, the user has disappeared
+without a saved token, or Clerk explicitly reports unretrievable shared-credential
+tokens, cleanup follows [Apple TN3194](https://developer.apple.com/documentation/technotes/tn3194-handling-account-deletions-and-revoking-tokens-for-sign-in-with-apple):
+delete the account and direct the person to revoke manually. The worker records
+`apple_revocation_required=true`; receipts expose `appleRevocationRequired`.
+This non-identifying instruction survives removal of the work/account IDs.
+The pending confirmation/status UI must display [Apple's instructions](https://support.apple.com/en-us/102571)
+when that flag is true, and must not claim automatic revocation. Authentication,
+configuration, timeout, throttling and other temporary failures retry; they do
+not silently choose the manual path.
+
+Apply `database/0037_account_deletion_apple.sql` before deploying this revision.
+It was applied twice successfully only to localhost `cyntch_mobile_test`; its
+two users, one household and zero deletion requests were unchanged. Production
+has not been migrated. Local Apple client/encryption secrets are not configured,
+and no real Apple authorization was revoked; real Apple/Clerk compatibility and
+the manual instruction UI remain release requirements.
+
+Verification on 2026-11-04: 395 general regression checks passed without skips
+or cancellations. After adding pagination, cross-request ciphertext isolation,
+missing-key and vanished-user tests, all 26 Apple/identity checks passed (16
+Apple-specific). Root lint, final changed-file lint, standalone TypeScript and
+the production build passed. No public deletion endpoint or worker was enabled.

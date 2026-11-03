@@ -65,7 +65,7 @@ test('identity cleanup rejects instance environment mismatch, provider failures 
  assert.equal(f.deletes().length,0);assert.equal((await f.read()).work.identity.completed,undefined)
 })
 
-test('identity erasure refuses to discard linked Apple tokens before upstream revocation is implemented',options,async t=>{
+test('identity erasure rejects malformed linked Apple account data before deleting the identity',options,async t=>{
  const f=await setup(t);f.state.user.external_accounts=[{provider:'oauth_apple',id:'external_apple'}]
  await assert.rejects(f.cleanup(),{code:'identity_cleanup_failed'});assert.equal(f.deletes().length,0);assert.equal((await f.read()).work.identity.completed,undefined)
 })

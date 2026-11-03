@@ -7,9 +7,11 @@ import { verifyInstallation } from "@/lib/native-notification-settings"
 import { notificationUuid, notificationSessionId } from "@/shared/mobile/notification-settings"
 import type { AccountDeletionScope } from "@/shared/mobile/account-deletion"
 import { accountDeletionIssuer } from "@/lib/account-deletion-identity"
+import type { AppleRevocationRecord } from "@/lib/account-deletion-apple"
 
 export interface AccountDeletionReceipt {
   accountId: string; requestId: string; state: "pending" | "completed"; acceptedAt: string; completedAt: string | null
+  appleRevocationRequired: boolean
 }
 export interface AccountDeletionWork {
   /** Provider identifiers stay server-side and are removed after processing. */
@@ -21,15 +23,15 @@ export interface AccountDeletionWork {
     scans: { testClock: string | null; cursor: string | null; complete: boolean }[]
   }
   retiredNativeAccounts: { id: string; projectId: string; environment: "production" | "sandbox"; requestedAt?: string; completed?: boolean }[]
-  identity: { issuer: string; instanceId?: string; environment?: "development" | "production"; completed?: boolean }
+  identity: { issuer: string; instanceId?: string; environment?: "development" | "production"; completed?: boolean; appleRevocations?: AppleRevocationRecord[] }
   orphanProfileIds: string[]
   householdIds: string[]
   deviceIds: string[]
   phases: { data: boolean; stripe: boolean; native: boolean; identity: boolean }
 }
-type RequestRow = { id: string; account_hash: string; request_hash: string; state: AccountDeletionReceipt["state"]; created_at: Date; completed_at: Date | null }
+type RequestRow = { id: string; account_hash: string; request_hash: string; state: AccountDeletionReceipt["state"]; created_at: Date; completed_at: Date | null; apple_revocation_required: boolean }
 function receipt(scope: AccountDeletionScope, row: RequestRow): AccountDeletionReceipt {
-  return {accountId:scope.accountId,requestId:row.id,state:row.state,acceptedAt:row.created_at.toISOString(),completedAt:row.completed_at?.toISOString() ?? null}
+  return {accountId:scope.accountId,requestId:row.id,state:row.state,acceptedAt:row.created_at.toISOString(),completedAt:row.completed_at?.toISOString() ?? null,appleRevocationRequired:row.apple_revocation_required}
 }
 const busy = () => new AccountDeletionError("Another account or household change is in progress. Please try again.",429,"account_deletion_busy")
 
