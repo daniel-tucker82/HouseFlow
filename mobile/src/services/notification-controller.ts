@@ -1,5 +1,6 @@
 import type { BoardState } from "./board-controller"
-import { defaultNotificationPreferences, type DeviceNotificationPreferences } from "../../../shared/mobile/notification-catalog"
+import { defaultNotificationPreferences, inQuietHours, notificationCatalog, type DeviceNotificationPreferences, type MobileNotificationKind } from "../../../shared/mobile/notification-catalog"
+import { notificationMemberSelection, type NativeNotificationPayload } from "../../../shared/mobile/notification-payload"
 import { parseNotificationPreferences, restrictNotificationPreferences, type NativeNotificationDevice, type NotificationSettingsOperation, type NotificationSettingsSnapshot } from "../../../shared/mobile/notification-settings"
 import type { HouseholdMember, HouseholdSummary } from "../../../shared/mobile/contracts"
 import type { NotificationDevice, NotificationPermissionState } from "./notification-device"
@@ -32,8 +33,13 @@ export class NotificationController {
   private running: Promise<void> | null = null
   private retryTimer: ReturnType<typeof setTimeout> | undefined
   private tokenSubscription: (() => void) | undefined
+  private households: HouseholdSummary[] = []
+  private rows: NotificationSettingRow[] = []
+  private selectionHashes = new Map<string, string>()
+  private hashing = new Set<string>()
   constructor(private readonly store: NotificationStore, private readonly accountId: string, private readonly api: NotificationsApi,
-    private readonly native: NotificationDevice, private readonly uuid: () => string, private readonly now: () => number = Date.now) {}
+    private readonly native: NotificationDevice, private readonly uuid: () => string, private readonly now: () => number = Date.now,
+    private readonly hashSelection?: (selection: string) => Promise<string>) {}
   getSnapshot = () => this.state
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
   private update(patch: Partial<NotificationState>) { if (!this.stopped) { this.state = { ...this.state, ...patch }; this.listeners.forEach(listener => listener()) } }
@@ -48,6 +54,7 @@ export class NotificationController {
     this.wake()
   }
   observe(board: BoardState) {
+    this.households = board.households
     const household = board.board?.household ?? null, switched = household?.id !== this.state.household?.id
     this.update({ household, members: board.board?.members ?? [], ...(switched ? { preferences: null, error: null } : {}) })
     if (switched) { this.readRevision++; this.refreshRevision++; void this.readLocal().catch(error => this.report(error)); if (this.started) void this.refresh() }
@@ -67,6 +74,8 @@ export class NotificationController {
     const revision = ++this.readRevision, household = this.state.household
     const rows = await this.store.all(this.accountId)
     if (this.stopped || revision !== this.readRevision || household?.id !== this.state.household?.id) return
+    this.rows = rows
+    this.prepareSelectionHashes()
     const row = rows.find(row => row.scope === household?.id)
     const fallback = defaultNotificationPreferences(this.accountId, Intl.DateTimeFormat().resolvedOptions().timeZone)
     fallback.enabled = ["granted", "provisional"].includes(this.state.permission)
@@ -74,6 +83,45 @@ export class NotificationController {
     const selected = household ? this.optimistic.get(household.id)?.preferences ?? (row?.desired as DeviceNotificationPreferences | undefined) ?? (saved?.configured ? saved.preferences : fallback) : null
     this.update({ device: rows.find(row => row.scope === "device")?.server as NativeNotificationDevice ?? null, pending: rows.filter(row => row.desired !== null),
       preferences: selected && household ? restrictNotificationPreferences(selected, this.accountId, household.role, this.state.members.map(member => member.id)) : null })
+  }
+  private presentationPreferences(household: HouseholdSummary) {
+    const row = this.rows.find(row => row.scope === household.id), saved = row?.server as NotificationSettingsSnapshot | undefined
+    const preferences = this.optimistic.get(household.id)?.preferences ?? row?.desired as DeviceNotificationPreferences | undefined
+      ?? (saved?.configured ? saved.preferences : defaultNotificationPreferences(this.accountId, household.timezone))
+    return household.id === this.state.household?.id
+      ? restrictNotificationPreferences(preferences, this.accountId, household.role, this.state.members.map(member => member.id)) : preferences
+  }
+  private prepareSelectionHashes() {
+    if (!this.hashSelection || this.stopped) return
+    for (const household of this.households) {
+      const preferences = this.presentationPreferences(household)
+      for (const kind of Object.keys(notificationCatalog) as MobileNotificationKind[]) {
+        if (notificationCatalog[kind].scope !== "member" || !preferences.categories[kind]?.enabled) continue
+        const key = notificationMemberSelection(preferences, kind)
+        if (this.selectionHashes.has(key) || this.hashing.has(key)) continue
+        this.hashing.add(key)
+        void this.hashSelection(key).then(hash => {
+          if (this.stopped) return
+          // Keep this cache bounded during long shared-tablet sessions.
+          if (this.selectionHashes.size >= 256) this.selectionHashes.delete(this.selectionHashes.keys().next().value!)
+          this.selectionHashes.set(key, hash)
+        }).catch(() => {}).finally(() => this.hashing.delete(key))
+      }
+    }
+  }
+  /** Synchronous and memory-only: never await storage, hashing or HTTP in the OS handler. */
+  canPresent(payload: NativeNotificationPayload) {
+    const household = this.households.find(item => item.id === payload.householdId)
+    if (this.stopped || !this.started || !this.active || !household || payload.accountId !== this.accountId
+      || !["granted", "provisional"].includes(this.state.permission)) return false
+    try {
+      const category = notificationCatalog[payload.kind], preferences = this.presentationPreferences(household), selection = preferences.categories[payload.kind]
+      if (!preferences.enabled || !selection?.enabled || (payload.hasDetails && !preferences.showDetails) || inQuietHours(preferences, new Date(this.now()))) return false
+      if (category.managementOnly && household.role !== "manager") return false
+      if (category.scope === "household") return household.role !== "member"
+      if (household.role === "member" && (selection.memberIds.length !== 1 || selection.memberIds[0] !== this.accountId)) return false
+      return selection.memberIds.length > 0 && this.selectionHashes.get(notificationMemberSelection(preferences, payload.kind)) === payload.memberSelectionHash
+    } catch { return false }
   }
   private async fetchScope(scope: string) {
     const response = await this.api.notificationSettings(scope === "device" ? undefined : scope)
@@ -121,6 +169,7 @@ export class NotificationController {
     if (!household || !previous || this.stopped) return
     const preferences = parseNotificationPreferences(update(previous)), id = ++this.editSequence
     this.optimistic.set(household.id, { id, preferences }); this.update({ preferences, error: null })
+    this.prepareSelectionHashes()
     try { await this.store.save(this.accountId, household.id, preferences) }
     catch (error) { this.report(new Error(`This notification change could not be saved on this device. ${error instanceof Error ? error.message : "Please try again."}`)); throw error }
     finally { if (this.optimistic.get(household.id)?.id === id) this.optimistic.delete(household.id); await this.readLocal(); this.wake() }

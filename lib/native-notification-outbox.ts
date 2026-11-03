@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto"
 import type { Pool, PoolClient } from "pg"
 import { normalizeRole } from "@/lib/household-authz"
-import { defaultNotificationPreferences, shouldPushNotification, type MobileNotificationKind } from "@/shared/mobile/notification-catalog"
+import { defaultNotificationPreferences, notificationCatalog, shouldPushNotification, type DeviceNotificationPreferences, type MobileNotificationKind } from "@/shared/mobile/notification-catalog"
+import { notificationMemberSelection, type NativeNotificationPayload } from "@/shared/mobile/notification-payload"
 import { notificationUuid, parseNotificationPreferences, restrictNotificationPreferences } from "@/shared/mobile/notification-settings"
 
 interface NativeEvent {
@@ -16,8 +17,7 @@ interface Recipient {
 export interface NativePushMessage {
   to: string; title: string; body: string; sound: "default"; priority: "high";
   channelId: string; collapseId: string; tag: string; threadId: string; ttl: number;
-  data: { version: 2; sessionId: string; deliveryId: string; accountId: string; householdId: string; eventId: string;
-    kind: MobileNotificationKind; occurrenceId?: string; taskId?: string };
+  data: NativeNotificationPayload;
 }
 export interface ClaimedNativeDelivery { id: string; leaseId: string; message: NativePushMessage }
 
@@ -86,15 +86,18 @@ const genericBody: Record<MobileNotificationKind, string> = {
   member_left: "A member left or was removed from your household.",
 }
 
-function messageFor(id: string, event: NativeEvent, recipient: Recipient, details: boolean, now: Date): NativePushMessage {
+function messageFor(id: string, event: NativeEvent, recipient: Recipient, preferences: DeviceNotificationPreferences, now: Date): NativePushMessage {
   // Names remain outside the data payload and are omitted entirely for private alerts.
   const name = typeof event.subject.name === "string" ? event.subject.name.replace(/[\u0000-\u001f]/g, " ").trim().slice(0, 120) : ""
   const occurrenceId = typeof event.subject.occurrenceId === "string" ? event.subject.occurrenceId : undefined
   const taskId = typeof event.subject.taskId === "string" ? event.subject.taskId : undefined
+  const details = preferences.showDetails
   return { to: recipient.expo_push_token!, title: "Cyntch", body: `${details && name ? `${name}: ` : ""}${genericBody[event.kind]}`,
     sound: "default", priority: "high", channelId: `cyntch-${event.kind}`, collapseId: id, tag: id, threadId: event.household_id,
     ttl: Math.max(1, Math.floor((event.expires_at.getTime() - now.getTime()) / 1000)),
-    data: { version: 2, sessionId: recipient.session_id!, deliveryId: id, accountId: recipient.user_id, householdId: event.household_id,
+    data: { version: 3, sessionId: recipient.session_id!, deliveryId: id, accountId: recipient.user_id, householdId: event.household_id,
+      hasDetails: Boolean(details && name), expiresAt: event.expires_at.getTime(),
+      memberSelectionHash: notificationCatalog[event.kind].scope === "member" ? createHash("sha256").update(notificationMemberSelection(preferences, event.kind)).digest("hex") : null,
       eventId: event.id, kind: event.kind, ...(occurrenceId ? { occurrenceId } : {}), ...(taskId ? { taskId } : {}) } }
 }
 
@@ -152,7 +155,7 @@ export async function claimNativeNotificationDeliveries(pool: Pool, limit = 100)
       await client.query(`update native_notification_deliveries set state='sending',attempts=attempts+1,lease_id=$2,
         lease_until=now()+interval '60 seconds',token_hash=$3,last_error_code=null where id=$1`,
       [job.id, leaseId, createHash("sha256").update(recipient.expo_push_token!).digest("hex")])
-      claimed.push({ id: job.id, leaseId, message: messageFor(job.id, current, recipient, preferences.showDetails, now) })
+      claimed.push({ id: job.id, leaseId, message: messageFor(job.id, current, recipient, preferences, now) })
     }
     await client.query("commit")
     return claimed

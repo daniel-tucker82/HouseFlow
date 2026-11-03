@@ -11,6 +11,7 @@ import { CircleCheck, History, ListChecks, Settings, Users } from "lucide-react-
 import { Action, Copy, Loading, styles, usePalette } from "../components/ui"
 import { RuntimeProvider } from "../providers/runtime"
 import { NotificationSessionProvider } from "../providers/notification-session"
+import { NotificationInteractions } from "../components/notification-interactions"
 
 function Application() {
   const { isLoaded, isSignedIn, userId, sessionId } = useAuth({ treatPendingAsSignedOut: false })
@@ -27,6 +28,7 @@ function Application() {
         <Tabs.Screen name="household" options={{ title: "Household", tabBarIcon: ({ color, size }) => <Users color={color} size={size} /> }} />
         <Tabs.Screen name="settings" options={{ title: "Settings", tabBarIcon: ({ color, size }) => <Settings color={color} size={size} /> }} />
       </Tabs>
+      <NotificationInteractions accountId={userId} sessionId={sessionId} />
     </RuntimeProvider> : <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
       <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center", alignItems: "center", padding: 24 }}>
       <View style={{ maxWidth: 430, width: "100%", gap: 24 }}>

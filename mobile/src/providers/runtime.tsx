@@ -1,5 +1,5 @@
 import { useAuth } from "@clerk/expo"
-import { randomUUID } from "expo-crypto"
+import { CryptoDigestAlgorithm, digestStringAsync, randomUUID } from "expo-crypto"
 import * as Network from "expo-network"
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake"
 import { createContext, useContext, useEffect, useRef, useState, useSyncExternalStore, type PropsWithChildren } from "react"
@@ -44,7 +44,8 @@ export function RuntimeProvider({ children, accountId, sessionId }: PropsWithChi
       controller = new BoardController(store, accountId, deviceId, api, randomUUID)
       planner = new PlannerController(store.planner, accountId, deviceId, api, randomUUID, async () => { await controller?.refresh() })
       runs = new RunsController(store, accountId, api, controller)
-      notifications = new NotificationController(store.notifications.forSession(accountId, sessionId), accountId, api, createNotificationDevice(store.notificationSessions), randomUUID)
+      notifications = new NotificationController(store.notifications.forSession(accountId, sessionId), accountId, api, createNotificationDevice(store.notificationSessions), randomUUID,
+        Date.now, selection => digestStringAsync(CryptoDigestAlgorithm.SHA256, selection))
       boardSubscription = controller.subscribe(() => { if (controller) { void planner?.selectHousehold(controller.getSnapshot().board?.household ?? null); runs?.observe(controller.getSnapshot()); notifications?.observe(controller.getSnapshot()) } })
       const connected = (state: Network.NetworkState) => {
         const online = state.isConnected === true && state.isInternetReachable !== false

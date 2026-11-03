@@ -4,6 +4,7 @@ import { useFocusEffect } from "expo-router"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { ChevronRight } from "lucide-react-native"
 import type { RunSnapshot, RunSummary } from "../../../shared/mobile/runs"
+import type { BoardTask } from "../../../shared/mobile/contracts"
 import { useBoard, useRuns, useRuntime } from "../providers/runtime"
 import { BoardTaskRow } from "./board-screen"
 import { PlannerSelect } from "./planner-inputs"
@@ -35,7 +36,7 @@ export default function RunsScreen() {
       </Card></Pressable>} />
     <Modal visible={Boolean(state.runId)} animationType="slide" presentationStyle="pageSheet" supportedOrientations={["portrait", "landscape-left", "landscape-right"]} onRequestClose={() => runs.closeRun()}>
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
-        {state.run ? <RunDetails key={state.runId} snapshot={state.run} /> : <View style={[styles.content, { flex: 1 }]}><Action secondary label="Close run" onPress={() => runs.closeRun()} />
+        {state.run ? <RunDetails key={`${state.runId}:${state.focusedTaskId ?? ""}`} snapshot={state.run} /> : <View style={[styles.content, { flex: 1 }]}><Action secondary label="Close run" onPress={() => runs.closeRun()} />
           {state.runLoading ? <Loading label="Opening this run…" /> : <><Copy>{state.runError ?? "This run is not available on this device."}</Copy>{board.online ? <Action label="Try again" onPress={() => void runs.refreshRun()} /> : null}</>}
         </View>}
       </SafeAreaView>
@@ -48,8 +49,13 @@ function RunDetails({ snapshot }: { snapshot: RunSnapshot }) {
   const [selectedMember, setMember] = useState("all")
   const memberId = snapshot.members.some(member => member.id === selectedMember) ? selectedMember : "all"
   const tasks = snapshot.tasks.filter(task => memberId === "all" || task.assignee_ids.includes(memberId))
+  const focused = tasks.find(task => task.id === state.focusedTaskId)
   const pending = new Map(board.pending.filter(change => change.householdId === snapshot.household.id && change.occurrenceId === snapshot.run.id).map(change => [change.taskId, change]))
-  return <FlatList data={tasks} keyExtractor={task => task.id} contentContainerStyle={[styles.content, { maxWidth: 800 }]} refreshControl={<RefreshControl refreshing={state.runLoading} onRefresh={() => void runs.refreshRun()} tintColor={colors.primary} />}
+  const taskRow = (task: BoardTask) => <BoardTaskRow task={task} timezone={snapshot.household.timezone} saving={pending.has(task.id)}
+    memberNames={snapshot.members.filter(member => task.assignee_ids.includes(member.id)).map(member => member.name).join(", ")}
+    canEdit={snapshot.run.status !== "cancelled" && (snapshot.household.role !== "member" || task.assignee_ids.includes(controller.accountId))}
+    onPress={() => void runs.setCompleted(task, memberId !== "all" ? memberId : snapshot.household.role === "member" ? controller.accountId : task.assignee_ids[0] ?? controller.accountId, task.status !== "completed").catch(report)} />
+  return <FlatList data={tasks.filter(task => task.id !== focused?.id)} keyExtractor={task => task.id} contentContainerStyle={[styles.content, { maxWidth: 800 }]} refreshControl={<RefreshControl refreshing={state.runLoading} onRefresh={() => void runs.refreshRun()} tintColor={colors.primary} />}
     ListHeaderComponent={<View style={{ gap: 16 }}><View style={[styles.row, { flexWrap: "wrap" }]}><Copy tone="heading" style={{ flex: 1, minWidth: 160 }}>{snapshot.run.title}</Copy><Action secondary label="Close run" onPress={() => runs.closeRun()} /></View>
       <Copy tone="muted">{dateLabel(snapshot.run, snapshot.household.timezone)} · {snapshot.household.timezone}</Copy>
       <Copy>{snapshot.run.status === "cancelled" ? "This run was cancelled. Its tasks cannot be changed." : `${snapshot.run.completed_tasks} of ${snapshot.run.total_tasks} done`}</Copy>
@@ -57,11 +63,10 @@ function RunDetails({ snapshot }: { snapshot: RunSnapshot }) {
       {[...pending.values()].some(change => change.state === "rejected") ? <Copy style={{ color: colors.danger }}>A saved change needs attention in Settings.</Copy> : null}
       {state.runError ? <View accessibilityRole="alert"><Copy style={{ color: colors.danger }}>{state.runError}</Copy></View> : null}
       <PlannerSelect label="Show tasks for" value={memberId} options={[{ value: "all", label: "Everyone" }, ...snapshot.members.map(member => ({ value: member.id, label: member.name }))]} onChange={setMember} />
+      {focused ? <View style={{ gap: 12 }}><Copy tone="label">From your notification</Copy>{taskRow(focused)}{tasks.length > 1 ? <Copy tone="label">Other tasks in this run</Copy> : null}</View> : null}
+      {state.focusedTaskId && !snapshot.tasks.some(task => task.id === state.focusedTaskId) ? <Copy tone="muted">The task in this notification is no longer part of this run.</Copy> : null}
     </View>}
-    ListEmptyComponent={<Card><Copy tone="muted">{snapshot.tasks.length ? "No tasks for this person in this run." : "There are no tasks in this run."}</Copy></Card>}
-    renderItem={({ item: task }) => <BoardTaskRow task={task} timezone={snapshot.household.timezone} saving={pending.has(task.id)}
-      memberNames={snapshot.members.filter(member => task.assignee_ids.includes(member.id)).map(member => member.name).join(", ")}
-      canEdit={snapshot.run.status !== "cancelled" && (snapshot.household.role !== "member" || task.assignee_ids.includes(controller.accountId))}
-      onPress={() => void runs.setCompleted(task, memberId !== "all" ? memberId : snapshot.household.role === "member" ? controller.accountId : task.assignee_ids[0] ?? controller.accountId, task.status !== "completed").catch(report)} />}
+    ListEmptyComponent={focused ? undefined : <Card><Copy tone="muted">{snapshot.tasks.length ? "No tasks for this person in this run." : "There are no tasks in this run."}</Copy></Card>}
+    renderItem={({ item: task }) => taskRow(task)}
   />
 }

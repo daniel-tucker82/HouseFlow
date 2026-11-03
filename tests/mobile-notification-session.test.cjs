@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports -- Durable SQLite and controlled native/provider boundaries. */
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
+const { randomUUID } = require('node:crypto')
 const { DatabaseSync } = require('node:sqlite')
 const { buildSync } = require('esbuild')
 const Module = require('node:module')
@@ -142,8 +143,8 @@ test('native token destruction is ordered between old and new token requests, an
   const f = await fixture(t), events = []
   let fail = false
   const native = {
-    clearLastNotificationResponse: () => events.push('clear'), dismissAllNotificationsAsync: async () => events.push('dismiss'),
-    cancelAllScheduledNotificationsAsync: async () => events.push('cancel'), unregisterForNotificationsAsync: async () => { events.push('unregister'); if (fail) throw new Error('Unavailable') },
+    getLastNotificationResponse: () => null, getPresentedNotificationsAsync: async () => [], getAllScheduledNotificationsAsync: async () => [],
+    unregisterForNotificationsAsync: async () => { events.push('unregister'); if (fail) throw new Error('Unavailable') },
   }
   const { withNativeNotificationSession: serial, resetNativeNotificationSession: reset, waitForNativeNotification: bounded } = load(['mobile/src/services/notification-native-session.ts'], { 'expo-notifications': native })
   await f.sessions.activate(old)
@@ -163,4 +164,35 @@ test('native token destruction is ordered between old and new token requests, an
   assert.notEqual(await f.sessions.cleanupVersion(), null)
   fail = false; await reset(f.sessions)
   assert.equal(await f.sessions.cleanupVersion(), null)
+})
+
+test('retried cleanup preserves the current session cold-start tap and tray items, but clears them after sign-out', async t => {
+  const f = await fixture(t)
+  await f.sessions.activate(old); await f.sessions.close(old); await f.sessions.activate(fresh)
+  await f.reopen()
+  const request = (session, extra = {}) => ({ identifier: randomUUID(), content: { data: {
+    version: 3, ...session, deliveryId: randomUUID(), eventId: randomUUID(), householdId: randomUUID(),
+    kind: 'member_added', hasDetails: false, memberSelectionHash: null, expiresAt: Date.now() + 3600000, ...extra,
+  } } })
+  const current = request(fresh), previous = request(old), anotherAccount = request({ ...fresh, accountId: 'other' }), unknown = request(fresh, { version: 1 })
+  let presented = [current, previous, anotherAccount, unknown].map(request => ({ request })), scheduled = [current, previous]
+  let last = { notification: { request: current } }, fail = true, clears = 0
+  const native = {
+    getLastNotificationResponse: () => last, clearLastNotificationResponse: () => { clears++; last = null },
+    getPresentedNotificationsAsync: async () => presented, getAllScheduledNotificationsAsync: async () => scheduled,
+    dismissNotificationAsync: async id => { presented = presented.filter(item => item.request.identifier !== id) },
+    cancelScheduledNotificationAsync: async id => { scheduled = scheduled.filter(item => item.identifier !== id) },
+    unregisterForNotificationsAsync: async () => { if (fail) throw new Error('Provider unavailable') },
+  }
+  const { resetNativeNotificationSession: reset } = load(['mobile/src/services/notification-native-session.ts'], { 'expo-notifications': native })
+  await assert.rejects(reset(f.sessions), /waiting to finish/)
+  assert.deepEqual(presented, [{ request: current }]); assert.deepEqual(scheduled, [current])
+  assert.equal(last.notification.request.identifier, current.identifier); assert.equal(clears, 0)
+  assert.notEqual(await f.sessions.cleanupVersion(), null)
+  fail = false; await reset(f.sessions)
+  assert.equal(last.notification.request.identifier, current.identifier)
+  assert.equal(await f.sessions.cleanupVersion(), null)
+  await f.sessions.close(fresh); await reset(f.sessions)
+  assert.equal(last, null); assert.equal(clears, 1)
+  assert.deepEqual(presented, []); assert.deepEqual(scheduled, [])
 })

@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports -- Real PostgreSQL expansion, access checks and interruption recovery. */
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
-const { randomUUID } = require('node:crypto')
+const { randomUUID, createHash } = require('node:crypto')
 const { readFileSync, readdirSync } = require('node:fs')
 const path = require('node:path')
 const Module = require('node:module')
@@ -16,6 +16,7 @@ function load(relative) {
 }
 const { expandNativeNotificationEvents: expand, claimNativeNotificationDeliveries: claim } = load('lib/native-notification-outbox.ts')
 const { defaultNotificationPreferences } = load('shared/mobile/notification-catalog.ts')
+const { parseNativeNotificationPayload } = load('shared/mobile/notification-payload.ts')
 const { processNativeNotifications: drain } = load('lib/native-notification-worker.ts')
 
 async function fixture(t) {
@@ -91,7 +92,11 @@ test('native outbox independently selects devices, filters household access and 
   assert.equal(claims.filter(job => job.message.data.kind === 'routine_started').length, 2)
   assert.equal(claims.filter(job => job.message.data.kind === 'task_available').length, 3)
   for (const { id, message } of claims) {
-    assert.equal(message.data.version, 2)
+    assert.equal(message.data.version, 3)
+    assert.deepEqual(parseNativeNotificationPayload(message.data), message.data, 'server payload must pass the native parser')
+    const selection = message.data.kind === 'task_available' ? ['child'] : null
+    assert.equal(message.data.memberSelectionHash, selection ? createHash('sha256').update(JSON.stringify(selection)).digest('hex') : null)
+    assert.equal(message.data.hasDetails, false)
     assert.equal(message.data.sessionId, `sess_${message.data.accountId}`)
     assert.equal(message.channelId, `cyntch-${message.data.kind}`)
     assert.equal(message.collapseId, id); assert.equal(message.tag, id)

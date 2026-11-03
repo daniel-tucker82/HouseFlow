@@ -141,8 +141,7 @@ Permission inspection does not prompt. Android creates one channel per event typ
 before asking permission; iOS provisional permission is distinguished from normal
 alerts. Token refresh failures preserve existing registrations and queued tokens.
 The installation secret is retained in SecureStore. Token rotation is observed.
-Background settings sync, kiosk integration and device-side push presentation/tap
-handling remain to be implemented. An EAS project ID and
+Background settings sync and kiosk integration remain to be implemented. An EAS project ID and
 FCM/APNs credentials must be configured before push can register and deliver.
 This build reports their absence while allowing preference editing. A registration
 or a passing JavaScript export is not evidence of delivered push.
@@ -165,8 +164,26 @@ token creation. A stalled provider operation times out for the notification UI
 while retaining its ordering; task saving and sign-in do not wait for it. Native
 cleanup retries on resume/reconnect and before token registration. Notifications
 already handed to APNs/FCM cannot be recalled by server revocation alone; native
-presentation/tap safeguards and real-device delivery checks are still required
-before enabling the delivery gate.
+background delivery and real-device checks are still required before enabling
+the delivery gate. Retried cleanup removes obsolete-session notifications by ID;
+it preserves the current session's tray items, scheduled alerts and launch response.
+
+Native notification payload version 3 contains validated event/entity IDs, session
+identity, expiry and display-policy metadata. Foreground presentation uses an
+in-memory policy with no storage or network waits: current permission, household
+access/role, local event/member choices, quiet hours and privacy all apply. A hash
+of the category's member selection rejects queued alerts after selections change
+without including family member IDs in every payload. Provider TTL controls expiry;
+an inaccurate device clock is not used to discard otherwise valid alerts.
+
+Explicit taps commit to a session-scoped SQLite inbox before the OS response is
+cleared. The latest tap wins; duplicate deliveries do not reopen handled destinations.
+Navigation waits for startup, revalidates online household access and opens only
+known in-app destinations. Task notifications bring the referenced task to the
+top of its run; routine notifications open that run and membership events open
+the household. Cached runs remain available offline. Taps cannot perform task
+changes, route to arbitrary URLs or bypass current household roles. Kiosk routing
+restrictions still need integration before kiosk mode is released.
 
 Migration `0025_native_notification_events.sql` captures all 15 native event types
 in the transaction that changes a task, run or household membership. It records
@@ -334,3 +351,18 @@ cleanup failure, interruption, ordering, repeated connectivity events and timeou
 All 137 non-billing tests passed with real local PostgreSQL fixtures; root/mobile
 lint and typecheck, the production Next.js build and Android/iOS JavaScript exports
 passed. Migration 0027 was applied only to the local emulator test database.
+
+Foreground banners, Android notification-pane entries, routine taps and task-focused
+taps were verified on the Android 36 emulator on 2026-11-04 using local test
+notifications. Disabling household alerts suppressed foreground presentation.
+Portrait and landscape run details were inspected. Killing the background app
+process and then tapping a task notification reproduced a cleanup race; after
+the fix, the app relaunched into the intended task and acknowledged its durable
+inbox entry. The original household notification preferences were restored.
+All 149 non-billing tests passed, including real SQLite/PostgreSQL fixtures,
+server-to-client payload validation, access changes during navigation, local
+settings enforcement and retried cleanup across sessions. Root/mobile lint and
+typecheck, the production Next.js build and Android/iOS JavaScript exports passed.
+These checks do not establish remote FCM/APNs reception or native iOS behavior.
+The Android notification icon still uses a placeholder silhouette and needs
+a dedicated monochrome asset before release.

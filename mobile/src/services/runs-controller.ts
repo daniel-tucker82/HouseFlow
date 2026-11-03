@@ -8,9 +8,10 @@ interface RunsApi { runs(householdId: string, view: RunView, cursor?: string): P
 export interface RunsState {
   household: HouseholdSummary | null; view: RunView; page: RunPage | null; runId: string | null; run: RunSnapshot | null;
   loading: boolean; refreshing: boolean; runLoading: boolean; error: string | null; runError: string | null;
+  focusedTaskId: string | null;
 }
 export class RunsController {
-  private state: RunsState = { household: null, view: "active", page: null, runId: null, run: null, loading: false, refreshing: false, runLoading: false, error: null, runError: null }
+  private state: RunsState = { household: null, view: "active", page: null, runId: null, run: null, loading: false, refreshing: false, runLoading: false, error: null, runError: null, focusedTaskId: null }
   private listeners = new Set<() => void>()
   private visible = false
   private active = true
@@ -41,7 +42,7 @@ export class RunsController {
     this.pendingKey = key; this.pendingCount = state.pending.length
     if (switched) {
       this.pageRevision++; this.runRevision++; this.localRevision++; this.optimistic.clear()
-      this.update({ household, page: null, runId: null, run: null, loading: Boolean(household), refreshing: false, runLoading: false, error: null, runError: null })
+      this.update({ household, page: null, runId: null, run: null, focusedTaskId: null, loading: Boolean(household), refreshing: false, runLoading: false, error: null, runError: null })
     } else if (boardChanged) this.update({ household })
     if (switched || changed || boardChanged) void this.readLocal().catch(error => this.report(error))
     if (this.visible && this.active && this.online && (switched || reconnected || acknowledged || refreshed)) { void this.refresh(); if (this.state.runId) void this.refreshRun() }
@@ -79,13 +80,13 @@ export class RunsController {
     } catch (error) { if (revision === this.pageRevision) this.report(error) }
     finally { if (revision === this.pageRevision) this.update({ refreshing: false, loading: false }) }
   }
-  async openRun(id: string) {
-    this.runRevision++; this.update({ runId: id, run: null, runLoading: true, runError: null })
+  async openRun(id: string, focusedTaskId?: string) {
+    this.runRevision++; this.update({ runId: id, run: null, focusedTaskId: focusedTaskId ?? null, runLoading: true, runError: null })
     await this.readLocal()
     if (!this.online) this.update({ runLoading: false, runError: this.state.run ? null : "Connect once to save this run’s details on this device." })
     else await this.refreshRun()
   }
-  closeRun() { this.runRevision++; this.localRevision++; this.update({ runId: null, run: null, runLoading: false, runError: null }) }
+  closeRun() { this.runRevision++; this.localRevision++; this.update({ runId: null, run: null, focusedTaskId: null, runLoading: false, runError: null }) }
   async refreshRun() {
     const { household, runId } = this.state
     if (!household || !runId || !this.online || !this.visible || !this.active || this.stopped) return
@@ -98,7 +99,10 @@ export class RunsController {
       await this.store.cacheRun(this.accountId, next); await this.readLocal()
     } catch (error) {
       if (revision !== this.runRevision) return
-      if (error instanceof TransportError && error.status === 404) { await this.store.removeRun(this.accountId, household.id, runId); await this.readLocal() }
+      if (error instanceof TransportError && [403, 404].includes(error.status)) {
+        await this.store.removeRun(this.accountId, household.id, runId); await this.readLocal()
+        if (error.status === 403) void this.board.refresh()
+      }
       this.report(error, true)
     } finally { if (revision === this.runRevision) this.update({ runLoading: false }) }
   }

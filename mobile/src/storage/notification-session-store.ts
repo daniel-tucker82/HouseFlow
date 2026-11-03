@@ -17,6 +17,10 @@ export class NotificationSessionStore {
       INSERT OR IGNORE INTO notification_native_cleanup VALUES(1,0,0);`)
   }
   private requireCleanup(tx: SqlConnection) { return tx.runAsync("UPDATE notification_native_cleanup SET generation=generation+1 WHERE id=1") }
+  async active(): Promise<NotificationSession | null> {
+    const row = await this.db.getFirstAsync<SessionRow>("SELECT account_id,session_id FROM notification_sessions WHERE revoked=0")
+    return row ? { accountId: row.account_id, sessionId: row.session_id } : null
+  }
   async cleanupVersion() {
     const row = await this.db.getFirstAsync<{ generation: number }>("SELECT generation FROM notification_native_cleanup WHERE generation>completed")
     return row?.generation ?? null
@@ -34,6 +38,7 @@ export class NotificationSessionStore {
       if (current) {
         await tx.runAsync("UPDATE notification_sessions SET revoked=1,pending=1,next_attempt_ms=0 WHERE session_id=?", current.session_id)
         await tx.runAsync("DELETE FROM native_notification_settings WHERE account_id=? AND scope='device'", current.account_id)
+        await tx.runAsync("DELETE FROM notification_taps WHERE session_id=?", current.session_id)
         changed = true
       }
       // Persist the OS cleanup too: an interruption after committing sign-out must
@@ -54,6 +59,7 @@ export class NotificationSessionStore {
         ON CONFLICT(session_id) DO UPDATE SET revoked=1,pending=1,next_attempt_ms=0 WHERE account_id=excluded.account_id`, session.sessionId, session.accountId)
       if (active) {
         await tx.runAsync("DELETE FROM native_notification_settings WHERE account_id=? AND scope='device'", session.accountId)
+        await tx.runAsync("DELETE FROM notification_taps WHERE session_id=?", session.sessionId)
         await this.requireCleanup(tx)
       }
     })

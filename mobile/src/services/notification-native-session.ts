@@ -1,5 +1,6 @@
 import * as Notifications from "expo-notifications"
 import type { NotificationSessionStore } from "../storage/notification-session-store"
+import { parseNativeNotificationPayload } from "../../../shared/mobile/notification-payload"
 
 // Token creation and destruction share a queue. A delayed sign-out cleanup must
 // never unregister a token that a later sign-in has just acquired.
@@ -13,6 +14,27 @@ export function withNativeNotificationSession<T>(work: () => Promise<T>): Promis
   return result
 }
 
+async function clearObsoleteNotifications(store: NotificationSessionStore) {
+  const [presented, scheduled] = await Promise.all([
+    Notifications.getPresentedNotificationsAsync(), Notifications.getAllScheduledNotificationsAsync(),
+  ])
+  const current = await store.active()
+  const belongsToCurrentSession = (data: unknown) => {
+    const payload = parseNativeNotificationPayload(data)
+    return current && payload?.accountId === current.accountId && payload.sessionId === current.sessionId
+  }
+  // Retried cleanup can outlive sign-out and run during a new session's cold
+  // start. Preserve its tap until the durable inbox captures it. Remove by ID
+  // so a notification arriving while cleanup awaits cannot be swept away.
+  const last = Notifications.getLastNotificationResponse()
+  if (last && !belongsToCurrentSession(last.notification.request.content.data)) Notifications.clearLastNotificationResponse()
+  const results = await Promise.allSettled([
+    ...presented.filter(item => !belongsToCurrentSession(item.request.content.data)).map(item => Notifications.dismissNotificationAsync(item.request.identifier)),
+    ...scheduled.filter(item => !belongsToCurrentSession(item.content.data)).map(item => Notifications.cancelScheduledNotificationAsync(item.identifier)),
+  ])
+  if (results.some(result => result.status === "rejected")) throw new Error("Notification cleanup needs another attempt.")
+}
+
 export function resetNativeNotificationSession(store: NotificationSessionStore) {
   const pending = resets.get(store)
   if (pending) return pending
@@ -20,12 +42,10 @@ export function resetNativeNotificationSession(store: NotificationSessionStore) 
     for (;;) {
       const version = await store.cleanupVersion()
       if (version === null) return
-      Notifications.clearLastNotificationResponse()
       // These operations are local except provider token invalidation. Task saves
       // and sign-in screens do not wait for them; registration uses the same queue.
       const results = await Promise.allSettled([
-        Notifications.dismissAllNotificationsAsync(),
-        Notifications.cancelAllScheduledNotificationsAsync(),
+        clearObsoleteNotifications(store),
         Notifications.unregisterForNotificationsAsync(),
       ])
       generation++

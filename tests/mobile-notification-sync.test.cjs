@@ -247,14 +247,14 @@ test('native notification adapter creates Android channels before asking permiss
     setNotificationChannelAsync: async (id, options) => { assert.equal(options.sound, undefined, 'use the system default, not a missing custom sound'); events.push(id) }, requestPermissionsAsync: async () => { events.push('permission'); return { ...permission, status: 'granted' } },
     getExpoPushTokenAsync: async options => { tokenOptions = options; return { data: 'ExpoPushToken[adapter]' } },
     addPushTokenListener: listener => { tokenListener = listener; return { remove: () => events.push('removed') } },
-    clearLastNotificationResponse: () => {}, dismissAllNotificationsAsync: async () => {},
-    cancelAllScheduledNotificationsAsync: async () => {}, unregisterForNotificationsAsync: async () => {},
+    getLastNotificationResponse: () => null, getPresentedNotificationsAsync: async () => [],
+    getAllScheduledNotificationsAsync: async () => [], unregisterForNotificationsAsync: async () => {},
   }
   const mocks = { 'expo-notifications': notifications, 'expo-constants': constants, 'expo-application': { nativeApplicationVersion: '1.0.0' }, 'expo-device': { deviceName: 'Phone' }, 'react-native': { Platform: platform, Linking: { openSettings: async () => events.push('settings') } } }
   const filename = path.join(root, 'mobile/src/services/notification-device.ts')
   const compiled = buildSync({ entryPoints: [filename], bundle: true, platform: 'node', format: 'cjs', external: Object.keys(mocks), write: false })
   const loaded = new Module(filename, module); loaded.require = id => mocks[id] ?? require(id); loaded._compile(compiled.outputFiles[0].text, filename)
-  const adapter = loaded.exports.createNotificationDevice({ cleanupVersion: async () => cleanupVersion, completeCleanup: async () => { cleanupVersion = null } })
+  const adapter = loaded.exports.createNotificationDevice({ active: async () => null, cleanupVersion: async () => cleanupVersion, completeCleanup: async () => { cleanupVersion = null } })
   assert.equal((await adapter.inspect()).permission, 'denied'); assert.equal(events.length, 0, 'inspection never prompts')
   assert.equal((await adapter.requestPermission()).permission, 'granted')
   assert.equal(events.at(-1), 'permission'); assert.equal(events.filter(value => value.startsWith('cyntch-')).length, 15)
