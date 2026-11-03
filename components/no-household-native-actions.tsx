@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { SignOutButton } from "@clerk/nextjs"
 import { useEffect, useState } from "react"
 
 export function NoHouseholdNativeActions() {
@@ -23,21 +24,17 @@ export function NoHouseholdNativeActions() {
           Open Cyntch in a desktop or mobile browser to create a household, then return here after you’ve been invited
           or added.
         </p>
-        <Link className="w-fit underline text-foreground" href="/auth/login">
-          Switch account
-        </Link>
+        <SignOutButton redirectUrl="/auth/login"><button type="button" className="w-fit underline text-foreground">Switch account</button></SignOutButton>
       </div>
     )
   }
 
   return (
-    <div className="flex gap-3">
-      <Link className="underline" href="/leader/dashboard">
+    <div className="flex flex-wrap items-center gap-5">
+      <Link className="marketing-button" href="/leader/dashboard">
         Create a household
       </Link>
-      <Link className="underline" href="/auth/login">
-        Switch account
-      </Link>
+      <SignOutButton redirectUrl="/auth/login"><button type="button" className="text-sm text-muted-foreground underline underline-offset-4">Switch account</button></SignOutButton>
     </div>
   )
 }

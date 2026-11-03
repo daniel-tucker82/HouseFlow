@@ -31,7 +31,7 @@ import {
   type OnNodesChange,
   type ReactFlowInstance,
 } from "@xyflow/react"
-import { ChevronDown, ChevronRight, Lock, LockOpen, Minus, Plus, Trash2 } from "lucide-react"
+import { ChevronDown, ChevronRight, ListTree, Lock, LockOpen, Minus, Plus, Search, Trash2, Users, Workflow, X } from "lucide-react"
 import "@xyflow/react/dist/style.css"
 import { Button } from "@/components/ui/button"
 import type { Household, Routine, RoutineOccurrence, Task } from "@/lib/types"
@@ -401,16 +401,16 @@ function TaskNode({ data, selected }: NodeProps<Node<TaskNodeData>>) {
 
   /** Completed task: light grey. Completed reward: same grey-blue as locked rewards on member dashboard. */
   const surfaceClass = cn(
-    "relative w-[220px] max-w-[220px] rounded-xl border p-3 shadow-sm",
+    "relative w-[220px] max-w-[220px] rounded-xl border p-3.5 shadow-[0_3px_12px_rgba(36,62,59,0.06)]",
     isComplete
       ? data.isReward
         ? "border-slate-300 bg-sky-50/60"
-        : "border-zinc-300 bg-zinc-100"
+        : "border-[#d6e2d0] bg-[#f0f6ee]"
       : data.isReward
-        ? "border-sky-300 bg-sky-50"
-        : "border-zinc-300 bg-white",
+        ? "border-[#e7d8bc] bg-[#fcf6eb]"
+        : "border-[#cbd9c7] bg-white",
     data.occurrenceView ? "pr-9" : "",
-    data.highlighted || selected ? "ring-2 ring-blue-500 ring-offset-2" : "",
+    data.highlighted || selected ? "ring-2 ring-primary ring-offset-2" : "",
     data.justCreated
       ? "ring-4 ring-emerald-400/80 ring-offset-2 shadow-[0_0_0_8px_rgba(52,211,153,0.18),0_18px_45px_rgba(15,118,110,0.22)] transition-shadow animate-pulse"
       : "",
@@ -418,7 +418,7 @@ function TaskNode({ data, selected }: NodeProps<Node<TaskNodeData>>) {
 
   return (
     <div title={isClientMounted ? tooltip : undefined} className={surfaceClass}>
-      <Handle type="target" position={Position.Top} className="!h-3 !w-3 !bg-zinc-700" />
+      <Handle type="target" position={Position.Top} className="!h-3 !w-3 !bg-primary" />
       {data.occurrenceView ? (
         <input
           type="checkbox"
@@ -530,7 +530,7 @@ function TaskNode({ data, selected }: NodeProps<Node<TaskNodeData>>) {
       >
         {data.title}
       </p>
-      <Handle type="source" position={Position.Bottom} className="!h-3 !w-3 !bg-zinc-700" />
+      <Handle type="source" position={Position.Bottom} className="!h-3 !w-3 !bg-primary" />
     </div>
   )
 }
@@ -675,6 +675,12 @@ type OccurrenceMenuState = {
   y: number
 }
 
+type RoutineMenuState = {
+  routineId: string
+  x: number
+  y: number
+}
+
 type TaskMenuState = {
   taskId: string
   taskIds: string[]
@@ -713,7 +719,7 @@ function sidebarLeafTaskClass(isReward: boolean, isSelected: boolean, isComplete
   }
   if (isReward) {
     return cn(
-      "border border-sky-300 bg-sky-50 text-sky-900 transition-colors hover:bg-sky-100/90",
+      "border border-amber-200 bg-amber-50 text-amber-900 transition-colors hover:bg-amber-100/90",
       isSelected && "font-medium ring-2 ring-blue-500",
     )
   }
@@ -993,6 +999,7 @@ export function LeaderFlowEditor({
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [edgeMenu, setEdgeMenu] = useState<EdgeMenuState | null>(null)
   const [occurrenceMenu, setOccurrenceMenu] = useState<OccurrenceMenuState | null>(null)
+  const [routineMenu, setRoutineMenu] = useState<RoutineMenuState | null>(null)
   const [taskMenu, setTaskMenu] = useState<TaskMenuState | null>(null)
   const [routinePlusMenu, setRoutinePlusMenu] = useState<RoutinePlusMenuState | null>(null)
   const [expandedRecurrenceRuleIds, setExpandedRecurrenceRuleIds] = useState<Record<string, boolean>>({})
@@ -1038,6 +1045,7 @@ export function LeaderFlowEditor({
   const householdPanelRef = useRef<HTMLElement | null>(null)
   const householdPanelToggleRef = useRef<HTMLButtonElement | null>(null)
   const taskSettingsFormRef = useRef<HTMLFormElement | null>(null)
+  const taskTitleInputRef = useRef<HTMLInputElement | null>(null)
   const taskSettingsAutosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const coalescedFlowReloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const scheduleCoalescedFlowReloadRef = useRef<() => void>(() => {})
@@ -1065,6 +1073,14 @@ export function LeaderFlowEditor({
     {},
   )
   const [isHouseholdPanelOpen, setIsHouseholdPanelOpen] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [sidebarSearch, setSidebarSearch] = useState("")
+  useEffect(() => {
+    if (!sidebarOpen) return
+    const dismiss = (event: KeyboardEvent) => { if (event.key === "Escape") setSidebarOpen(false) }
+    window.addEventListener("keydown", dismiss)
+    return () => window.removeEventListener("keydown", dismiss)
+  }, [sidebarOpen])
   const [localHouseholds, setLocalHouseholds] = useState<Household[]>(households)
   useEffect(() => {
     setLocalHouseholds(households)
@@ -1265,6 +1281,7 @@ export function LeaderFlowEditor({
     routineId?: string | null,
     occurrenceId?: string | null,
   ) => {
+    setSidebarOpen(false)
     const nextRoutineId = routineId ?? null
     const nextOccurrenceId = occurrenceId ?? null
     setSelectedRoutineId(nextRoutineId)
@@ -2284,6 +2301,7 @@ export function LeaderFlowEditor({
         setGuidePreviewScreen(null)
         setGuideLineMenu(null)
         setEdgeMenu(null)
+        setRoutineMenu(null)
         setTaskMenu(null)
         setEditingGuideId(null)
         return
@@ -2551,6 +2569,44 @@ export function LeaderFlowEditor({
       }),
     })
     setActiveTask(null)
+    await reloadFlow(selectedHouseholdId, selectedRoutineId, selectedOccurrenceId)
+  }
+
+  const deleteRoutine = async (routineId: string) => {
+    const routine = localRoutines.find((item) => item.id === routineId)
+    const label = routine?.name ?? "this routine"
+    setRoutineMenu(null)
+    setRoutinePlusMenu(null)
+    if (!window.confirm(`Delete "${label}" and its tasks and occurrences? This cannot be undone.`)) return
+
+    await flushTaskSettingsIfDirtyRef.current()
+    const response = await fetch("/api/leader/flow", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "deleteRoutine",
+        householdId: selectedHouseholdId,
+        routineId,
+      }),
+    })
+    if (!response.ok) {
+      const json = await response.json().catch(() => null)
+      window.alert(String(json?.error ?? "Could not delete routine"))
+      return
+    }
+
+    const selectedBoardRoutineId =
+      localOccurrences.find((occurrence) => occurrence.id === selectedOccurrenceId)?.routine_id ?? null
+    const deletingCurrentView = selectedRoutineId === routineId || selectedBoardRoutineId === routineId
+    setLocalRoutines((prev) => prev.filter((item) => item.id !== routineId))
+    setLocalAllTasks((prev) => prev.filter((task) => task.routine_id !== routineId))
+    if (deletingCurrentView) {
+      setSelectedTaskId(null)
+      setActiveTask(null)
+      syncRoute(selectedHouseholdId, null, null)
+      await reloadFlow(selectedHouseholdId, null, null)
+      return
+    }
     await reloadFlow(selectedHouseholdId, selectedRoutineId, selectedOccurrenceId)
   }
 
@@ -3650,6 +3706,22 @@ export function LeaderFlowEditor({
   }, [activeTask?.id])
 
   useEffect(() => {
+    if (!activeTask) return
+    const frame = window.requestAnimationFrame(() => {
+      const input = taskTitleInputRef.current
+      if (!input) return
+      input.focus()
+      if (input.value === "New task") {
+        input.select()
+        return
+      }
+      const end = input.value.length
+      input.setSelectionRange(end, end)
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [activeTask?.id])
+
+  useEffect(() => {
     return () => {
       if (taskSettingsAutosaveTimerRef.current) {
         clearTimeout(taskSettingsAutosaveTimerRef.current)
@@ -3739,6 +3811,10 @@ export function LeaderFlowEditor({
     return `Occurrence ${formatDateStable(board.scheduled_for)}`
   }
 
+  const query = sidebarSearch.trim().toLowerCase()
+  const matchingRoutines = localRoutines.filter(routine => !query || routine.name.toLowerCase().includes(query) || localAllTasks.some(task => task.routine_id === routine.id && task.title.toLowerCase().includes(query)))
+  const matchingBoards = taskBoards.filter(board => !query || taskBoardTitle(board).toLowerCase().includes(query))
+
   const guideMenuLocked = guideLineMenu
     ? Boolean(
         (flowNodes.find((node) => node.id === guideLineMenu.nodeId && node.type === "dayDivider")?.data as
@@ -3748,13 +3824,25 @@ export function LeaderFlowEditor({
     : false
 
   return (
-    <main className="relative flex h-full min-h-0 w-full overflow-hidden rounded-xl border border-border/80 bg-muted/25 shadow-sm ring-1 ring-black/[0.03] dark:ring-white/[0.06]">
-      <aside className="z-10 flex h-full w-72 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 px-1 pt-2">
+        <div className="flex min-w-0 items-center gap-3">
+          <button type="button" onClick={() => setSidebarOpen(previous => !previous)} aria-label="Browse routines and boards" aria-expanded={sidebarOpen} className="flex size-10 items-center justify-center rounded-xl border bg-card md:hidden"><ListTree className="size-5" /></button>
+          <div className="min-w-0"><p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-primary">Your household, in flow</p><h1 className="truncate text-xl font-semibold tracking-tight sm:text-2xl">{selectedOccurrenceId ? (localOccurrences.find(board => board.id === selectedOccurrenceId)?.title || "Task board") : selectedRoutine?.name ?? "Household overview"}</h1></div>
+          {selectedRoutineId && !selectedOccurrenceId && <span className="hidden rounded-full border bg-card px-2.5 py-1 text-[10px] font-medium text-muted-foreground sm:block">Routine template</span>}
+        </div>
+        <div className="flex items-center gap-2">
+          <Button ref={householdPanelToggleRef} type="button" variant="outline" className="h-10 gap-2 bg-card px-3" aria-label="Household settings" aria-expanded={isHouseholdPanelOpen} onClick={() => setIsHouseholdPanelOpen(previous => !previous)}><Users className="size-4" /><span className="hidden sm:inline">Household</span></Button>
+          <Button type="button" onClick={createTask} disabled={!selectedRoutineId && !selectedOccurrenceId} className="h-10 gap-2 px-4" title={!selectedRoutineId && !selectedOccurrenceId ? "Choose a routine or board to add a task" : "Add a task or reward"}><Plus className="size-4" />Add task</Button>
+        </div>
+      </header>
+    <main className="workspace-shell relative flex min-h-0 w-full flex-1 overflow-hidden rounded-2xl border border-border bg-background shadow-sm">
+      {sidebarOpen && <button type="button" aria-label="Close routine navigation" onClick={() => setSidebarOpen(false)} className="absolute inset-0 z-30 bg-black/20 md:hidden" />}
+      <aside data-open={sidebarOpen} aria-label="Routines and task boards" className="workspace-sidebar z-10 flex h-full shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
         <div className="border-b border-sidebar-border px-3 pb-3 pt-3">
-          <label className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            Household
-          </label>
+          <div className="flex items-center justify-between"><label htmlFor="workspace-household" className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Household</label><button type="button" aria-label="Close routine navigation" onClick={() => setSidebarOpen(false)} className="rounded p-1 md:hidden"><X className="size-4" /></button></div>
           <select
+            id="workspace-household"
             className="mt-1.5 w-full cursor-pointer rounded-lg border border-input bg-background px-3 py-2 text-sm shadow-sm outline-none transition-[box-shadow,border-color] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
             value={selectedHouseholdId}
             onChange={(event) => {
@@ -3773,31 +3861,22 @@ export function LeaderFlowEditor({
             ))}
             <option value="__create__">+ Create new household</option>
           </select>
-          {selectedHouseholdLeaderId === currentUserId ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="xs"
-              className="mt-2 w-full gap-1 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
-              onClick={() => {
-                void deleteHousehold()
-              }}
-            >
-              <Trash2 className="size-3.5" aria-hidden />
-              Delete household…
-            </Button>
-          ) : null}
+
         </div>
 
-        <div className="flex items-center justify-between border-b border-sidebar-border px-3 py-2.5">
+        <div className="relative mx-3 my-3"><Search className="pointer-events-none absolute left-3 top-3 size-3.5 text-muted-foreground" /><input type="search" value={sidebarSearch} onChange={event => setSidebarSearch(event.target.value)} aria-label="Find routines and boards" placeholder="Find routines & boards…" className="h-10 w-full rounded-lg border bg-card pl-9 pr-3 text-xs" /></div>
+        <div className="flex items-center justify-between px-3 pb-2">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Routines</h2>
           <Button type="button" variant="outline" size="xs" className="h-7 gap-1 font-medium" onClick={createRoutine}>
             <Plus className="size-3.5" aria-hidden />
             Add
           </Button>
         </div>
-        <div className="flex-1 space-y-3 overflow-auto px-2 py-3">
-          {localRoutines.map((routine) => (
+        <div className="flex-1 space-y-3 overflow-auto px-3 pb-3">
+          <p className="px-1 pb-1 text-[11px] leading-5 text-muted-foreground">Plan reusable routines, then run them as task boards.</p>
+          {localRoutines.length === 0 && <div className="rounded-xl border border-dashed p-4 text-xs leading-5 text-muted-foreground">Start with an everyday routine, like getting ready for school.<button type="button" onClick={createRoutine} className="mt-3 flex items-center gap-1 font-semibold text-primary"><Plus className="size-3" />Create a routine</button></div>}
+          {localRoutines.length > 0 && matchingRoutines.length === 0 && <p role="status" className="px-2 py-3 text-xs text-muted-foreground">No matching routines. Try another search.</p>}
+          {matchingRoutines.map((routine) => (
             <div
               key={routine.id}
               className="rounded-xl border border-border/60 bg-card/80 p-1 shadow-sm backdrop-blur-sm transition-colors hover:border-border"
@@ -3845,7 +3924,20 @@ export function LeaderFlowEditor({
                       setEditingRoutineId(routine.id)
                       setEditingRoutineValue(routine.name)
                     }}
-                    onClick={() => syncRoute(selectedHouseholdId, routine.id, null)}
+                    onClick={() => { syncRoute(selectedHouseholdId, routine.id, null); setSidebarOpen(false) }}
+                    onContextMenu={(event) => {
+                      event.preventDefault()
+                      setRoutineMenu({
+                        routineId: routine.id,
+                        x: event.clientX,
+                        y: event.clientY,
+                      })
+                      setRoutinePlusMenu(null)
+                      setTaskMenu(null)
+                      setOccurrenceMenu(null)
+                      setEdgeMenu(null)
+                      setGuideLineMenu(null)
+                    }}
                     className={cn(
                       "min-w-0 flex-1 rounded-lg px-2 py-1.5 text-left text-sm font-medium transition-colors",
                       selectedRoutineId === routine.id && !selectedOccurrenceId
@@ -3911,6 +4003,7 @@ export function LeaderFlowEditor({
                           void openTaskSettings(fullTask)
                           setTaskMenu(null)
                           setOccurrenceMenu(null)
+                          setRoutineMenu(null)
                         }}
                         onContextMenu={(event) => {
                           event.preventDefault()
@@ -3925,6 +4018,7 @@ export function LeaderFlowEditor({
                           setOccurrenceMenu(null)
                           setEdgeMenu(null)
                           setGuideLineMenu(null)
+                          setRoutineMenu(null)
                         }}
                       >
                         <span className="flex w-full min-w-0 items-center justify-between gap-2">
@@ -3945,13 +4039,13 @@ export function LeaderFlowEditor({
 
           <div className="rounded-xl border border-border/60 bg-card/80 p-1 shadow-sm backdrop-blur-sm transition-colors hover:border-border">
             <div className="flex items-center justify-between px-1 py-1">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tasks</h3>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Task boards</h3>
               <Button type="button" variant="outline" size="icon-xs" onClick={createTaskBoard} title="Add task board">
                 <Plus className="size-3.5" aria-hidden />
               </Button>
             </div>
             <div className="mt-1 space-y-1 border-t border-border/50 pt-2">
-              {taskBoards.map((board) => (
+              {matchingBoards.map((board) => (
                 <div key={board.id}>
                   <div className="flex items-center gap-1">
                     <button
@@ -4021,6 +4115,7 @@ export function LeaderFlowEditor({
                           })
                           setTaskMenu(null)
                           setEdgeMenu(null)
+                          setRoutineMenu(null)
                           setGuideLineMenu(null)
                         }}
                       >
@@ -4070,6 +4165,7 @@ export function LeaderFlowEditor({
                                 setOccurrenceMenu(null)
                                 setEdgeMenu(null)
                                 setGuideLineMenu(null)
+                                setRoutineMenu(null)
                               }}
                             >
                               <span className="flex w-full min-w-0 items-center justify-between gap-2">
@@ -4123,8 +4219,8 @@ export function LeaderFlowEditor({
                   ) : null}
                 </div>
               ))}
-              {taskBoards.length === 0 ? (
-                <p className="px-2 py-2 text-xs text-muted-foreground">No task boards yet.</p>
+              {matchingBoards.length === 0 ? (
+                <p className="px-2 py-2 text-xs text-muted-foreground">{query ? "No matching task boards." : "No task boards yet."}</p>
               ) : null}
             </div>
             <label className="mt-2 flex items-center gap-2 rounded-md px-2 py-1 text-[11px] text-muted-foreground">
@@ -4160,7 +4256,7 @@ export function LeaderFlowEditor({
 
       <section
         ref={flowSectionRef}
-        className={`relative flex-1 ${guidePlaceMode ? "cursor-crosshair" : ""}`}
+        className={`relative min-w-0 flex-1 ${guidePlaceMode ? "cursor-crosshair" : ""}`}
         onMouseMove={(event) => {
           if (!guidePlaceMode || !reactFlowRef.current) return
           const p = reactFlowRef.current.screenToFlowPosition({
@@ -4170,6 +4266,7 @@ export function LeaderFlowEditor({
           setGuidePreviewFlow(p)
         }}
       >
+        {localTasks.length === 0 && <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center p-6"><div className="max-w-sm rounded-2xl border border-border/70 bg-card/95 p-7 text-center shadow-sm"><span className="mx-auto mb-4 flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary"><Workflow className="size-6" /></span><h2 className="text-lg font-semibold">{selectedRoutineId || selectedOccurrenceId ? "Every routine starts with a first step" : "Make the everyday flow"}</h2><p className="mt-2 text-xs leading-6 text-muted-foreground">{selectedRoutineId || selectedOccurrenceId ? "Add your first task, assign it to someone, and connect the steps as you go." : "Choose a routine or task board from the sidebar, or create one to get started."}</p><Button type="button" className="pointer-events-auto mt-5" onClick={selectedRoutineId || selectedOccurrenceId ? createTask : createRoutine}><Plus className="size-4" />{selectedRoutineId || selectedOccurrenceId ? "Add your first task" : "Create a routine"}</Button></div></div>}
         {guidePlaceMode && guidePreviewScreen ? (
           <div className="pointer-events-none absolute inset-0 z-20">
             {guidePlaceMode === "horizontal" ? (
@@ -4208,7 +4305,7 @@ export function LeaderFlowEditor({
                 onClick={() => setExpandedRecurrenceRuleIds({})}
               />
             ) : null}
-            <div className="absolute left-4 top-4 flex max-h-[70vh] w-[22rem] flex-col gap-2 overflow-auto pr-1">
+            <div className="absolute left-4 top-4 flex max-h-[70vh] w-[22rem] max-w-[calc(100%-2rem)] flex-col gap-2 overflow-auto pr-1">
             {selectedRoutine ? (
               <div
                 data-recurrence-widget
@@ -4231,7 +4328,7 @@ export function LeaderFlowEditor({
                     }}
                   />
                   <span title="When enabled, creating a new occurrence for this routine marks older routine occurrences as completed.">
-                    New occurences complete older occurrences
+                    New occurrences complete older occurrences
                   </span>
                 </label>
               </div>
@@ -4558,6 +4655,7 @@ export function LeaderFlowEditor({
             if (node.type === "dayDivider") {
               setGuideLineMenu({ nodeId: node.id, x: e.clientX, y: e.clientY })
               setEdgeMenu(null)
+              setRoutineMenu(null)
               setTaskMenu(null)
               return
             }
@@ -4573,6 +4671,7 @@ export function LeaderFlowEditor({
               })
               setGuideLineMenu(null)
               setEdgeMenu(null)
+              setRoutineMenu(null)
             }
           }}
           onNodeClick={(event, node) => {
@@ -4586,6 +4685,7 @@ export function LeaderFlowEditor({
               setEdgeMenu(null)
               setGuideLineMenu(null)
               setOccurrenceMenu(null)
+              setRoutineMenu(null)
               setTaskMenu(null)
               return
             }
@@ -4617,6 +4717,7 @@ export function LeaderFlowEditor({
                 setEdgeMenu(null)
                 setTaskMenu(null)
                 setOccurrenceMenu(null)
+                setRoutineMenu(null)
               })()
               return
             }
@@ -4641,6 +4742,7 @@ export function LeaderFlowEditor({
                 setEdgeMenu(null)
                 setTaskMenu(null)
                 setOccurrenceMenu(null)
+                setRoutineMenu(null)
               })()
               return
             }
@@ -4660,6 +4762,7 @@ export function LeaderFlowEditor({
             setEdgeMenu(null)
             setTaskMenu(null)
             setOccurrenceMenu(null)
+            setRoutineMenu(null)
             const task = localTasks.find((t) => t.id === node.id) ?? null
             void openTaskSettings(task)
           }}
@@ -4671,6 +4774,25 @@ export function LeaderFlowEditor({
               setGuideLineMenu(null)
               setTaskMenu(null)
               setOccurrenceMenu(null)
+              setRoutineMenu(null)
+              setEdgeMenu({
+                edgeId: edge.id,
+                sourceTaskId: edge.source,
+                targetTaskId: edge.target,
+                x: event.clientX,
+                y: event.clientY,
+              })
+            })()
+          }}
+          onEdgeContextMenu={(event, edge) => {
+            event.preventDefault()
+            void (async () => {
+              await flushTaskSettingsIfDirtyRef.current()
+              setActiveTask(null)
+              setGuideLineMenu(null)
+              setTaskMenu(null)
+              setOccurrenceMenu(null)
+              setRoutineMenu(null)
               setEdgeMenu({
                 edgeId: edge.id,
                 sourceTaskId: edge.source,
@@ -4708,6 +4830,7 @@ export function LeaderFlowEditor({
             setEdgeMenu(null)
             setGuideLineMenu(null)
             setOccurrenceMenu(null)
+            setRoutineMenu(null)
             setTaskMenu(null)
             clearTaskSelection()
             if (guidePlaceMode && reactFlowRef.current) {
@@ -4759,6 +4882,7 @@ export function LeaderFlowEditor({
             setGuidePreviewScreen(null)
             setTaskMenu(null)
             setOccurrenceMenu(null)
+            setRoutineMenu(null)
           }}
           nodeTypes={nodeTypes}
           selectionOnDrag
@@ -4816,42 +4940,18 @@ export function LeaderFlowEditor({
                 <Minus className="size-4 rotate-90" aria-hidden />
               </button>
             </Panel>
-          <Background />
+          <Background color="#cad5c5" gap={22} size={1} />
           <Controls />
         </ReactFlow>
       </section>
 
-      <Button
-        type="button"
-        onClick={createTask}
-        size="lg"
-        className="absolute bottom-6 left-1/2 z-20 h-11 -translate-x-1/2 rounded-full px-7 shadow-lg shadow-primary/25"
-        title="Add task/reward"
-      >
-        <Plus className="size-4" aria-hidden />
-        Add task
-      </Button>
-
-      <div className="absolute right-4 top-4 z-30">
-        <Button
-          ref={householdPanelToggleRef}
-          type="button"
-          variant={isHouseholdPanelOpen ? "secondary" : "outline"}
-          size="sm"
-          className="shadow-md"
-          onClick={() => setIsHouseholdPanelOpen((prev) => !prev)}
-        >
-          {isHouseholdPanelOpen ? "Hide household panel" : "Household management"}
-        </Button>
-      </div>
-
       {isHouseholdPanelOpen ? (
         <aside
           ref={householdPanelRef}
-          className="absolute right-4 top-16 z-30 w-[380px] max-h-[calc(100dvh-5.5rem)] overflow-y-auto overflow-x-visible rounded-xl border border-border/80 bg-card/95 p-4 shadow-2xl shadow-black/10 ring-1 ring-black/[0.04] backdrop-blur-md dark:ring-white/[0.06]"
+          className="absolute right-3 top-3 z-50 w-[380px] max-w-[calc(100%-1.5rem)] max-h-[calc(100dvh-5.5rem)] overflow-y-auto overflow-x-visible rounded-xl border border-border/80 bg-card/95 p-4 shadow-2xl shadow-black/10 ring-1 ring-black/[0.04] backdrop-blur-md dark:ring-white/[0.06]"
         >
           <div className="mb-3 flex items-center justify-between gap-2">
-            <h3 className="text-base font-semibold tracking-tight">Household management</h3>
+            <h3 className="text-base font-semibold tracking-tight">Household settings</h3><button type="button" aria-label="Close household settings" onClick={() => setIsHouseholdPanelOpen(false)} className="rounded-lg p-2 hover:bg-muted"><X className="size-4" /></button>
           </div>
 
           <div className="mb-4">
@@ -5174,6 +5274,22 @@ export function LeaderFlowEditor({
               ) : null}
             </ul>
           </div>
+          <div className="mt-6 border-t pt-4">
+          {selectedHouseholdLeaderId === currentUserId ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              className="mt-2 w-full gap-1 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+              onClick={() => {
+                void deleteHousehold()
+              }}
+            >
+              <Trash2 className="size-3.5" aria-hidden />
+              Delete household…
+            </Button>
+          ) : null}
+          </div>
         </aside>
       ) : null}
 
@@ -5203,6 +5319,7 @@ export function LeaderFlowEditor({
             <div>
               <label className="text-xs font-medium text-muted-foreground">Title</label>
               <input
+                ref={taskTitleInputRef}
                 name="title"
                 defaultValue={activeTask.title}
                 className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm shadow-sm outline-none transition-[box-shadow,border-color] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
@@ -5641,6 +5758,24 @@ export function LeaderFlowEditor({
         </>
       ) : null}
 
+      {routineMenu ? (
+        <div
+          className="fixed z-40 min-w-[10rem] overflow-hidden rounded-xl border border-border/80 bg-popover py-1 shadow-xl ring-1 ring-black/5 dark:ring-white/10"
+          style={{ left: routineMenu.x + 8, top: routineMenu.y + 8 }}
+        >
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-destructive transition-colors hover:bg-destructive/10"
+            title="Delete routine"
+            onClick={() => {
+              void deleteRoutine(routineMenu.routineId)
+            }}
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
+      ) : null}
+
       {guideLineMenu ? (
         <div
           className="fixed z-40 min-w-[10rem] overflow-hidden rounded-xl border border-border/80 bg-popover py-1 shadow-xl ring-1 ring-black/5 dark:ring-white/10"
@@ -5794,5 +5929,6 @@ export function LeaderFlowEditor({
         </div>
       ) : null}
     </main>
+    </div>
   )
 }

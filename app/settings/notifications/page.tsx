@@ -10,7 +10,7 @@ type NotificationSettingsPageProps = {
 export default async function NotificationSettingsPage({ searchParams }: NotificationSettingsPageProps) {
   const user = await getCurrentUserOrRedirect()
   const memberships = await getUserHouseholds(user.id)
-  if (memberships.length === 0) redirect("/")
+  if (memberships.length === 0) redirect("/app")
 
   const params = await searchParams
   const selectedHouseholdId =

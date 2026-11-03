@@ -75,3 +75,12 @@ Native push delivery is wired through Firebase Admin on the server and Capacitor
   - iOS app registration (`GoogleService-Info.plist`, APNs key/cert)
 
 For complete manual release/setup tasks, see `MOBILE_HANDOFF_CHECKLIST.md`.
+
+## Public homepage and app entry
+
+- `/` is the public Cyntch homepage, including an interactive example with illustrative data.
+- `/auth/login` and `/auth/signup` use Clerk and default to `/app` after authentication.
+- `/app` resolves the signed-in household, role and active kiosk session, or offers household onboarding.
+- Existing leader, member, invitation and native-shell routes remain available.
+
+The public homepage does not query the household database. The signed-in screens still require Clerk and PostgreSQL configuration.

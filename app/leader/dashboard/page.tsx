@@ -1,4 +1,6 @@
 import { createHousehold } from "@/lib/actions/household"
+import { House, Users, Workflow } from "lucide-react"
+import { SubmitButton } from "@/components/submit-button"
 import { redirect } from "next/navigation"
 import { cookies } from "next/headers"
 import { db } from "@/lib/db"
@@ -39,32 +41,32 @@ export default async function LeaderDashboard({ searchParams }: LeaderDashboardP
 
   if (leaderMemberships.length === 0) {
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-5 overflow-auto p-6">
+    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center gap-7 overflow-auto px-6 py-12">
         <header className="flex flex-col gap-2">
-          <h1 className="text-2xl font-semibold">Create your first household</h1>
+          <span className="mb-3 flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-primary"><House className="size-7" /></span>
+          <p className="text-xs font-semibold uppercase tracking-widest text-primary">Let’s make room for a little more flow</p>
+          <h1 className="text-3xl font-semibold tracking-tight">It starts with your household.</h1>
           <p className="text-sm text-muted-foreground">
-            You are not a leader in any household yet. Create one to unlock the leader dashboard.
+            Give your shared space a name. Next, you can add your people and build your first routine.
           </p>
         </header>
 
         <form
           action={createHousehold}
-          className="flex max-w-md flex-col gap-3 rounded-xl border border-border/80 bg-card p-5 shadow-sm"
+          className="flex flex-col gap-4 rounded-2xl border bg-card p-7 shadow-sm"
         >
-          <h2 className="font-medium">Create household</h2>
+          <label htmlFor="household-name" className="text-sm font-semibold">Household name</label>
           <input
             name="name"
+            id="household-name"
+            autoComplete="off"
             required
             className="rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring/40"
-            placeholder="Household name"
+            placeholder="e.g. The Taylor household"
           />
-          <button
-            type="submit"
-            className="rounded-lg bg-primary px-3 py-2.5 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
-          >
-            Create household
-          </button>
+          <SubmitButton pendingLabel="Creating your household…">Create your household</SubmitButton>
         </form>
+        <div className="grid gap-5 text-xs text-muted-foreground sm:grid-cols-2"><p className="flex items-center gap-3"><Users className="size-5 shrink-0 text-primary" />Add your family, including members without accounts.</p><p className="flex items-center gap-3"><Workflow className="size-5 shrink-0 text-primary" />Start small with one everyday routine.</p></div>
       </main>
     )
   }
@@ -223,7 +225,7 @@ export default async function LeaderDashboard({ searchParams }: LeaderDashboardP
     : { rows: [] }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col px-3 pb-3 pt-2">
+    <div className="flex min-h-0 flex-1 flex-col px-3 pb-3 pt-2 md:px-5 md:pb-5">
       <LeaderFlowEditor
         households={leaderMemberships.map((membership) => membership.household)}
         currentUserId={user.id}

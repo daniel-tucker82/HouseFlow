@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Cyntch",
-  description: "Family Operations & Routine workflow engine",
+  description: "Shared tasks, family routines and little wins for the whole household.",
 };
 
 export default function RootLayout({
@@ -25,7 +25,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider afterSignOutUrl="/">
+    <ClerkProvider afterSignOutUrl="/" signInUrl="/auth/login" signUpUrl="/auth/signup" signInFallbackRedirectUrl="/app" signUpFallbackRedirectUrl="/app" appearance={{ variables: { colorPrimary: "#23685b", colorText: "#243e3b", borderRadius: "0.8rem", fontFamily: "var(--font-geist-sans), sans-serif" }, elements: { cardBox: "shadow-sm border border-border", formButtonPrimary: "shadow-none" } }}>
       <html
         lang="en"
         className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}

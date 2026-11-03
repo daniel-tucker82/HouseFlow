@@ -2,10 +2,19 @@
 
 import { useEffect } from "react"
 import { useAuth } from "@clerk/nextjs"
+import { usePathname, useRouter } from "next/navigation"
 import { isCapacitorNativeShellSync } from "@/lib/native-shell-detect"
 
 export function NativeMobileBridge() {
-  const { isSignedIn } = useAuth()
+  const { isSignedIn, isLoaded } = useAuth()
+  const pathname = usePathname()
+  const router = useRouter()
+
+  useEffect(() => {
+    if (isLoaded && pathname === "/" && isCapacitorNativeShellSync()) {
+      router.replace(isSignedIn ? "/app" : "/auth/login")
+    }
+  }, [isLoaded, isSignedIn, pathname, router])
 
   useEffect(() => {
     if (!isCapacitorNativeShellSync()) return

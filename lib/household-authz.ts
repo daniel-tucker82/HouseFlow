@@ -47,6 +47,7 @@ const managerOnlyActions = new Set<string>([
 const managementActions = new Set<string>([
   "createRoutine",
   "renameRoutine",
+  "deleteRoutine",
   "updateMemberTokenColor",
   "updateRoutineRecurrenceSettings",
   "createOccurrence",

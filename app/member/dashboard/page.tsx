@@ -19,7 +19,7 @@ export default async function MemberDashboard({ searchParams }: MemberDashboardP
   const memberships = await getUserHouseholds(user.id)
 
   if (memberships.length === 0) {
-    redirect("/")
+    redirect("/app")
   }
 
   const selectedHouseholdId =

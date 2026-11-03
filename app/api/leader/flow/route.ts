@@ -1143,6 +1143,42 @@ export async function POST(request: Request) {
     return NextResponse.json({ routine: result.rows[0] })
   }
 
+  if (action === "deleteRoutine") {
+    const routineId = String(body?.routineId ?? "").trim()
+    if (!routineId) {
+      return NextResponse.json({ error: "routineId is required" }, { status: 400 })
+    }
+
+    const client = await db.connect()
+    try {
+      await client.query("BEGIN")
+      await client.query(
+        `delete from tasks
+         where household_id = $1::uuid
+           and routine_id = $2::uuid
+           and routine_occurrence_id is null`,
+        [householdId, routineId],
+      )
+      const result = await client.query(
+        `delete from routines
+         where id = $1::uuid
+           and household_id = $2::uuid`,
+        [routineId, householdId],
+      )
+      if ((result.rowCount ?? 0) === 0) {
+        await client.query("ROLLBACK")
+        return NextResponse.json({ error: "Routine not found" }, { status: 404 })
+      }
+      await client.query("COMMIT")
+      return NextResponse.json({ ok: true, deletedRoutineId: routineId })
+    } catch (error) {
+      await client.query("ROLLBACK")
+      throw error
+    } finally {
+      client.release()
+    }
+  }
+
   if (action === "createInvite") {
     const code = crypto.randomUUID().replaceAll("-", "").slice(0, 12)
     const maxUses = Number(body?.maxUses ?? 10)

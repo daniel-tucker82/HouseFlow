@@ -206,15 +206,15 @@ export function NotificationSettingsClient({
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-4 p-5">
+    <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-5 py-8">
       <div className="flex items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">Notification settings</h1>
+        <div><p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-primary">Stay in the loop</p><h1 className="text-3xl font-semibold tracking-tight">Your notifications</h1></div>
         <button
           type="button"
           onClick={closeSettings}
           className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted"
         >
-          Close notification settings
+          Back to board
         </button>
       </div>
       <label className="text-sm">
@@ -235,7 +235,7 @@ export function NotificationSettingsClient({
       {!prefs ? (
         <p className="text-sm text-muted-foreground">Loading preferences...</p>
       ) : (
-        <div className="space-y-4 rounded-lg border p-4">
+        <div className="space-y-5 rounded-2xl border bg-card p-6 shadow-sm">
           <label className="flex items-center justify-between gap-2 text-sm">
             <span>Task for me unlocked</span>
             <input
@@ -271,7 +271,7 @@ export function NotificationSettingsClient({
                   onChange={(event) => patchPrefs({ reward_unlocked_other_enabled: event.target.checked })}
                 />
               </label>
-              <div className="rounded border p-3 text-sm">
+              <div className="rounded-xl border bg-muted/30 p-4 text-sm">
                 <p className="mb-2 font-medium">Watch members for task unlocks</p>
                 <div className="flex flex-wrap gap-2">
                   {members.map((member) => (
@@ -291,7 +291,7 @@ export function NotificationSettingsClient({
                   ))}
                 </div>
               </div>
-              <div className="rounded border p-3 text-sm">
+              <div className="rounded-xl border bg-muted/30 p-4 text-sm">
                 <p className="mb-2 font-medium">Watch members for reward unlocks</p>
                 <div className="flex flex-wrap gap-2">
                   {members.map((member) => (

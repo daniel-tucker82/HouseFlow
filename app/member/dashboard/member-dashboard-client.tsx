@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { useRouter } from "next/navigation"
-import { LogOut, Menu, Settings } from "lucide-react"
+import { Check, CircleCheck, Gift, LoaderCircle, LockKeyhole, LogOut, Menu, Search, Settings, Sparkles, Users, X } from "lucide-react"
 import { UserButton, useClerk } from "@clerk/nextjs"
 import { saveMemberDashboardLanePreferences } from "@/lib/actions/member-dashboard"
 import { MemberLanesDraftPicker } from "@/components/member-lanes-draft-picker"
@@ -11,6 +11,15 @@ import { NotificationBell } from "@/components/notification-bell"
 import { isCapacitorNativeShellSync } from "@/lib/native-shell-detect"
 import { cn } from "@/lib/utils"
 import type { EffectiveRole } from "@/lib/household-authz"
+
+const MEMBER_TOKEN_COLORS: Record<string, string> = {
+  rose: "bg-rose-100 text-rose-800", amber: "bg-amber-100 text-amber-800",
+  lime: "bg-lime-100 text-lime-800", emerald: "bg-emerald-100 text-emerald-800",
+  teal: "bg-teal-100 text-teal-800", cyan: "bg-cyan-100 text-cyan-800",
+  sky: "bg-sky-100 text-sky-800", blue: "bg-blue-100 text-blue-800",
+  indigo: "bg-indigo-100 text-indigo-800", violet: "bg-violet-100 text-violet-800",
+  fuchsia: "bg-fuchsia-100 text-fuchsia-800", slate: "bg-slate-100 text-slate-800",
+}
 
 const FAB_SIZE = 56
 const FAB_PAD = 12
@@ -113,14 +122,14 @@ function lockMessage(
         memberNameById?.get(task.blocking_task_assignee_ids[0]) ?? "Another household member"
       return (
         <>
-          locked due to prerequisite - {blockingMemberName} must complete <strong>{task.blocking_task_title}</strong> to
+          Waiting for {blockingMemberName} to complete <strong>{task.blocking_task_title}</strong> to
           unlock this task.
         </>
       )
     }
     return (
       <>
-        locked due to prerequisite - complete <strong>{task.blocking_task_title}</strong> to unlock
+        Complete <strong>{task.blocking_task_title}</strong> to unlock
       </>
     )
   }
@@ -148,7 +157,30 @@ function lockMessage(
     }).format(unlockAt)
     return `task will unlock at ${unlockTime}, ${dayText}`
   }
-  return "task will unlock at [time], [today / tomorrow / on date]"
+  return "Waiting for its unlock conditions"
+}
+
+function MemberTaskRow({ task, currentMemberId, isEditable, pending, memberNameById, hasHydrated, onOpen, onToggle }: {
+  task: Task; currentMemberId: string; isEditable: boolean; pending: string | null;
+  memberNameById: Map<string, string>; hasHydrated: boolean; onOpen: (task: Task) => void;
+  onToggle: (task: Task, memberId: string) => Promise<void>;
+}) {
+  const locked = task.status === "locked"
+  const done = task.status === "completed"
+  return <li className="member-task" data-status={task.status} data-reward={task.is_reward}>
+    <button type="button" onClick={() => onOpen(task)} className="min-w-0 flex-1 p-3.5 text-left">
+      <span className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {task.is_reward ? <Gift className="size-3" /> : locked ? <LockKeyhole className="size-3" /> : done ? <CircleCheck className="size-3" /> : <span className="size-1.5 rounded-full bg-primary" />}
+        {task.is_reward ? "Reward" : done ? "Completed" : locked ? "Up next" : "Ready to do"}
+      </span>
+      <span className={cn("block text-sm font-medium leading-5", done && "text-muted-foreground line-through")}>{task.title}</span>
+      <span className="mt-1.5 block text-[11px] leading-4 text-muted-foreground">{locked ? lockMessage(task, { currentMemberId, memberNameById, hasHydrated }) : !isEditable ? "View only" : task.occurrence_title ?? "Household task"}</span>
+    </button>
+    <button type="button" disabled={locked || Boolean(pending) || !isEditable} onClick={() => void onToggle(task, currentMemberId)} aria-label={locked ? task.title + ": locked" : !isEditable ? task.title + ": view only" : done ? "Undo completion of " + task.title : "Complete " + task.title} className={cn("m-2 ml-0 flex w-12 shrink-0 flex-col items-center justify-center gap-1 rounded-lg text-[10px] font-semibold transition-colors disabled:cursor-not-allowed", locked || !isEditable ? "text-muted-foreground" : done ? "text-primary hover:bg-primary/10" : "bg-primary/8 text-primary hover:bg-primary hover:text-white")}>
+      {pending === task.id ? <LoaderCircle className="size-4 animate-spin" /> : locked || !isEditable ? <LockKeyhole className="size-4" /> : <Check className="size-4" />}
+      {pending === task.id ? "Saving" : locked ? "Locked" : !isEditable ? "View" : done ? "Undo" : "Done"}
+    </button>
+  </li>
 }
 
 export function MemberDashboardClient({
@@ -166,6 +198,10 @@ export function MemberDashboardClient({
   const router = useRouter()
   const { signOut } = useClerk()
   const [localTasks, setLocalTasks] = useState<Task[]>(tasks)
+  const [taskFilter, setTaskFilter] = useState<"all" | "unlocked" | "completed">("all")
+  const [taskSearch, setTaskSearch] = useState("")
+  const [taskError, setTaskError] = useState<string | null>(null)
+  const taskDialogRef = useRef<HTMLDialogElement>(null)
   const [activeTask, setActiveTask] = useState<Task | null>(null)
   const [isToggling, setIsToggling] = useState<string | null>(null)
   const [selectorsModal, setSelectorsModal] = useState<SelectorsModalState>({ open: false })
@@ -455,6 +491,7 @@ export function MemberDashboardClient({
 
   const toggleTaskCompleted = async (task: Task, actingMemberId: string) => {
     if (task.status === "locked" || isToggling || !editableMemberSet.has(actingMemberId)) return
+    setTaskError(null)
     setIsToggling(task.id)
     const nextStatus: Task["status"] = task.status === "completed" ? "unlocked" : "completed"
     setLocalTasks((prev) => prev.map((row) => (row.id === task.id ? { ...row, status: nextStatus } : row)))
@@ -502,6 +539,8 @@ export function MemberDashboardClient({
         void refreshOccurrenceStatuses(task.occurrence_id)
       }
     } catch (error) {
+      setLocalTasks((prev) => prev.map((row) => row.id === task.id ? { ...row, status: task.status } : row))
+      setTaskError("We couldn’t save that change. Your task has been restored. Please try again.")
       console.error(error)
     } finally {
       setIsToggling(null)
@@ -695,59 +734,14 @@ export function MemberDashboardClient({
     }
   }, [])
 
-  const TaskRow = ({ task, currentMemberId, isEditable }: { task: Task; currentMemberId?: string; isEditable: boolean }) => (
-    <li
-      className={`flex min-h-[72px] items-stretch overflow-hidden rounded border ${
-        task.status === "locked"
-          ? task.is_reward
-            ? "border-slate-300 bg-sky-50/60 text-slate-700"
-            : "border-zinc-300 bg-zinc-100 text-zinc-500"
-          : task.status === "completed"
-            ? "border-green-300 bg-green-50 text-zinc-700"
-            : task.is_reward
-              ? "border-sky-300 bg-sky-50 text-sky-900"
-              : ""
-      }`}
-    >
-      <button
-        type="button"
-        onClick={() => setActiveTask(task)}
-        className="flex min-w-0 flex-1 flex-col justify-center p-2 text-left hover:bg-black/5"
-      >
-        <p className={`truncate font-medium ${task.status === "completed" ? "line-through" : ""}`}>{task.title}</p>
-        {task.status === "locked" ? (
-          <p className="text-xs">{lockMessage(task, { currentMemberId, memberNameById, hasHydrated })}</p>
-        ) : !isEditable ? (
-          <p className="text-xs text-muted-foreground">Read only in this view</p>
-        ) : task.status === "completed" ? (
-          <p className="text-xs text-green-700">Completed (click Undo to revert to incomplete)</p>
-        ) : (
-          <p className="text-xs text-muted-foreground">Unlocked</p>
-        )}
-      </button>
-      <button
-        type="button"
-        disabled={task.status === "locked" || isToggling === task.id || !isEditable}
-        onClick={(event) => {
-          event.stopPropagation()
-          if (!currentMemberId) return
-          void toggleTaskCompleted(task, currentMemberId)
-        }}
-        className={`w-14 shrink-0 border-l text-xs font-semibold ${
-          task.status === "locked" || !isEditable
-            ? task.is_reward
-              ? "cursor-not-allowed border-slate-300 bg-slate-200 text-slate-500"
-              : "cursor-not-allowed border-zinc-300 bg-zinc-200 text-zinc-400"
-            : task.status === "completed"
-              ? "border-amber-700 bg-amber-600 text-white hover:bg-amber-700"
-              : "border-green-700 bg-green-600 text-white hover:bg-green-700"
-        }`}
-        aria-label={task.status === "locked" || !isEditable ? "Task not editable" : "Mark task complete"}
-      >
-        {isToggling === task.id ? "..." : task.status === "completed" ? "Undo" : isEditable ? "Done" : "Lock"}
-      </button>
-    </li>
-  )
+  const visibleTasks = [...new Map(selectedMembers.flatMap(member => tasksByMember.get(member.id) ?? []).map(task => [task.id, task])).values()]
+  const readyCount = visibleTasks.filter(task => task.status === "unlocked").length
+  const completeCount = visibleTasks.filter(task => task.status === "completed").length
+  const householdName = memberships.find(membership => membership.household.id === selectedHouseholdId)?.household.name ?? "Your household"
+
+  useEffect(() => {
+    if (activeTask && taskDialogRef.current && !taskDialogRef.current.open) taskDialogRef.current.showModal()
+  }, [activeTask])
 
   const sectionLabelClass = "mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"
 
@@ -945,15 +939,16 @@ export function MemberDashboardClient({
     <main
       className={cn(
         "flex w-full flex-1 flex-col",
-        isNativeShell ? "min-h-0 gap-2 p-2" : "gap-4 p-4 md:p-6",
+        isNativeShell ? "native-member-board min-h-0 gap-2 p-2" : "gap-6 p-4 md:px-8 md:py-7",
       )}
     >
       {!isNativeShell ? (
         <header className="flex items-start justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-semibold">Member dashboard</h1>
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">{householdName}</p>
+            <h1 className="text-3xl font-semibold tracking-tight">A little progress, together.</h1>
             <p className="text-sm text-muted-foreground">
-              Toggle household members to choose visible lanes and which visible lanes are editable.
+              See what’s ready, take the next step, and celebrate what’s done.
             </p>
           </div>
           {isKioskMode ? (
@@ -980,59 +975,53 @@ export function MemberDashboardClient({
             <button
               type="button"
               onClick={() => (selectorsOpen ? closeSelectors() : openSelectors())}
-              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border bg-background hover:bg-muted"
-              aria-label="Toggle selectors menu"
+              className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg border bg-card px-3 text-xs font-medium hover:bg-muted"
+              aria-label="Board settings"
               aria-expanded={selectorsOpen}
             >
-              <Menu className="size-5" />
+              <Settings className="size-4" /><span className="hidden sm:inline">Board settings</span>
             </button>
           )}
         </header>
       ) : null}
 
-      <section className={cn("min-h-0 rounded border", isNativeShell ? "flex flex-1 flex-col p-2" : "p-4")}>
-        <h2 className={cn("mb-3 font-medium", isNativeShell && "sr-only")}>
-          Task lanes ({selectedMembers.length} selected)
-        </h2>
-        <div className={cn("flex gap-3 overflow-x-auto pb-1", isNativeShell && "min-h-0 flex-1")}>
+      {!isNativeShell && <div className="grid grid-cols-3 gap-3">
+        {[{ label: "Ready to do", count: readyCount, icon: Sparkles, color: "bg-[#e7f0e4] text-primary" }, { label: "Completed", count: completeCount, icon: CircleCheck, color: "bg-[#f5eddd] text-[#8a642b]" }, { label: "On the board", count: selectedMembers.length, icon: Users, color: "bg-[#eee8f5] text-[#79608c]" }].map(({ label, count, icon: Icon, color }) => <div key={label} className="flex items-center gap-3 rounded-xl border bg-card p-3 sm:p-4"><span className={cn("hidden size-10 items-center justify-center rounded-xl sm:flex", color)}><Icon className="size-4" /></span><div><p className="text-2xl font-semibold tracking-tight">{count}</p><p className="mt-0.5 text-[11px] text-muted-foreground">{label}</p></div></div>)}
+      </div>}
+      {taskError && <div role="alert" className="flex items-center justify-between gap-3 rounded-xl border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">{taskError}<button type="button" onClick={() => setTaskError(null)} aria-label="Dismiss error"><X className="size-4" /></button></div>}
+      <section aria-label="Household tasks" className={cn("min-h-0", isNativeShell && "flex flex-1 flex-col")}>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-1 rounded-xl border bg-card p-1" aria-label="Filter tasks">
+            {([['all', 'All tasks'], ['unlocked', 'Ready'], ['completed', 'Completed']] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={taskFilter === value} onClick={() => setTaskFilter(value)} className={cn("rounded-lg px-3 py-2 text-xs font-medium", taskFilter === value ? "bg-primary text-white" : "text-muted-foreground hover:bg-muted")}>{label}</button>)}
+          </div>
+          <div className="relative w-full sm:w-60"><Search className="pointer-events-none absolute left-3 top-3 size-4 text-muted-foreground" /><input type="search" aria-label="Find a task on the board" placeholder="Find a task…" value={taskSearch} onChange={event => setTaskSearch(event.target.value)} className="h-10 w-full rounded-xl border bg-card pl-9 pr-3 text-sm" /></div>
+        </div>
+        <div className={cn("member-lanes", isNativeShell && "min-h-0 flex-1")}>
           {selectedMembers.map((member) => {
-            const laneTasks = tasksByMember.get(member.id) ?? []
+            const allLaneTasks = tasksByMember.get(member.id) ?? []
+            const laneTasks = allLaneTasks.filter(task => (taskFilter === "all" || task.status === taskFilter) && (task.title + " " + (task.occurrence_title ?? "")).toLowerCase().includes(taskSearch.trim().toLowerCase()))
+            const doneCount = allLaneTasks.filter(task => task.status === "completed").length
             const laneIsEditable = editableMemberSet.has(member.id)
-            const laneCount = Math.max(selectedMembers.length, 1)
-            const laneBasis = `calc((100% - ${(laneCount - 1) * 0.75}rem) / ${laneCount})`
-            return (
-              <div
-                key={member.id}
-                className="rounded-lg border bg-card p-3"
-                style={{ flex: `1 1 ${laneBasis}`, minWidth: "18rem" }}
-              >
-                <p className="mb-2 text-sm font-semibold">
-                  {member.name}
-                  {member.id === leaderId ? " (manager + unassigned)" : ""}
-                  {!laneIsEditable ? " (read only)" : ""}
-                </p>
-                <ul className="space-y-2 text-sm">
-                  {laneTasks.map((task) => (
-                    <TaskRow
-                      key={`${member.id}:${task.occurrence_id}:${task.id}`}
-                      task={task}
-                      currentMemberId={member.id}
-                      isEditable={laneIsEditable}
-                    />
-                  ))}
-                  {laneTasks.length === 0 ? <li className="text-muted-foreground">No active tasks.</li> : null}
-                </ul>
+            return <div key={member.id} className={cn("member-lane", isNativeShell && "overflow-y-auto")}>
+              <div className="member-lane-header">
+                <div className="mb-4 flex items-center gap-3"><span className={cn("flex size-10 shrink-0 items-center justify-center rounded-xl text-sm font-semibold", MEMBER_TOKEN_COLORS[member.token_color ?? ""] ?? "bg-primary/10 text-primary")}>{member.name.split(" ").map(part => part[0]).slice(0, 2).join("")}</span><div className="min-w-0 flex-1"><h2 className="truncate text-sm font-semibold">{member.name}</h2><p className="mt-1 text-[10px] text-muted-foreground">{member.id === leaderId ? "Includes unassigned tasks" : laneIsEditable ? "One step at a time" : "View only"}</p></div><span className="rounded-full border bg-white px-2 py-1 text-[10px] font-medium text-muted-foreground">{doneCount}/{allLaneTasks.length}</span></div>
+                <div role="progressbar" aria-label={member.name + "’s task progress"} aria-valuenow={doneCount} aria-valuemin={0} aria-valuemax={allLaneTasks.length || 1} className="h-1 overflow-hidden rounded-full bg-border"><div className="h-full rounded-full bg-primary transition-[width]" style={{ width: allLaneTasks.length ? doneCount / allLaneTasks.length * 100 + "%" : "0%" }} /></div>
               </div>
-            )
+              <ul className="space-y-3 p-3">
+                {laneTasks.map(task => <MemberTaskRow key={member.id + ":" + task.occurrence_id + ":" + task.id} task={task} currentMemberId={member.id} isEditable={laneIsEditable} pending={isToggling} memberNameById={memberNameById} hasHydrated={hasHydrated} onOpen={setActiveTask} onToggle={toggleTaskCompleted} />)}
+                {laneTasks.length === 0 && <li className="px-4 py-10 text-center"><CircleCheck className="mx-auto mb-3 size-7 text-primary/50" /><p className="text-sm font-medium">{allLaneTasks.length ? "No matching tasks" : "A little breathing room"}</p><p className="mt-2 text-xs leading-5 text-muted-foreground">{allLaneTasks.length ? "Try another filter or search." : "No tasks here right now."}</p></li>}
+              </ul>
+            </div>
           })}
+          {selectedMembers.length === 0 && <p className="rounded-xl border bg-card p-8 text-sm text-muted-foreground">Choose family members in Board settings to see their tasks.</p>}
         </div>
       </section>
 
       {activeTask ? (
-        <div className="fixed inset-0 z-[480] flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
+        <dialog ref={taskDialogRef} onCancel={() => setActiveTask(null)} aria-labelledby="task-detail-title" className="fixed inset-0 m-auto max-h-[85dvh] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl border bg-card p-0 text-foreground shadow-2xl backdrop:bg-black/40">
           <div className="w-full max-w-lg rounded-xl bg-background p-5 shadow-xl">
             <div className="mb-3 flex items-start justify-between gap-4">
-              <h3 className="text-lg font-semibold">{activeTask.title}</h3>
+              <h3 id="task-detail-title" className="text-lg font-semibold">{activeTask.title}</h3>
               <button
                 type="button"
                 onClick={() => setActiveTask(null)}
@@ -1059,7 +1048,7 @@ export function MemberDashboardClient({
               </div>
             </div>
           </div>
-        </div>
+        </dialog>
       ) : null}
     </main>
     {isNativeShell && fabPos !== null ? (
