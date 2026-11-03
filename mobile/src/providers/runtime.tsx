@@ -37,7 +37,7 @@ export function RuntimeProvider({ children, accountId }: PropsWithChildren<{ acc
       const displaySetting = await store.setting<boolean>(accountId, "keep-awake")
       if (cancelled) return
       controller = new BoardController(store, accountId, deviceId, api, randomUUID)
-      planner = new PlannerController(store.planner, accountId, deviceId, api, randomUUID)
+      planner = new PlannerController(store.planner, accountId, deviceId, api, randomUUID, async () => { await controller?.refresh() })
       boardSubscription = controller.subscribe(() => { void planner?.selectHousehold(controller?.getSnapshot().board?.household ?? null) })
       const connected = (state: Network.NetworkState) => {
         const online = state.isConnected === true && state.isInternetReachable !== false

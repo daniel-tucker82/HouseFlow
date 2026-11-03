@@ -171,7 +171,7 @@ test('P07 lost response survives restart and retries the same operation version'
   assert.equal(effects, 1)
 })
 
-test('P08 starting a routine waits for its edits and blocks on a retained rejection', { timeout: 3000 }, async t => {
+test('P08 starting a routine blocks on a retained task rejection without sending a start', { timeout: 3000 }, async t => {
   const f = await fixture(t)
   await f.local.planner.enqueue('parent', 'h1', 'device', 'edit1', draft())
   let writes = 0
@@ -181,7 +181,8 @@ test('P08 starting a routine waits for its edits and blocks on a retained reject
   }, () => 'unused')
   t.after(() => controller.stop())
   await controller.selectHousehold(household); controller.setConnectivity(true)
-  await assert.rejects(controller.run('createOccurrence', { routineId: 'r1' }), /Sync or review/)
+  await until(controller, state => state.pending[0]?.state === 'rejected')
+  await assert.rejects(controller.create('createOccurrence', { routineId: 'r1' }, 'Start Morning'), /Sync or review/)
   assert.equal(writes, 0); assert.equal(controller.getSnapshot().pending[0].state, 'rejected')
 })
 
@@ -254,7 +255,7 @@ test('P12 revoked management access retains creations for review and prevents re
 test('P14 starting a routine cannot overtake a task edit still being written to the device', { timeout: 4000 }, async t => {
   const f = await fixture(t), events = []
   const controller = new PlannerController(f.local.planner, 'parent', 'device', {
-    planner: async () => snapshot(), savePlannerEdit: async () => { events.push('task synced') },
+    planner: async () => snapshot(), savePlannerEdit: async () => { throw new TransportError('Review this edit', 409) },
     request: async () => { events.push('routine started') },
   }, () => 'edit1')
   t.after(() => controller.stop())
@@ -263,9 +264,54 @@ test('P14 starting a routine cannot overtake a task edit still being written to 
   let release
   f.local.planner.enqueue = async (...args) => { await new Promise(resolve => { release = resolve }); await enqueue(...args) }
   const save = controller.saveTask(draft())
-  const start = controller.run('createOccurrence', { routineId: 'r1' })
+  const start = assert.rejects(controller.create('createOccurrence', { routineId: 'r1' }, 'Start Morning'), /Sync or review/)
   await new Promise(resolve => setImmediate(resolve))
   assert.deepEqual(events, [])
   release(); await save; await start
-  assert.deepEqual(events, ['task synced', 'routine started'])
+  assert.deepEqual(events, [])
+})
+
+test('P16 a start saves locally before the server replies, survives restart and refreshes Today after acknowledgement', { timeout: 4000 }, async t => {
+  const f = await fixture(t)
+  let release, received, refreshed = 0
+  let controller = new PlannerController(f.local.planner, 'parent', 'device', {
+    planner: async () => snapshot(), request: async (_path, body) => {
+      received = body
+      await new Promise(resolve => { release = resolve })
+      throw new Error('Reply lost after commit')
+    },
+  }, () => 'start1')
+  await controller.selectHousehold(household); controller.setConnectivity(true)
+  await controller.create('createOccurrence', { routineId: 'r1' }, 'Start Morning')
+  assert.equal(controller.getSnapshot().busy, false)
+  const queued = (await f.local.planner.creations('parent'))[0]
+  assert.equal(queued.body.action, 'createOccurrence')
+  assert.equal(queued.body.scheduledFor, undefined, 'server assigns the start time only on the first committed attempt')
+  await assert.rejects(controller.create('createOccurrence', { routineId: 'r1' }, 'Start Morning again'), /Sync or review/)
+  await assert.rejects(controller.saveTask(draft()), /saved start request/)
+  await assert.rejects(controller.create('createTask', { ...draft(), isNew: true }, 'Task'), /saved start request/)
+  while (!release) await new Promise(resolve => setImmediate(resolve))
+  release()
+  await until(controller, state => state.creations[0]?.attempts === 1)
+  controller.stop()
+  const local = await f.reopen()
+  await f.adapter.runAsync('UPDATE planner_creations SET next_attempt_ms=0')
+  controller = new PlannerController(local.planner, 'parent', 'device', {
+    planner: async () => snapshot(), request: async (_path, body) => assert.deepEqual(body, received),
+  }, () => 'unused', async () => { refreshed++ })
+  t.after(() => controller.stop())
+  await controller.selectHousehold(household); controller.setConnectivity(true)
+  await until(controller, state => state.creations.length === 0)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(refreshed, 1)
+  await local.planner.enqueue('parent', 'h1', 'device', 'edit-after-start', draft())
+})
+
+test('P17 two simultaneous start submissions cannot pass the local transaction guard', async t => {
+  const f = await fixture(t)
+  const start = { accountId: 'parent', householdId: 'h1', label: 'Start Morning', body: { action: 'createOccurrence', routineId: 'r1' } }
+  const results = await Promise.allSettled(['start-a', 'start-b'].map(id => f.local.planner.enqueueCreation({ ...start, id })))
+  assert.equal(results.filter(result => result.status === 'fulfilled').length, 1)
+  assert.equal((await f.local.planner.creations('parent')).length, 1)
+  assert.deepEqual(await f.local.planner.creations('other'), [])
 })

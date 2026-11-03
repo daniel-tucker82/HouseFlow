@@ -39,6 +39,7 @@ function PlannerWorkspace({ householdId }: { householdId: string }) {
   const pending = state.pending.filter(edit => edit.householdId === householdId)
   const rejected = pending.filter(edit => edit.state === "rejected")
   const creations = state.creations.filter(item => item.householdId === householdId)
+  const starting = creations.some(item => item.body.action === "createOccurrence" && item.body.routineId === routine?.id)
   const onlineActionDisabled = !state.online || state.busy
   const draftKey = `planner-task-draft:${householdId}`
 
@@ -129,11 +130,12 @@ function PlannerWorkspace({ householdId }: { householdId: string }) {
           {creations.length ? <Card><PlannerPendingCreations householdId={householdId} /></Card> : null}
           {routine ? <Card><Copy tone="heading">{routine.name}</Copy><Copy tone="muted">{tasks.length} tasks and rewards · Start a fresh copy whenever your household needs it.</Copy>
             <View style={[styles.row, { flexWrap: "wrap" }]}>
-              <Action label="Start routine" disabled={onlineActionDisabled || !tasks.length} onPress={() => Alert.alert(`Start “${routine.name}”?`, "A fresh copy will appear in Today.", [{ text: "Cancel", style: "cancel" }, { text: "Start", onPress: () => void act(async () => { await planner.run("createOccurrence", { routineId: routine.id }); await controller.refresh() }, "Your routine is ready in Today.") }])} />
+              <Action label={starting ? "Start saved" : "Start routine"} disabled={onlineActionDisabled || starting || !tasks.length} onPress={() => Alert.alert(`Start “${routine.name}”?`, "A fresh copy will appear in Today after your saved request syncs.", [{ text: "Cancel", style: "cancel" }, { text: "Start", onPress: () => void act(() => planner.create("createOccurrence", { routineId: routine.id }, `Start routine: ${routine.name}`)) }])} />
               <Action secondary label="Rename" disabled={onlineActionDisabled} onPress={() => setRoutineForm({ id: routine.id, name: routine.name })} />
               <Action secondary label="Delete" disabled={onlineActionDisabled} onPress={() => removeRoutine(routine)} />
             </View>
-            <Action secondary label="Add task or reward" disabled={onlineActionDisabled} onPress={() => edit()} />
+            {starting ? <Copy tone="muted">Your start request is saved. Let it sync or review it above before changing this template.</Copy> : null}
+            <Action secondary label="Add task or reward" disabled={onlineActionDisabled || starting} onPress={() => edit()} />
           </Card> : <Card><Copy tone="heading">Make room for an easier day</Copy><Copy tone="muted">Create a routine, add a few tasks, and choose who will do them.</Copy></Card>}
         </View>}
         renderItem={({ item: task }) => {
@@ -143,7 +145,7 @@ function PlannerWorkspace({ householdId }: { householdId: string }) {
             <Copy tone="muted">{assignees.length ? assignees.join(", ") : "Unassigned"}</Copy>
             {task.description ? <Copy>{task.description}</Copy> : null}
             {prerequisites.length ? <Copy tone="muted">After {prerequisites.join(" + ")}</Copy> : null}
-            <View style={[styles.row, { flexWrap: "wrap" }]}><Action secondary label="Edit task" disabled={state.busy} onPress={() => edit(task)} /><Action secondary label="Remove" disabled={onlineActionDisabled} onPress={() => removeTask(task)} /></View>
+            <View style={[styles.row, { flexWrap: "wrap" }]}><Action secondary label="Edit task" disabled={state.busy || starting} onPress={() => edit(task)} /><Action secondary label="Remove" disabled={onlineActionDisabled || starting} onPress={() => removeTask(task)} /></View>
           </Card>
         }}
         ListFooterComponent={data?.occurrences.length ? <View style={{ marginTop: 24, gap: 12 }}><Copy tone="heading">Runs and history</Copy>

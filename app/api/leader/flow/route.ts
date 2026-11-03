@@ -1519,8 +1519,8 @@ async function handleFlowPost(request: Request, context?: {
     const routineId = String(body?.routineId ?? "")
     const scheduledFor = String(body?.scheduledFor ?? new Date().toISOString())
     const clientTimeZone = String(body?.timezone ?? "").trim()
-    if (!routineId) {
-      return NextResponse.json({ error: "routineId is required" }, { status: 400 })
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(routineId) || !Number.isFinite(Date.parse(scheduledFor))) {
+      return NextResponse.json({ error: "Choose a valid routine and start time." }, { status: 400 })
     }
 
     const client = await db.connect()
@@ -1711,6 +1711,7 @@ async function handleFlowPost(request: Request, context?: {
         await completeOlderRoutineOccurrences(client, routineId, newOccurrenceId)
       }
 
+      await recordPlannerCreation(client, householdId, userId, context?.creation ?? null, newOccurrenceId, { occurrence })
       await client.query("COMMIT")
       return NextResponse.json({ occurrence })
     } catch (err) {

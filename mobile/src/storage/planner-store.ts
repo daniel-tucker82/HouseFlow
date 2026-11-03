@@ -77,6 +77,7 @@ export class PlannerStore {
     if (draft.isNew) throw new Error("Connect to add a new task.")
     await this.database.withExclusiveTransactionAsync(async tx => {
       if (!await this.allowed(accountId, householdId, tx)) throw new Error("You no longer have permission to manage this household.")
+      await this.requireNoPendingStart(accountId, householdId, draft.routineId, tx)
       const cached = await this.cached(accountId, householdId, tx)
       if (!cached?.view.tasks.some(task => task.id === draft.taskId && task.routine_id === draft.routineId)) throw new Error("This task was removed. Refresh the routine.")
       // A subsequent title-only save must not drop a timing edit still queued
@@ -127,16 +128,28 @@ export class PlannerStore {
       if (allowed && fresh) await this.write(accountId, edit.householdId, fresh, tx)
     })
   }
-  async creations(accountId: string) {
+  async creations(accountId: string, tx: SqlConnection = this.database) {
     type Row = { id: string; account_id: string; household_id: string; label: string; body: string; state: "pending" | "rejected"; attempts: number; next_attempt_ms: number; error: string | null }
-    return (await this.database.getAllAsync<Row>("SELECT * FROM planner_creations WHERE account_id=? ORDER BY rowid", accountId)).map(row => ({
+    return (await tx.getAllAsync<Row>("SELECT * FROM planner_creations WHERE account_id=? ORDER BY rowid", accountId)).map(row => ({
       id: row.id, accountId: row.account_id, householdId: row.household_id, label: row.label, body: JSON.parse(row.body),
       state: row.state, attempts: row.attempts, nextAttemptMs: row.next_attempt_ms, error: row.error,
     } satisfies PlannerCreation))
   }
+  private async requireNoPendingStart(accountId: string, householdId: string, routineId: string, tx: SqlConnection) {
+    if ((await this.creations(accountId, tx)).some(item => item.householdId === householdId && item.body.action === "createOccurrence" && item.body.routineId === routineId)) {
+      throw new Error("This routine has a saved start request. Let it sync or review it before changing the template.")
+    }
+  }
   async enqueueCreation(creation: PlannerCreation) {
     await this.database.withExclusiveTransactionAsync(async tx => {
       if (!await this.allowed(creation.accountId, creation.householdId, tx)) throw new Error("You no longer have permission to manage this household.")
+      if (creation.body.action === "createTask") await this.requireNoPendingStart(creation.accountId, creation.householdId, String(creation.body.routineId), tx)
+      if (creation.body.action === "createOccurrence") {
+        const edits = await this.pending(creation.accountId, tx), creations = await this.creations(creation.accountId, tx)
+        if ([...edits, ...creations].some(item => item.householdId === creation.householdId)) throw new Error("Sync or review your saved changes before starting a routine.")
+        const cached = await this.cached(creation.accountId, creation.householdId, tx)
+        if (!cached?.view.routines.some(routine => routine.id === creation.body.routineId)) throw new Error("This routine was removed. Refresh your routines.")
+      }
       // Immutable payload: a retry must never change the meaning of its ID.
       await tx.runAsync("INSERT INTO planner_creations(account_id,household_id,id,label,body) VALUES(?,?,?,?,?)",
         creation.accountId, creation.householdId, creation.id, creation.label, JSON.stringify(creation.body))

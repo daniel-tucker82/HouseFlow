@@ -27,7 +27,7 @@ export class PlannerController {
   private optimistic = new Map<string, { id: string; draft: PlannerTaskDraft }>()
   private saves = new Set<Promise<void>>()
   constructor(private readonly store: PlannerStore, private readonly accountId: string, private readonly deviceId: string,
-    private readonly api: PlannerApi, private readonly uuid: () => string) {}
+    private readonly api: PlannerApi, private readonly uuid: () => string, private readonly onSynced?: () => Promise<void>) {}
   getSnapshot = () => this.state
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
   private update(patch: Partial<PlannerState>) {
@@ -96,17 +96,24 @@ export class PlannerController {
       await this.readLocal(); this.wake()
     }
   }
-  async create(action: "createRoutine" | "createTask", values: Record<string, unknown>, label: string) {
+  async create(action: "createRoutine" | "createTask" | "createOccurrence", values: Record<string, unknown>, label: string) {
     const household = this.state.household
     if (!household || this.stopped) throw new Error("Choose a household you can manage.")
     if (this.state.busy) throw new Error("Another change is still saving.")
+    if (action === "createOccurrence" && !this.state.online) throw new Error("Connect to start a routine.")
     this.update({ busy: true })
     const id = this.uuid()
     const creation: PlannerCreation = { id, accountId: this.accountId, householdId: household.id, label,
       body: { ...values, action, householdId: household.id, timezone: household.timezone, creationId: id },
       state: "pending", attempts: 0, nextAttemptMs: 0, error: null }
     this.mutations++
-    try { await this.store.enqueueCreation(creation); await this.readLocal(); this.wake() }
+    try {
+      // Only await local writes. Starting must not sit behind a network timeout;
+      // the atomic store guard explains any earlier changes still awaiting sync.
+      if (action === "createOccurrence") await Promise.all(this.saves)
+      if (this.stopped) return
+      await this.store.enqueueCreation(creation); await this.readLocal(); this.wake()
+    }
     finally { this.update({ busy: false }) }
   }
   private wake() {
@@ -140,6 +147,7 @@ export class PlannerController {
       for (const creation of creations) {
         if (this.stopped || !this.state.online || !this.active) break
         if (!await this.store.allowed(this.accountId, creation.householdId)) continue
+        if (!(await this.store.creations(this.accountId)).some(current => current.id === creation.id && current.state === "pending")) continue
         try {
           await this.api.request("/api/leader/flow", creation.body)
           if (this.stopped) return
@@ -155,7 +163,12 @@ export class PlannerController {
     })().finally(() => {
       this.flushing = null
       if (!this.active || !this.state.online || this.stopped) return
-      if (changed) void this.refresh()
+      if (changed) {
+        void this.refresh()
+        // Refresh Today after the durable acknowledgement. A refresh failure
+        // must never turn a successful creation into a failed request.
+        if (this.onSynced) void this.onSynced().catch(error => this.report(error))
+      }
       const pending = [...this.state.pending, ...this.state.creations].filter(edit => edit.state === "pending")
       if (pending.length) this.timer = setTimeout(() => this.wake(), Math.max(50, Math.min(...pending.map(edit => edit.nextAttemptMs)) - Date.now()))
     })
@@ -171,6 +184,7 @@ export class PlannerController {
     await this.store.discard(this.accountId, edit, fresh); await this.readLocal()
   }
   async run<T>(action: string, values: Record<string, unknown> = {}): Promise<T> {
+    if (action === "createOccurrence") throw new Error("Routine starts must use a saved start request.")
     const household = this.state.household
     if (!household || !this.state.online) throw new Error("Connect to make this change.")
     if (this.state.busy) throw new Error("Another change is still saving.")

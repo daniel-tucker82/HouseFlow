@@ -52,12 +52,20 @@ The Routines tab provides native template and task management, assignments,
 prerequisites, rewards and task activation/expiry rules. Existing task edits update the screen immediately and
 commit to a separate SQLite queue. Unfinished task forms stay on this device;
 submitting a form atomically clears its draft and retains its saved operation.
-New routines and tasks also use durable requests with immutable creation IDs.
-Apply `0020_planner_creations.sql` before deploying this version of the planner
-API. Its receipts commit with the created item, allow retries at full quota, and
+New routines, tasks and manual routine starts use durable requests with immutable
+creation IDs. Apply `0020_planner_creations.sql` and `0021_routine_start_receipts.sql`
+before deploying this version of the planner API. Receipts commit with the created item, allow retries at full quota, and
 remain after item deletion to prevent resurrection. The queue is scoped to the
 account, preserves rejected requests for review, and stops uploading after a
 confirmed management-role revocation.
+
+A start request returns after saving locally and uploads in the background. It
+requires a connection initially and all earlier planner changes to be synced or
+reviewed; it does not wait for a network flush before saving. Template edits and
+duplicate starts are blocked while that template has an unresolved start. The
+server assigns the start time on its first committed attempt. Copying tasks,
+dependencies and assignments, completing older runs when enabled, and recording
+the receipt all share one transaction. Today refreshes after acknowledgement.
 
 Task timing supports fixed dates, calendar days, weekdays, month days, elapsed
 durations and rules relative to actual availability. Native date/time pickers
@@ -70,9 +78,9 @@ Timezone conversion chooses the first occurrence of repeated clock times and
 moves missing times forward by the daylight-saving gap.
 
 Recurrence editing, full run management/history, kiosk protection,
-push delivery and store billing are still under development. Rename/delete/start
-actions currently require a connection; extending interruption recovery to run
-creation and the remaining management actions is still required.
+push delivery and store billing are still under development. Rename/delete
+actions currently require a connection; extending interruption recovery to those
+remaining management actions is still required.
 
 From the repository root, run `node --experimental-sqlite --test tests/mobile-*.test.cjs`.
 PostgreSQL tests additionally require `CYNTCH_TEST_DATABASE_URL` pointing to a local
@@ -112,6 +120,14 @@ The fixture was returned to Free and its timing cleared through the app.
 `tests/task-timing.test.cjs` covers validation, Free/Premium enforcement, calendar
 boundaries and full/half-hour DST transitions. SQLite and PostgreSQL planner tests
 cover timing durability, coalescing, rollback and stale retries.
+
+Durable routine starts were verified on the Android emulator: a Free-plan
+capacity rejection survived force-stop/restart, completing the active run freed
+capacity, and retrying the saved start produced one new run with its two tasks
+and one receipt. Today refreshed automatically. Automated SQLite/PostgreSQL
+tests additionally cover lost replies, duplicate local submissions, mutation
+barriers, replay at capacity, removed-run tombstones and transaction rollback
+including automatic completion of older runs.
 
 Changing Android system font size while the development app is running produced
 an Expo Router multiple-linking-handlers warning; a clean launch did not. This
