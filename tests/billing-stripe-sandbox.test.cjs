@@ -77,6 +77,17 @@ test('real Stripe test-mode billing reconciles into isolated PostgreSQL', {
       await reconcileHouseholdSubscription(paid.household)
       assert.equal((await pool.query('select cancel_at_period_end from household_billing where household_id=$1',[paid.household])).rows[0].cancel_at_period_end,false)
     })
+    await t.test('flexible portal-style cancellation is displayed and preserves paid access',async()=>{
+      const scheduled = await stripe.subscriptions.update(sub.id,{cancel_at:sub.items.data[0].current_period_end})
+      assert.equal(scheduled.cancel_at_period_end,false)
+      assert.ok(scheduled.cancel_at)
+      await reconcileHouseholdSubscription(paid.household)
+      assert.equal((await entitlement(paid.household)).tier,'premium')
+      assert.equal((await pool.query('select cancel_at_period_end from household_billing where household_id=$1',[paid.household])).rows[0].cancel_at_period_end,true)
+      await stripe.subscriptions.update(sub.id,{cancel_at:''})
+      await reconcileHouseholdSubscription(paid.household)
+      assert.equal((await pool.query('select cancel_at_period_end from household_billing where household_id=$1',[paid.household])).rows[0].cancel_at_period_end,false)
+    })
     await t.test('unpaid incomplete subscription never grants Premium',async()=>{
       const unpaid = await fixture()
       const incomplete = await stripe.subscriptions.create({customer:unpaid.customer.id,items:[{price:process.env.STRIPE_MONTHLY_PRICE_ID}],metadata:{household_id:unpaid.household},payment_behavior:'default_incomplete'})

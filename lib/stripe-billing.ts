@@ -66,7 +66,9 @@ export async function reconcileHouseholdSubscription(householdId: string) {
     }
     await client.query(`update household_billing set stripe_subscription_id = $2, subscription_status = $3,
       paid_through = $4, cancel_at_period_end = $5, last_reconciled_at = now(), updated_at = now()
-      where household_id = $1::uuid`, [householdId, subscription.id, subscription.status, paidThrough, subscription.cancel_at_period_end])
+      where household_id = $1::uuid`, [householdId, subscription.id, subscription.status, paidThrough,
+      // Flexible-mode portal cancellations set cancel_at, not cancel_at_period_end.
+      subscription.cancel_at_period_end || subscription.cancel_at != null])
     await client.query("commit")
   } catch(error) { await client.query("rollback"); throw error }
   finally { client.release() }

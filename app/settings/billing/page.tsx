@@ -34,7 +34,7 @@ export default async function BillingPage({searchParams}: {searchParams:Promise<
           "One template with up to 15 tasks and rewards combined. Start runs manually, with one active run at a time. Completion dependencies are included."}</p>
         <p>{entitlement.limits.templates} template{entitlement.limits.templates === 1 ? "" : "s"} · {entitlement.limits.items} items per template · {entitlement.limits.activeExecutions} active run{entitlement.limits.activeExecutions === 1 ? "" : "s"}</p>
         {billing.rows[0]?.subscription_status && billing.rows[0].subscription_status !== "none" &&
-          <p>Subscription: {billing.rows[0].subscription_status}{billing.rows[0].cancel_at_period_end ? " — cancels at period end" : ""}.</p>}
+          <p>Subscription: {billing.rows[0].subscription_status}{billing.rows[0].cancel_at_period_end ? " — cancellation scheduled" : ""}.</p>}
         {billing.rows[0]?.paid_through && <p>Paid access through {new Date(billing.rows[0].paid_through).toLocaleDateString("en-AU", {timeZone:"Australia/Sydney"})}.</p>}
       </div>
       <BillingControls householdId={household.id} tier={entitlement.tier} canBill={!entitlement.rolloutPending && entitlement.leaderId === user.id}
