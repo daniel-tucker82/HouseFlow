@@ -1,17 +1,14 @@
 "use client"
 
-import { useState, useSyncExternalStore } from "react"
+import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { isCapacitorNativeShellSync } from "@/lib/native-shell-detect"
 import type { HouseholdTier } from "@/lib/billing-policy"
 
-const subscribe = () => () => {}
 export function BillingControls({householdId,tier,canBill,canManage,templates,selectedTemplate}: {
   householdId:string;tier:HouseholdTier;canBill:boolean;canManage:boolean;
   templates:{id:string;name:string}[];selectedTemplate:string
 }) {
   const router = useRouter()
-  const native = useSyncExternalStore(subscribe,isCapacitorNativeShellSync,() => true)
   const [busy,setBusy] = useState(false)
   const [message,setMessage] = useState("")
   const [routineId,setRoutineId] = useState(selectedTemplate)
@@ -29,7 +26,7 @@ export function BillingControls({householdId,tier,canBill,canManage,templates,se
   }
   const buttonClass = "rounded-lg border px-4 py-2 disabled:opacity-50"
   return <section className="space-y-4">
-    {!native && canBill && tier !== "owner" && <div className="space-y-3">
+    {canBill && tier !== "owner" && <div className="space-y-3">
       {tier === "free" && <>
         <h2 className="text-lg font-medium">Upgrade to Premium</h2>
         <p>More templates and items, recurring schedules, timed activation and expiry for your household.</p>
@@ -41,7 +38,7 @@ export function BillingControls({householdId,tier,canBill,canManage,templates,se
       <button disabled={busy} className={buttonClass} onClick={() => void submit("portal")}>Manage subscription</button>
       <button disabled={busy} className={buttonClass} onClick={() => void submit("reconcile")}>Refresh billing status</button>
     </div>}
-    {!canBill && !native && <p>The household owner manages its subscription.</p>}
+    {!canBill && <p>The household owner manages its subscription.</p>}
     {tier === "free" && canManage && templates.length > 0 && <div className="space-y-2">
       <label htmlFor="free-template" className="block font-medium">Your free template</label>
       <select id="free-template" value={routineId} onChange={e => setRoutineId(e.target.value)} className="w-full rounded border p-2">

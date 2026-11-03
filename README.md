@@ -48,40 +48,28 @@ Time-based jobs are run by the endpoint `GET /api/cron`. The legacy
 - With the app **closed**, only that cron (or an external cron hitting the same URL with `Authorization: Bearer <CRON_SECRET>`) runs these jobs. **Opening the leader or member dashboard** still catches up relevant state on the next visit.
 - Recurrence date/time math in `lib/recurrence.ts` uses the **Node runtime’s default timezone** (typically **UTC** on Vercel). For household-local wall times, keep the household `timezone` field accurate; full “evaluate rules in household TZ” is not implemented yet—if results look offset by hours, compare rule times to UTC.
 
-## Native Mobile App (Capacitor)
+## Native mobile applications
 
-HouseFlow includes Capacitor configuration for Android/iOS wrapper builds.
+The Android and iOS applications are being developed in [`mobile/`](mobile/README.md)
+with React Native and Expo. They are not yet released. Install dependencies and
+run build commands from that directory; the root project remains the web app.
 
-1. Set `CAPACITOR_SERVER_URL` to your deployed HTTPS HouseFlow URL.
-2. Add native projects:
-   - `npm run mobile:add:android`
-   - `npm run mobile:add:ios`
-3. Sync web/native plugins:
-   - `npm run mobile:sync`
-4. Open and run:
-   - `npm run mobile:open:android`
-   - `npm run mobile:open:ios`
+The previous Capacitor wrapper, platform projects, bridge components and handoff
+checklist are archived at Git tag `archive/capacitor-before-native-20261103`
+(commit `81e52f7f9a1a32fe2fff590dcdf5dad69b87634f`). They are removed from the active
+build and dependency graph. To inspect the old work, export the tag to a separate
+directory with `git archive`; do not restore its wrapper into the native app.
 
-### Native push notifications
-
-Native push delivery is wired through Firebase Admin on the server and Capacitor Push Notifications in the app shell.
-
-- Configure one of:
-  - `FIREBASE_SERVICE_ACCOUNT_JSON`, or
-  - `FIREBASE_PROJECT_ID` + `FIREBASE_CLIENT_EMAIL` + `FIREBASE_PRIVATE_KEY`
-- Apply SQL migration `database/0012_mobile_push_tokens.sql`
-- Complete platform credential setup in Firebase:
-  - Android app registration (`google-services.json`)
-  - iOS app registration (`GoogleService-Info.plist`, APNs key/cert)
-
-For complete manual release/setup tasks, see `MOBILE_HANDOFF_CHECKLIST.md`.
+Responsive browser layouts and their routine-builder demo remain part of the web
+project. Existing server push-token records are retained; native notification
+registration and delivery will be implemented and verified in the Expo app.
 
 ## Public homepage and app entry
 
 - `/` is the public Cyntch homepage, including an interactive example with illustrative data.
 - `/auth/login` and `/auth/signup` use Clerk and default to `/app` after authentication.
 - `/app` resolves the signed-in household, role and active kiosk session, or offers household onboarding.
-- Existing leader, member, invitation and native-shell routes remain available.
+- Existing leader, member and invitation routes remain available.
 
 The public homepage does not query the household database. The signed-in screens still require Clerk and PostgreSQL configuration.
 

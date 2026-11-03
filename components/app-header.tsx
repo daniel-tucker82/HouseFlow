@@ -4,10 +4,9 @@ import { UserButton } from "@clerk/nextjs"
 import { LayoutDashboard, Settings, Users } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import { useEffect, useState, useSyncExternalStore } from "react"
+import { useSyncExternalStore } from "react"
 import { Brand } from "@/components/brand"
 import { NotificationBell } from "@/components/notification-bell"
-import { isCapacitorNativeShellSync } from "@/lib/native-shell-detect"
 import { cn } from "@/lib/utils"
 
 const subscribeToHydration = () => () => {}
@@ -24,12 +23,11 @@ export function AppHeader({
   canAccessManagement?: boolean
 }) {
   const isMounted = useSyncExternalStore(subscribeToHydration,clientMounted,serverMounted)
-  const [nativeMemberShell, setNativeMemberShell] = useState(isCapacitorNativeShellSync)
   const pathname = usePathname()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const selectValue = nativeMemberShell || pathname?.startsWith("/member") ? "member" : "management"
-  const canSwitch = canAccessManagement && !nativeMemberShell && !(lockViewSwitch && selectValue === "member")
+  const selectValue = pathname?.startsWith("/member") ? "member" : "management"
+  const canSwitch = canAccessManagement && !(lockViewSwitch && selectValue === "member")
   const viewHref = (view: string) => {
     const target = view === "member" || !canSwitch ? "/member/dashboard" : "/leader/dashboard"
     const params = new URLSearchParams()
@@ -39,9 +37,6 @@ export function AppHeader({
     }
     return params.size ? `${target}?${params.toString()}` : target
   }
-  useEffect(() => {
-    void import("@capacitor/core").then(({ Capacitor }) => setNativeMemberShell(Capacitor.isNativePlatform()))
-  }, [])
 
   return (
     <header
@@ -101,11 +96,11 @@ export function AppHeader({
         {isMounted ? (
           <UserButton appearance={{ elements: { avatarBox: "size-8 ring-2 ring-white shadow-sm" } }}>
             <UserButton.MenuItems>
-              {!nativeMemberShell && <UserButton.Link
+              <UserButton.Link
                 label="Household plan"
                 labelIcon={<Settings className="size-4" />}
                 href={`/settings/billing${searchParams.get("household") ? "?household=" + encodeURIComponent(searchParams.get("household")!) : ""}`}
-              />}
+              />
               <UserButton.Link
                 label="Notification settings"
                 labelIcon={<Settings className="size-4" />}

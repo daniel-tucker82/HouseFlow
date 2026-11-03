@@ -626,13 +626,6 @@
     min-width: 0;
     width: 100%;
   }
-  .native-member-board .member-lanes {
-    flex-direction: row;
-    overflow-x: auto;
-  }
-  .native-member-board .member-lane {
-    min-width: 280px;
-  }
 }
 @media (prefers-reduced-motion: reduce) {
   *,

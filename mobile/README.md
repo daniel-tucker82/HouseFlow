@@ -54,4 +54,20 @@ database named `cyntch_mobile_test`; their safety guard rejects other destinatio
 They create isolated fixtures and clean up their own data.
 
 The previous Capacitor implementation is recoverable from the Git tag
-`archive/capacitor-before-native-20261103`. It is superseded by this application.
+`archive/capacitor-before-native-20261103`. Its platform projects, shell UI,
+configuration and dependencies have been removed from the active root project.
+
+## Local verification, 2026-11-03
+
+The Android x86_64 development APK builds and runs on the Android 36 emulator.
+Native Clerk sign-in and an isolated PostgreSQL/Next.js API were used to verify
+offline completion, force-stop/restart recovery, automatic reconnect upload,
+exactly one server receipt, and the next task unlocking. Phone portrait,
+landscape and 1.6× system font size were inspected, including welcome-screen
+scrolling. The keep-awake setting releases its screen wake lock in the background.
+
+Changing Android system font size while the development app is running produced
+an Expo Router multiple-linking-handlers warning; a clean launch did not. This
+needs investigation and release-build verification before launch. No physical
+device performance measurements, iOS native build, store release or household
+pilot has been completed.

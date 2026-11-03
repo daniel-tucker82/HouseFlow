@@ -3,12 +3,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { useRouter } from "next/navigation"
-import { Circle, CircleCheck, Gift, LoaderCircle, LockKeyhole, LogOut, Menu, Search, Settings, Sparkles, Undo2, Users, X } from "lucide-react"
-import { UserButton, useClerk } from "@clerk/nextjs"
+import { Circle, CircleCheck, Gift, LoaderCircle, LockKeyhole, LogOut, Search, Settings, Sparkles, Undo2, Users, X } from "lucide-react"
+import { useClerk } from "@clerk/nextjs"
 import { saveMemberDashboardLanePreferences } from "@/lib/actions/member-dashboard"
 import { MemberLanesDraftPicker } from "@/components/member-lanes-draft-picker"
-import { NotificationBell } from "@/components/notification-bell"
-import { isCapacitorNativeShellSync } from "@/lib/native-shell-detect"
 import { cn } from "@/lib/utils"
 import type { EffectiveRole } from "@/lib/household-authz"
 
@@ -19,25 +17,6 @@ const MEMBER_TOKEN_COLORS: Record<string, string> = {
   sky: "bg-sky-100 text-sky-800", blue: "bg-blue-100 text-blue-800",
   indigo: "bg-indigo-100 text-indigo-800", violet: "bg-violet-100 text-violet-800",
   fuchsia: "bg-fuchsia-100 text-fuchsia-800", slate: "bg-slate-100 text-slate-800",
-}
-
-const FAB_SIZE = 56
-const FAB_PAD = 12
-const FAB_POS_KEY = "cyntch_member_fab_pos"
-
-function clampFabPosition(left: number, top: number) {
-  if (typeof window === "undefined") return { left, top }
-  const maxLeft = window.innerWidth - FAB_SIZE - FAB_PAD
-  const maxTop = window.innerHeight - FAB_SIZE - FAB_PAD
-  return {
-    left: Math.min(Math.max(FAB_PAD, left), maxLeft),
-    top: Math.min(Math.max(FAB_PAD, top), maxTop),
-  }
-}
-
-function defaultFabPosition() {
-  if (typeof window === "undefined") return { left: 0, top: 0 }
-  return clampFabPosition(window.innerWidth - FAB_SIZE - FAB_PAD, window.innerHeight - FAB_SIZE - FAB_PAD)
 }
 
 function memberIdsOrderEqual(a: string[], b: string[]) {
@@ -211,49 +190,9 @@ export function MemberDashboardClient({
   const [isKioskPending, setIsKioskPending] = useState(false)
   const [roleUpdatingMemberId, setRoleUpdatingMemberId] = useState<string | null>(null)
   const [hasHydrated, setHasHydrated] = useState(false)
-  const [isNativeShell, setIsNativeShell] = useState(isCapacitorNativeShellSync)
-  const [fabPos, setFabPos] = useState<{ left: number; top: number } | null>(null)
-  const fabDragRef = useRef<{
-    pointerId: number
-    startX: number
-    startY: number
-    originLeft: number
-    originTop: number
-  } | null>(null)
-  const fabIsDraggingRef = useRef(false)
-
   useEffect(() => {
     queueMicrotask(() => setHasHydrated(true))
   }, [])
-
-  useLayoutEffect(() => {
-    void import("@capacitor/core").then(({ Capacitor }) => {
-      const native = Capacitor.isNativePlatform()
-      setIsNativeShell(native)
-      if (!native || typeof window === "undefined") return
-      try {
-        const raw = window.localStorage.getItem(FAB_POS_KEY)
-        if (raw) {
-          const p = JSON.parse(raw) as { left?: number; top?: number }
-          if (typeof p.left === "number" && typeof p.top === "number") {
-            const c = clampFabPosition(p.left, p.top)
-            setFabPos(c)
-            return
-          }
-        }
-      } catch {
-        /* ignore */
-      }
-      setFabPos(defaultFabPosition())
-    })
-  }, [])
-
-  useEffect(() => {
-    if (!isNativeShell || fabPos === null) return
-    const onResize = () => setFabPos((p) => (p ? clampFabPosition(p.left, p.top) : p))
-    window.addEventListener("resize", onResize)
-    return () => window.removeEventListener("resize", onResize)
-  }, [isNativeShell, fabPos])
 
   useEffect(() => {
     queueMicrotask(() => setLocalTasks(tasks))
@@ -651,77 +590,6 @@ export function MemberDashboardClient({
     }
   }
 
-  const onFabPointerDown = useCallback(
-    (event: React.PointerEvent<HTMLButtonElement>) => {
-      if (!isNativeShell || fabPos === null) return
-      if (event.button !== 0) return
-      fabIsDraggingRef.current = false
-      event.currentTarget.setPointerCapture(event.pointerId)
-      fabDragRef.current = {
-        pointerId: event.pointerId,
-        startX: event.clientX,
-        startY: event.clientY,
-        originLeft: fabPos.left,
-        originTop: fabPos.top,
-      }
-    },
-    [fabPos, isNativeShell],
-  )
-
-  const onFabPointerMove = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
-    const drag = fabDragRef.current
-    if (!drag || event.pointerId !== drag.pointerId) return
-    const moveDx = event.clientX - drag.startX
-    const moveDy = event.clientY - drag.startY
-    if (!fabIsDraggingRef.current && moveDx * moveDx + moveDy * moveDy > 64) {
-      fabIsDraggingRef.current = true
-    }
-    if (!fabIsDraggingRef.current) return
-    const nextLeft = drag.originLeft + moveDx
-    const nextTop = drag.originTop + moveDy
-    setFabPos(clampFabPosition(nextLeft, nextTop))
-  }, [])
-
-  const onFabPointerUp = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
-    const drag = fabDragRef.current
-    if (!drag || event.pointerId !== drag.pointerId) return
-    fabDragRef.current = null
-    try {
-      event.currentTarget.releasePointerCapture(event.pointerId)
-    } catch {
-      /* ignore */
-    }
-    const dragged = fabIsDraggingRef.current
-    fabIsDraggingRef.current = false
-    if (dragged) {
-      setFabPos((p) => {
-        if (!p) return p
-        const c = clampFabPosition(p.left, p.top)
-        try {
-          window.localStorage.setItem(FAB_POS_KEY, JSON.stringify(c))
-        } catch {
-          /* ignore */
-        }
-        return c
-      })
-      return
-    }
-    if (selectorsOpen) closeSelectors()
-    else openSelectors()
-  }, [selectorsOpen, closeSelectors, openSelectors])
-
-  const onFabPointerCancel = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
-    const drag = fabDragRef.current
-    if (!drag || event.pointerId !== drag.pointerId) return
-    fabDragRef.current = null
-    fabIsDraggingRef.current = false
-    try {
-      event.currentTarget.releasePointerCapture(event.pointerId)
-    } catch {
-      /* ignore */
-    }
-  }, [])
-
   const visibleTasks = [...new Map(selectedMembers.flatMap(member => tasksByMember.get(member.id) ?? []).map(task => [task.id, task])).values()]
   const readyCount = visibleTasks.filter(task => task.status === "unlocked").length
   const completeCount = visibleTasks.filter(task => task.status === "completed").length
@@ -750,27 +618,6 @@ export function MemberDashboardClient({
   }, [memberships, selectorsModal, selectedHouseholdId])
   const selectorsMenuBody = (
     <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-hidden">
-      {isNativeShell && hasHydrated ? (
-        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border pb-1.5">
-          <NotificationBell />
-          <UserButton
-            appearance={{
-              elements: {
-                avatarBox: "size-8 ring-1 ring-border shadow-sm",
-              },
-            }}
-          >
-            <UserButton.MenuItems>
-              <UserButton.Link
-                label="Notification settings"
-                labelIcon={<Settings className="size-4" />}
-                href="/settings/notifications"
-              />
-            </UserButton.MenuItems>
-          </UserButton>
-        </div>
-      ) : null}
-
       {!isKioskMode ? (
         <>
           {canActivateKiosk ? (
@@ -925,12 +772,8 @@ export function MemberDashboardClient({
   return (
     <>
     <main
-      className={cn(
-        "flex w-full flex-1 flex-col",
-        isNativeShell ? "native-member-board min-h-0 gap-2 p-2" : "gap-6 p-4 md:px-8 md:py-7",
-      )}
+      className="flex w-full flex-1 flex-col gap-6 p-4 md:px-8 md:py-7"
     >
-      {!isNativeShell ? (
         <header className="flex items-start justify-between gap-3">
           <div>
             <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">{householdName}</p>
@@ -971,26 +814,25 @@ export function MemberDashboardClient({
             </button>
           )}
         </header>
-      ) : null}
 
-      {!isNativeShell && <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-3 gap-3">
         {[{ label: "Ready to do", count: readyCount, icon: Sparkles, color: "bg-[#e7f0e4] text-primary" }, { label: "Completed", count: completeCount, icon: CircleCheck, color: "bg-[#f5eddd] text-[#8a642b]" }, { label: "On the board", count: selectedMembers.length, icon: Users, color: "bg-[#eee8f5] text-[#79608c]" }].map(({ label, count, icon: Icon, color }) => <div key={label} className="flex items-center gap-3 rounded-xl border bg-card p-3 sm:p-4"><span className={cn("hidden size-10 items-center justify-center rounded-xl sm:flex", color)}><Icon className="size-4" /></span><div><p className="text-2xl font-semibold tracking-tight">{count}</p><p className="mt-0.5 text-[11px] text-muted-foreground">{label}</p></div></div>)}
-      </div>}
+      </div>
       {taskError && <div role="alert" className="flex items-center justify-between gap-3 rounded-xl border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">{taskError}<button type="button" onClick={() => setTaskError(null)} aria-label="Dismiss error"><X className="size-4" /></button></div>}
-      <section aria-label="Household tasks" className={cn("min-h-0", isNativeShell && "flex flex-1 flex-col")}>
+      <section aria-label="Household tasks" className="min-h-0">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-1 rounded-xl border bg-card p-1" aria-label="Filter tasks">
             {([['all', 'All tasks'], ['unlocked', 'Ready'], ['completed', 'Completed']] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={taskFilter === value} onClick={() => setTaskFilter(value)} className={cn("rounded-lg px-3 py-2 text-xs font-medium", taskFilter === value ? "bg-primary text-white" : "text-muted-foreground hover:bg-muted")}>{label}</button>)}
           </div>
           <div className="relative w-full sm:w-60"><Search className="pointer-events-none absolute left-3 top-3 size-4 text-muted-foreground" /><input type="search" aria-label="Find a task on the board" placeholder="Find a task…" value={taskSearch} onChange={event => setTaskSearch(event.target.value)} className="h-10 w-full rounded-xl border bg-card pl-9 pr-3 text-sm" /></div>
         </div>
-        <div className={cn("member-lanes", isNativeShell && "min-h-0 flex-1")}>
+        <div className="member-lanes">
           {selectedMembers.map((member) => {
             const allLaneTasks = tasksByMember.get(member.id) ?? []
             const laneTasks = allLaneTasks.filter(task => (taskFilter === "all" || task.status === taskFilter) && (task.title + " " + (task.occurrence_title ?? "")).toLowerCase().includes(taskSearch.trim().toLowerCase()))
             const doneCount = allLaneTasks.filter(task => task.status === "completed").length
             const laneIsEditable = editableMemberSet.has(member.id)
-            return <div key={member.id} className={cn("member-lane", isNativeShell && "overflow-y-auto")}>
+            return <div key={member.id} className="member-lane">
               <div className="member-lane-header">
                 <div className="mb-4 flex items-center gap-3"><span className={cn("flex size-10 shrink-0 items-center justify-center rounded-xl text-sm font-semibold", MEMBER_TOKEN_COLORS[member.token_color ?? ""] ?? "bg-primary/10 text-primary")}>{member.name.split(" ").map(part => part[0]).slice(0, 2).join("")}</span><div className="min-w-0 flex-1"><h2 className="truncate text-sm font-semibold">{member.name}</h2><p className="mt-1 text-[10px] text-muted-foreground">{member.id === leaderId ? "Includes unassigned tasks" : laneIsEditable ? "One step at a time" : "View only"}</p></div><span className="rounded-full border bg-white px-2 py-1 text-[10px] font-medium text-muted-foreground">{doneCount}/{allLaneTasks.length}</span></div>
                 <div role="progressbar" aria-label={member.name + "’s task progress"} aria-valuenow={doneCount} aria-valuemin={0} aria-valuemax={allLaneTasks.length || 1} className="h-1 overflow-hidden rounded-full bg-border"><div className="h-full rounded-full bg-primary transition-[width]" style={{ width: allLaneTasks.length ? doneCount / allLaneTasks.length * 100 + "%" : "0%" }} /></div>
@@ -1039,46 +881,6 @@ export function MemberDashboardClient({
         </dialog>
       ) : null}
     </main>
-    {isNativeShell && fabPos !== null ? (
-      isKioskMode ? (
-        <>
-          <button
-            type="button"
-            style={{ left: fabPos.left, top: fabPos.top, width: FAB_SIZE, height: FAB_SIZE }}
-            className="fixed z-[430] flex items-center justify-center rounded-full border border-red-900 bg-red-600 text-white shadow-lg ring-1 ring-black/15 hover:bg-red-700 active:scale-95 disabled:opacity-50"
-            aria-label="Exit kiosk mode"
-            disabled={isKioskPending}
-            onClick={() => void exitKioskMode()}
-          >
-            <LogOut className="size-6" aria-hidden />
-          </button>
-          <div className="pointer-events-auto fixed bottom-[max(0.5rem,env(safe-area-inset-bottom))] left-0 right-0 z-[425] flex justify-center px-4">
-            <button
-              type="button"
-              onClick={() => void forgotKioskPin()}
-              disabled={isKioskPending}
-              className="text-xs font-medium text-red-700 underline decoration-red-700/60 underline-offset-2 hover:text-red-900 disabled:opacity-50"
-            >
-              Forgot PIN
-            </button>
-          </div>
-        </>
-      ) : (
-        <button
-          type="button"
-          style={{ left: fabPos.left, top: fabPos.top, width: FAB_SIZE, height: FAB_SIZE }}
-          className="fixed z-[430] flex touch-none items-center justify-center rounded-full border border-border bg-primary text-primary-foreground shadow-lg ring-1 ring-black/10 active:scale-95"
-          aria-label={selectorsOpen ? "Close menu" : "Open menu"}
-          aria-expanded={selectorsOpen}
-          onPointerDown={onFabPointerDown}
-          onPointerMove={onFabPointerMove}
-          onPointerUp={onFabPointerUp}
-          onPointerCancel={onFabPointerCancel}
-        >
-          <Menu className="size-6" aria-hidden />
-        </button>
-      )
-    ) : null}
     {selectorsMenuPortal}
     </>
   )

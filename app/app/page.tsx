@@ -3,7 +3,7 @@ import { Brand } from "@/components/brand"
 import { House } from "lucide-react"
 import { redirect } from "next/navigation"
 import { cookies } from "next/headers"
-import { NoHouseholdNativeActions } from "@/components/no-household-native-actions"
+import { NoHouseholdActions } from "@/components/no-household-actions"
 import { isPostgresConfigured } from "@/lib/config"
 import { getCurrentUserOrRedirect, getUserHouseholds } from "@/lib/data"
 import { resolveActiveKioskHouseholdFromCookie } from "@/lib/household-authz"
@@ -78,7 +78,7 @@ export default async function AppEntryPage() {
         Welcome to Cyntch. Create a household to bring your people, tasks and routines together. Joining an
         existing household? Open the invitation link shared with you.
       </p>
-      <NoHouseholdNativeActions />
+      <NoHouseholdActions />
     </main>
   )
 }
