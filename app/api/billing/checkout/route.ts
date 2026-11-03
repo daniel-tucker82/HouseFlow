@@ -22,20 +22,41 @@ async function handlePOST(request: Request) {
     if (!["monthly", "yearly"].includes(body?.interval)) throw new EntitlementError("Choose monthly or yearly billing", 400)
     const price = await validatedPrice(body.interval)
     const reservation = await reserveWebBillingCheckout(householdId, userId, sessionId, body.interval)
-    const result = await withHouseholdWrite(householdId, userId, async (client, entitlement) => {
+    // Commit the customer binding before creating a checkout. A lost checkout
+    // response must not roll back the only link deletion/recovery can follow.
+    const customer = await withHouseholdWrite(householdId, userId, async (client, entitlement) => {
       if (entitlement.leaderId !== userId) throw new EntitlementError("Only the household owner can manage billing")
       if (entitlement.tier !== "free") throw new EntitlementError("This household already has Premium access", 409)
-      const attempt = reservation ? await requireBillingPurchase(client, reservation) : null
+      if(reservation) await requireBillingPurchase(client,reservation)
       const environment = nativeBillingEnvironment()
       if (environment) await assertNoNativeSubscription(client, householdId, environment)
       const stripe = stripeClient()
       await client.query("insert into household_billing (household_id) values ($1::uuid) on conflict do nothing", [householdId])
-      const billing = await client.query("select stripe_customer_id from household_billing where household_id = $1::uuid", [householdId])
-      let customer = billing.rows[0].stripe_customer_id as string | null
+      const billing = await client.query("select stripe_customer_id,stripe_customer_retired,stripe_customer_deleted_at,stripe_customer_generation,billing_hold from household_billing where household_id = $1::uuid", [householdId])
+      const prior=billing.rows[0]
+      if(prior.stripe_customer_retired && (!prior.stripe_customer_deleted_at || prior.billing_hold)) throw new EntitlementError("The former owner's billing account still needs attention. Please try again later.",409)
+      const generation=Number(prior.stripe_customer_generation ?? 0)+(prior.stripe_customer_retired?1:0)
+      let customer = (prior.stripe_customer_retired?null:prior.stripe_customer_id) as string | null
       if (!customer) {
-        customer = (await stripe.customers.create({ metadata: { household_id: householdId, app: "cyntch" } }, { idempotencyKey: `cyntch-customer-${householdId}` })).id
-        await client.query("update household_billing set stripe_customer_id = $2 where household_id = $1::uuid", [householdId, customer])
+        customer = (await stripe.customers.create({ metadata: { household_id: householdId, app: "cyntch" } }, { idempotencyKey: `cyntch-customer-${householdId}${generation?`-${generation}`:''}` })).id
+        await client.query(`update household_billing set stripe_customer_id=$2,stripe_customer_generation=$3,
+          stripe_subscription_id=case when stripe_customer_retired then null else stripe_subscription_id end,
+          subscription_status=case when stripe_customer_retired then 'none' else subscription_status end,
+          paid_through=case when stripe_customer_retired then null else paid_through end,
+          cancel_at_period_end=case when stripe_customer_retired then false else cancel_at_period_end end,
+          stripe_customer_retired=false,stripe_customer_deleted_at=null where household_id=$1::uuid`,[householdId,customer,generation])
       }
+      return customer
+    })
+    const result = await withHouseholdWrite(householdId,userId,async(client,entitlement)=>{
+      if(entitlement.leaderId!==userId) throw new EntitlementError("Only the household owner can manage billing")
+      if(entitlement.tier!=="free") throw new EntitlementError("This household already has Premium access",409)
+      const binding=(await client.query("select stripe_customer_id,stripe_customer_retired from household_billing where household_id=$1",[householdId])).rows[0]
+      if(binding?.stripe_customer_id!==customer || binding.stripe_customer_retired) throw new EntitlementError("The household's billing account changed. Please try again.",409)
+      const attempt=reservation?await requireBillingPurchase(client,reservation):null
+      const environment=nativeBillingEnvironment()
+      if(environment) await assertNoNativeSubscription(client,householdId,environment)
+      const stripe=stripeClient()
       const subscriptions = await stripe.subscriptions.list({ customer, status: "all", limit: 100 })
       if (subscriptions.has_more || subscriptions.data.some(sub => !["canceled", "incomplete_expired"].includes(sub.status))) {
         throw new EntitlementError("An existing subscription needs attention. Use Manage subscription.", 409)

@@ -955,7 +955,7 @@ provider state was changed.
 The final general regression run passed 295 checks. Root/mobile lint and type
 checks, the Next.js production build and Android/iOS JavaScript exports passed.
 
-Next work is the provider cleanup adapters, current-session/reverification checks at the
+Next work is the remaining provider cleanup adapters, current-session/reverification checks at the
 HTTP confirmation boundary, safe handling of subscriptions, personal data
 removal at Cyntch and its providers, local data cleanup, native confirmation UI,
 and the web deletion path. Account deletion
@@ -1001,9 +1001,10 @@ when its budget is spent. Only after all phases succeed does it clear raw
 account/provider identifiers, retaining the opaque account hash and outcome to
 prevent resurrection.
 
-**Provider cleanup adapters and scheduler wiring are not implemented.** The
-PostgreSQL data adapter is implemented below. Phase tests substitute provider
-effects to verify coordination; they do not prove that a live identity or
+**Native billing/identity cleanup adapters and scheduler wiring are not
+implemented.** The PostgreSQL and Stripe adapters are described below. The
+coordinator's phase tests substitute provider effects; the separate Stripe
+integration check uses new test-mode customers only. No live identity or live
 billing customer has been erased. Do not expose
 acceptance until those adapters, status recovery, disclosures and confirmation
 flows are implemented and verified. Shared authored content, notification
@@ -1022,7 +1023,7 @@ native modules are unchanged by this addition.
 ### Account data cleanup
 
 Apply `database/0035_account_data_cleanup.sql` before using the data adapter.
-It has been exercised only in disposable local test schemas. It allows an
+It has been exercised in disposable local test schemas. It allows an
 existing locked kiosk to retain an empty member selection after a removal;
 new kiosk activation still requires a nonempty selection. It also removes
 untraceable display-name copies from old membership notification messages,
@@ -1067,3 +1068,77 @@ test; that test passed independently and in the final complete run without
 changing its timeout or assertions. Root/mobile lint and type checks, the
 Next.js production build and Android/iOS JavaScript exports passed. No live
 account, provider or production database was changed.
+
+### Stripe cleanup and transferred households
+
+Apply `database/0036_retired_stripe_customers.sql` before this backend revision.
+Migrations 0035 and 0036 have also been applied to the local emulator database;
+its two accounts, one household and zero deletion requests were unchanged.
+Production has not been migrated.
+Acceptance immediately retires the former owner's customer-portal access when
+transferring a household. Both website and native cancellation endpoints reject
+access to that payment account. A new purchase waits for provider cleanup.
+
+`deleteAccountStripeData()` reads the accepted request's stored scope and checks
+the current lease before provider calls. It verifies the customer's Cyntch
+household binding and Stripe environment before deleting it. A subscription-only
+binding is resolved through its verified subscription. An unrelated local
+binding, mismatched provider response or arbitrary 404 fails without claiming
+erasure. Calls use bounded timeouts without in-process network retries.
+
+Stripe customer deletion stops renewals and removes saved payment details;
+[Stripe retains customer financial history](https://docs.stripe.com/api/customers/delete).
+The adapter records per-customer progress durably. If a deletion response is
+lost, a retry retrieves the deleted customer and acknowledges the existing
+result. Expired workers cannot save progress. No cleanup effect depends on the
+mobile app remaining open.
+Confirmed deletion releases the former owner's Stripe purchase reservation;
+Apple/Google reservations remain protected until store reconciliation resolves.
+
+A transferred household retains its verified paid period, with renewal stopped.
+The household's old customer/subscription IDs remain as financial linkage for
+paid-period, refund and dispute reconciliation, without exposing the former
+owner's customer portal. Reconciliation reads the recorded subscription even
+after customer deletion. Existing refund holds still prevent access. When the
+paid period ends and the new owner subscribes on the website, checkout creates
+a new customer using a new, retry-stable generation of its idempotency key.
+It cannot reuse the deleted customer or inherit their saved payment method.
+An outstanding billing hold still requires resolution before website checkout.
+Checkout commits its customer binding before requesting a checkout session,
+then rechecks ownership, entitlement, reservation and binding under the
+household lock. A lost checkout response cannot roll back the customer link
+needed by a later deletion request.
+Before enabling deletion, audit legacy orphan customers from checkout attempts
+made before this durable binding boundary. The adapter currently processes the
+accepted request's stored billing bindings; it does not yet discover unbound
+historical customers at Stripe.
+
+The final confirmation and privacy disclosures must explain immediate Stripe
+cancellation, retained financial records, and the separate Apple/Google store
+subscription-management requirements. Billing presentation still needs to show
+the retired/closing state clearly as part of the complete account-deletion UI.
+
+Verification on 2026-11-04: nine PostgreSQL/provider-double tests cover deletion scope,
+lost responses, per-customer progress, stale leases, portal isolation, preserved
+paid access, refund holds and retry-stable new-owner checkout. The explicit
+`tests/integration/account-deletion-stripe.cjs` test also passed against the
+existing Stripe test account using CLI 1.55.7 and API 2026-10-28.endive: two newly
+created customers had active paid test subscriptions, deletion cancelled both,
+a deliberately lost deletion response recovered, and the transferred paid
+period remained unchanged in PostgreSQL. Test customers were deleted, the new
+product/price were archived, and the disposable database schema was removed.
+The test uses a CLI bridge for actual provider requests; request-option and
+timeout behavior is separately covered by adapter tests. Live mode was not used.
+
+Run that provider check only with `CYNTCH_STRIPE_SANDBOX_TEST=true`, an absolute
+`CYNTCH_STRIPE_CLI` pointing to a current CLI authenticated in test mode, and
+`CYNTCH_TEST_DATABASE_URL` targeting the verified local `cyntch_mobile_test`
+database. Invoke `node --test tests/integration/account-deletion-stripe.cjs`.
+The test writes a unique cleanup/evidence manifest to the OS temporary folder.
+
+Final regression: all 347 general checks and 19 isolated web billing checks
+passed with no skips or cancellations. Root lint and the production build,
+including TypeScript checks, passed. The Stripe step changes no native modules;
+the earlier Android/iOS exports cover the shared kiosk parser change. The full
+account-deletion workflow remains unavailable until the remaining provider,
+recovery, UI and disclosure requirements above are implemented and verified.

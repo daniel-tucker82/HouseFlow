@@ -7,8 +7,9 @@ const options = { timeout: 8_000, maxNetworkRetries: 0 }
 async function binding(scope: NativeBillingScope) {
   return withHouseholdWrite(scope.householdId,scope.accountId,async (client,entitlement) => {
     if (entitlement.leaderId !== scope.accountId) throw new EntitlementError("Only the household owner can manage billing.")
-    const row = (await client.query<{ stripe_customer_id: string | null; stripe_subscription_id: string | null }>(
-      "select stripe_customer_id,stripe_subscription_id from household_billing where household_id=$1::uuid",[scope.householdId])).rows[0]
+    const row = (await client.query<{ stripe_customer_id: string | null; stripe_subscription_id: string | null; stripe_customer_retired:boolean }>(
+      "select stripe_customer_id,stripe_subscription_id,stripe_customer_retired from household_billing where household_id=$1::uuid",[scope.householdId])).rows[0]
+    if(row?.stripe_customer_retired) throw new EntitlementError("The former owner's website subscription is being closed. Its payment account is no longer available.",409)
     if (!row?.stripe_customer_id || !row.stripe_subscription_id) throw new EntitlementError("No website subscription exists for this household.",404)
     return { customer: row.stripe_customer_id, subscription: row.stripe_subscription_id }
   })

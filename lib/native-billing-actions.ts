@@ -98,7 +98,11 @@ export async function prepareNativeBilling(scope: NativeBillingScope, store: Nat
 /** Bounded, fresh Stripe check, outside the household write transaction. The
  * durable reservation prevents Cyntch's web checkout from racing this request. */
 export async function assertNoStripePurchase(householdId: string) {
-  const billing = (await db.query("select stripe_customer_id from household_billing where household_id=$1::uuid", [householdId])).rows[0]
+  const billing = (await db.query("select stripe_customer_id,stripe_customer_retired,stripe_customer_deleted_at from household_billing where household_id=$1::uuid", [householdId])).rows[0]
+  if(billing?.stripe_customer_retired) {
+    if(!billing.stripe_customer_deleted_at) throw new BillingPurchaseError("purchase_in_progress","The former owner's subscription is still being closed. Please try again later.")
+    return
+  }
   if (!billing?.stripe_customer_id) return
   const stripe = stripeClient(), options = { timeout: 8_000, maxNetworkRetries: 0 }
   const [subscriptions, checkouts] = await Promise.all([

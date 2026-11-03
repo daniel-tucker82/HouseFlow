@@ -16,7 +16,8 @@ async function handlePOST(request: Request) {
     const householdId = String(body?.householdId ?? "")
     const result = await withHouseholdWrite(householdId, userId, async (client, entitlement) => {
       if (entitlement.leaderId !== userId) throw new EntitlementError("Only the household owner can manage billing")
-      const billing = await client.query("select stripe_customer_id from household_billing where household_id = $1::uuid", [householdId])
+      const billing = await client.query("select stripe_customer_id,stripe_customer_retired from household_billing where household_id = $1::uuid", [householdId])
+      if(billing.rows[0]?.stripe_customer_retired) throw new EntitlementError("The former owner's billing account is closed. This household retains its verified paid access until that period ends.",409)
       const customer = billing.rows[0]?.stripe_customer_id
       if (!customer) throw new EntitlementError("No billing account exists for this household", 404)
       const session = await stripeClient().billingPortal.sessions.create({customer, return_url: `${origin}/settings/billing?household=${encodeURIComponent(householdId)}`})

@@ -12,7 +12,7 @@ export interface AccountDeletionReceipt {
 }
 export interface AccountDeletionWork {
   /** Provider identifiers stay server-side and are removed after processing. */
-  stripe: { householdId: string; customerId: string | null; subscriptionId: string | null; action: "delete" | "transfer" }[]
+  stripe: { householdId: string; customerId: string | null; subscriptionId: string | null; action: "delete" | "transfer"; completed?: boolean }[]
   retiredNativeAccounts: { id: string; projectId: string; environment: "production" | "sandbox" }[]
   orphanProfileIds: string[]
   householdIds: string[]
@@ -92,6 +92,11 @@ export async function acceptAccountDeletion(pool: Pool, scope: AccountDeletionSc
       values($1,$2,$3,$4,$5) returning *`,[intent.operationId,accountHash(scope.accountId),scope.accountId,fingerprint,JSON.stringify(work)])).rows[0]
     for (const choice of intent.ownership) if (choice.action==="transfer") {
       await assertAccountActive(client,choice.successorId)
+      // This commits with the ownership change, before the successor can open
+      // the former parent's payment account. Financial linkage remains for
+      // paid-period/refund reconciliation, not access to the customer portal.
+      await client.query(`update household_billing set stripe_customer_retired=true,updated_at=now()
+        where household_id=$1 and (stripe_customer_id is not null or stripe_subscription_id is not null)`,[choice.householdId])
       await client.query("update household_members set role='manager' where household_id=$1 and user_id=$2",[choice.householdId,choice.successorId])
       await client.query("update households set leader_id=$2,updated_at=now() where id=$1",[choice.householdId,choice.successorId])
     }

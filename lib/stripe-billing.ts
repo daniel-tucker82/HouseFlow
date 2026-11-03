@@ -40,7 +40,17 @@ export async function reconcileHouseholdSubscription(householdId: string) {
     const billing = record.rows[0]
     if (!billing?.stripe_customer_id) { await client.query("commit"); return }
     const stripe = stripeClient()
-    const subscriptions = await stripe.subscriptions.list({ customer: billing.stripe_customer_id, status: "all", limit: 100, expand: ["data.latest_invoice"] })
+    // Deleted customers retain financial history. Reconcile only the recorded
+    // subscription so a transferred household retains its paid period and
+    // refund/dispute handling without reopening the former parent's account.
+    if(billing.stripe_customer_retired && !billing.stripe_subscription_id) {await client.query("commit");return}
+    const subscriptions = billing.stripe_customer_retired
+      ? {data:[await stripe.subscriptions.retrieve(billing.stripe_subscription_id,{expand:["latest_invoice"]})],has_more:false}
+      : await stripe.subscriptions.list({ customer: billing.stripe_customer_id, status: "all", limit: 100, expand: ["data.latest_invoice"] })
+    if(subscriptions.has_more || (billing.stripe_customer_retired && subscriptions.data.some(sub=>
+      (typeof sub.customer==='string'?sub.customer:sub.customer.id)!==billing.stripe_customer_id || sub.metadata.household_id!==householdId))) {
+      throw new EntitlementError("The billing provider could not confirm the household subscription.",503)
+    }
     const allowed = new Set([process.env.STRIPE_MONTHLY_PRICE_ID, process.env.STRIPE_YEARLY_PRICE_ID].filter((id): id is string => Boolean(id)))
     if (allowed.size !== 2) throw new EntitlementError("Both subscription prices must be configured.",503)
     const eligible = subscriptions.data.filter(sub => sub.metadata.household_id === householdId &&
