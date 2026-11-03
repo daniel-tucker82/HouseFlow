@@ -26,11 +26,12 @@ test('actual Stripe test customer deletion cancels billing and preserves the tra
  }
  assert.equal(api('get','/v1/balance').livemode,false,'Never create financial test fixtures in live mode')
  const run=randomUUID(),file=path.join(os.tmpdir(),`cyntch-deletion-stripe-${run}.json`)
- const evidence={run,mode:'test',customers:[],prices:[],product:null,verified:false,cleaned:false}
+ const evidence={run,mode:'test',customers:[],prices:[],clocks:[],product:null,verified:false,cleaned:false}
  const save=()=>fs.writeFileSync(file,JSON.stringify(evidence,null,2))
  save()
  t.after(()=>{
   for(const id of evidence.customers){const current=api('get',`/v1/customers/${id}`);if(!current.deleted)api('delete',`/v1/customers/${id}`)}
+  for(const id of evidence.clocks)api('delete',`/v1/test_helpers/test_clocks/${id}`)
   for(const id of evidence.prices)api('post',`/v1/prices/${id}`,{active:false})
   if(evidence.product)api('post',`/v1/products/${evidence.product}`,{active:false})
   evidence.cleaned=true;save();console.log('Test-mode cleanup evidence:',file)
@@ -49,6 +50,14 @@ test('actual Stripe test customer deletion cancels billing and preserves the tra
     paid_through=to_timestamp($4) where household_id=$1`,[householdId,customer.id,subscription.id,subscription.items.data[0].current_period_end])
   bindings.push({householdId,customerId:customer.id,subscriptionId:subscription.id})
  }
+ const clock=api('post','/v1/test_helpers/test_clocks',{frozen_time:Math.floor(Date.now()/1000),name:`Cyntch deletion ${run}`})
+ evidence.clocks.push(clock.id);save()
+ const orphan=api('post','/v1/customers',{test_clock:clock.id,metadata:{app:'cyntch',household_id:f.transfer,test_run:run},payment_method:'pm_card_visa',invoice_settings:{default_payment_method:'pm_card_visa'}})
+ evidence.customers.push(orphan.id);save()
+ const orphanSubscription=api('post','/v1/subscriptions',{customer:orphan.id,items:[{price:price.id}],metadata:{app:'cyntch',household_id:f.transfer,test_run:run}})
+ assert.equal(orphanSubscription.status,'active')
+ bindings.push({householdId:f.transfer,customerId:orphan.id,subscriptionId:orphanSubscription.id})
+ // Deliberately no database binding: this represents an old interrupted checkout.
  const intent=await f.intent();await f.accept(intent)
  const leaseId=randomUUID();await f.db.query("update account_deletion_requests set lease_id=$2,lease_until=now()+interval '60 seconds' where id=$1",[intent.operationId,leaseId])
  const job={id:intent.operationId,accountId:f.owner,leaseId,work:(await f.db.query('select work from account_deletion_requests where id=$1',[intent.operationId])).rows[0].work}
@@ -56,7 +65,8 @@ test('actual Stripe test customer deletion cancels billing and preserves the tra
  await f.db.query(`update account_deletion_requests set work=jsonb_set(work,'{phases,data}','true') where id=$1`,[job.id])
  const before=(await f.db.query('select paid_through from household_billing where household_id=$1',[f.transfer])).rows[0].paid_through
  let loseResponse=true
- const client={customers:{retrieve:async id=>api('get',`/v1/customers/${id}`),del:async id=>{
+ const client={testHelpers:{testClocks:{list:async params=>api('get','/v1/test_helpers/test_clocks',params)}},
+ customers:{list:async params=>api('get','/v1/customers',params),retrieve:async id=>api('get',`/v1/customers/${id}`),del:async id=>{
   assert.ok(evidence.customers.includes(id),'Delete only a customer created by this test')
   const result=api('delete',`/v1/customers/${id}`)
   if(loseResponse){loseResponse=false;throw Error('Simulated lost response after an actual Stripe deletion')}
@@ -71,5 +81,5 @@ test('actual Stripe test customer deletion cancels billing and preserves the tra
  }
  const after=(await f.db.query('select * from household_billing where household_id=$1',[f.transfer])).rows[0]
  assert.deepEqual(after.paid_through,before);assert.equal(after.subscription_status,'canceled');assert.ok(after.stripe_customer_deleted_at)
- evidence.verified=true;evidence.subscriptionCancellation=true;evidence.lostResponseRecovery=true;evidence.transferredPaidPeriodPreserved=true;save()
+ evidence.verified=true;evidence.subscriptionCancellation=true;evidence.lostResponseRecovery=true;evidence.transferredPaidPeriodPreserved=true;evidence.unboundClockCustomerDiscovered=true;save()
 })

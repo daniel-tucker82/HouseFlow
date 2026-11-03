@@ -13,6 +13,12 @@ export interface AccountDeletionReceipt {
 export interface AccountDeletionWork {
   /** Provider identifiers stay server-side and are removed after processing. */
   stripe: { householdId: string; customerId: string | null; subscriptionId: string | null; action: "delete" | "transfer"; completed?: boolean }[]
+  stripeHouseholds: { householdId: string; action: "delete" | "transfer" }[]
+  stripeDiscovery: {
+    complete: boolean; finalized?: boolean; livemode: boolean | null
+    clocksComplete: boolean; clockCursor: string | null
+    scans: { testClock: string | null; cursor: string | null; complete: boolean }[]
+  }
   retiredNativeAccounts: { id: string; projectId: string; environment: "production" | "sandbox" }[]
   orphanProfileIds: string[]
   householdIds: string[]
@@ -86,7 +92,10 @@ export async function acceptAccountDeletion(pool: Pool, scope: AccountDeletionSc
       union select device_id from native_kiosk_cancellations where user_id=$1 union select device_id from native_notification_revocations where account_id=$1
       union select device_id from native_notification_operations where user_id=$1 union select device_id from native_notification_history_entries where user_id=$1
       union select device_id from native_notification_history_markers where user_id=$1`,[scope.accountId,scope.deviceId])).rows.map(row=>row.id)
-    const work:AccountDeletionWork={householdIds:households.map(row=>row.id),deviceIds,stripe:stripeRows.map(row=>({householdId:row.household_id,customerId:row.stripe_customer_id,subscriptionId:row.stripe_subscription_id,
+    const work:AccountDeletionWork={householdIds:households.map(row=>row.id),deviceIds,
+      stripeHouseholds:intent.ownership.map(({householdId,action})=>({householdId,action})),
+      stripeDiscovery:{complete:false,livemode:null,clocksComplete:false,clockCursor:null,scans:[{testClock:null,cursor:null,complete:false}]},
+      stripe:stripeRows.map(row=>({householdId:row.household_id,customerId:row.stripe_customer_id,subscriptionId:row.stripe_subscription_id,
       action:intent.ownership.find(choice=>choice.householdId===row.household_id)!.action})),retiredNativeAccounts,orphanProfileIds,phases:{data:false,stripe:false,native:false,identity:false}}
     const saved=(await client.query<RequestRow>(`insert into account_deletion_requests(id,account_hash,account_id,request_hash,work)
       values($1,$2,$3,$4,$5) returning *`,[intent.operationId,accountHash(scope.accountId),scope.accountId,fingerprint,JSON.stringify(work)])).rows[0]
@@ -95,8 +104,10 @@ export async function acceptAccountDeletion(pool: Pool, scope: AccountDeletionSc
       // This commits with the ownership change, before the successor can open
       // the former parent's payment account. Financial linkage remains for
       // paid-period/refund reconciliation, not access to the customer portal.
-      await client.query(`update household_billing set stripe_customer_retired=true,updated_at=now()
-        where household_id=$1 and (stripe_customer_id is not null or stripe_subscription_id is not null)`,[choice.householdId])
+      // Freeze even households without a recorded customer: historical failed
+      // checkouts can have an orphan Stripe customer that must be discovered.
+      await client.query(`insert into household_billing(household_id,stripe_customer_retired) values($1,true)
+        on conflict(household_id) do update set stripe_customer_retired=true,stripe_customer_deleted_at=null,updated_at=now()`,[choice.householdId])
       await client.query("update household_members set role='manager' where household_id=$1 and user_id=$2",[choice.householdId,choice.successorId])
       await client.query("update households set leader_id=$2,updated_at=now() where id=$1",[choice.householdId,choice.successorId])
     }

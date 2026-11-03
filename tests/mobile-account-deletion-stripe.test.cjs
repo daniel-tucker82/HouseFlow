@@ -2,22 +2,24 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),{randomUUID}=require('node:crypto')
 const {fixture,connectionString}=require('./helpers/account-deletion.cjs'),options={skip:!connectionString}
 
-async function setup(t) {
+async function setup(t,beforeAccept=async()=>{}) {
  const f=await fixture(t)
  await f.db.query("update household_billing set paid_through=now()+interval '20 days' where household_id=$1",[f.transfer])
+ await beforeAccept(f)
  const intent=await f.intent();await f.accept(intent)
  const leaseId=randomUUID()
  await f.db.query("update account_deletion_requests set lease_id=$2,lease_until=now()+interval '60 seconds' where id=$1",[intent.operationId,leaseId])
  const job={id:intent.operationId,accountId:f.owner,leaseId,work:(await f.db.query('select work from account_deletion_requests where id=$1',[intent.operationId])).rows[0].work}
  await f.lib.deleteAccountData(f.db,job)
  await f.db.query(`update account_deletion_requests set work=jsonb_set(work,'{phases,data}','true') where id=$1`,[job.id])
- const calls=[],customers=new Map(job.work.stripe.map(item=>[item.customerId,{id:item.customerId,livemode:false,metadata:{household_id:item.householdId,app:'cyntch'}}]))
+ const calls=[],listCalls=[],customers=new Map(job.work.stripe.map(item=>[item.customerId,{object:'customer',id:item.customerId,livemode:false,metadata:{household_id:item.householdId,app:'cyntch'}}]))
  const client={customers:{
+  list:async(params,request)=>{listCalls.push([params,request]);return {object:'list',data:[...customers.values()].filter(item=>!item.deleted),has_more:false}},
   retrieve:async(id,params,request)=>{calls.push(['retrieve',id,request]);if(!customers.has(id))throw Object.assign(Error('No such customer'),{statusCode:404});return customers.get(id)},
   del:async(id,params,request)=>{calls.push(['delete',id,request]);const result={id,deleted:true};customers.set(id,result);return result},
- },subscriptions:{retrieve:async()=>assert.fail('Customers are already captured')}}
+ },subscriptions:{retrieve:async()=>assert.fail('Customers are already captured')},testHelpers:{testClocks:{list:async()=>({object:'list',data:[],has_more:false})}}}
  const lib=f.load(['lib/account-deletion-stripe.ts'])
- return {...f,job,calls,customers,provider:{client,livemode:false},cleanup:()=>lib.deleteAccountStripeData(f.db,job,{client,livemode:false}),adapter:lib.deleteAccountStripeData}
+ return {...f,job,calls,listCalls,customers,provider:{client,livemode:false},cleanup:()=>lib.deleteAccountStripeData(f.db,job,{client,livemode:false}),adapter:lib.deleteAccountStripeData}
 }
 
 test('Stripe cleanup deletes captured customers and preserves the transferred household paid period',options,async t=>{
@@ -148,9 +150,10 @@ test('subscription-only capture resolves its verified customer and a foreign bin
 
 test('deletion after an interrupted checkout captures and closes its committed customer',options,async t=>{
  const f=await fixture(t);f.identity.userId=f.other
- const customer={id:'cus_interrupted_checkout',livemode:false,metadata:{app:'cyntch',household_id:f.shared}}
+ const customer={object:'customer',id:'cus_interrupted_checkout',livemode:false,metadata:{app:'cyntch',household_id:f.shared}}
  const removed=[]
- const stripe={customers:{create:async()=>customer,retrieve:async()=>customer,del:async id=>{removed.push(id);return {id,deleted:true}}},
+ const stripe={customers:{list:async()=>({object:'list',data:[customer],has_more:false}),create:async()=>customer,retrieve:async()=>customer,del:async id=>{removed.push(id);return {id,deleted:true}}},
+  testHelpers:{testClocks:{list:async()=>({object:'list',data:[],has_more:false})}},
   subscriptions:{list:async()=>({data:[],has_more:false})},checkout:{sessions:{list:async()=>({data:[],has_more:false}),create:async()=>{throw Error('Lost checkout response')}}}}
  const mocks={'@/lib/stripe-billing':{stripeClient:()=>stripe,billingOrigin:()=> 'https://cyntch.test',validatedPrice:async()=>({id:'price_fixture'})},
   '@/lib/usage-controls':{enforceRequestLimit:async()=>{}},'@/lib/web-billing-reservation':{reserveWebBillingCheckout:async()=>null},'@/lib/billing-access':{nativeBillingEnvironment:()=>null,paidHouseholdAccessSql:()=> 'false'}}
@@ -168,4 +171,107 @@ test('deletion after an interrupted checkout captures and closes its committed c
  await f.db.query(`update account_deletion_requests set work=jsonb_set(work,'{phases,data}','true') where id=$1`,[job.id])
  await f.load(['lib/account-deletion-stripe.ts']).deleteAccountStripeData(f.db,job,{client:stripe,livemode:false})
  assert.deepEqual(removed,[customer.id])
+})
+
+test('Stripe inventory resumes from a saved page and cannot delete before pagination completes',options,async t=>{
+ const f=await setup(t),orphan={object:'customer',id:'cus_orphan',livemode:false,metadata:{app:'cyntch',household_id:f.transfer},email:'PRIVATE_SCAN@example.invalid'}
+ f.customers.set(orphan.id,orphan)
+ const calls=[];let fail=true
+ f.provider.client.customers.list=async params=>{
+  calls.push(params.starting_after??null)
+  if(!params.starting_after)return {object:'list',data:[orphan,{object:'customer',id:'cus_other',livemode:false,metadata:{app:'different'},email:'UNRELATED@example.invalid'}],has_more:true}
+  assert.equal(params.starting_after,'cus_other');if(fail)throw Error('Provider unavailable')
+  return {object:'list',data:[],has_more:false}
+ }
+ await assert.rejects(f.cleanup(),{code:'stripe_cleanup_failed'})
+ let work=(await f.db.query('select work from account_deletion_requests where id=$1',[f.job.id])).rows[0].work
+ assert.equal(work.stripeDiscovery.scans[0].cursor,'cus_other');assert.equal(work.stripeDiscovery.complete,false)
+ assert.equal(work.stripe.filter(item=>item.customerId===orphan.id).length,1);assert.equal(f.calls.length,0)
+ assert.equal(JSON.stringify(work).includes('PRIVATE_SCAN'),false);assert.equal(JSON.stringify(work).includes('UNRELATED'),false)
+ fail=false;await f.cleanup()
+ assert.deepEqual(calls,[null,'cus_other','cus_other']);assert.equal(f.calls.filter(call=>call[0]==='delete').length,3)
+ work=(await f.db.query('select work from account_deletion_requests where id=$1',[f.job.id])).rows[0].work
+ assert.equal(work.stripeDiscovery.finalized,true)
+})
+
+test('an owned household without a billing row is frozen while orphan customers are discovered',options,async t=>{
+ const f=await setup(t,f=>f.db.query('delete from household_billing where household_id=any($1::uuid[])',[[f.transfer,f.deleting]]))
+ assert.deepEqual(f.job.work.stripe,[])
+ assert.deepEqual(new Set(f.job.work.stripeHouseholds.map(item=>item.householdId)),new Set([f.transfer,f.deleting]))
+ const before=(await f.db.query('select * from household_billing where household_id=$1',[f.transfer])).rows[0]
+ assert.equal(before.stripe_customer_retired,true);assert.equal(before.stripe_customer_deleted_at,null)
+ for(const [id,hh,app]of [['cus_unbound',f.transfer,'cyntch'],['cus_member_only',f.shared,'cyntch'],['cus_foreign_app',f.transfer,'other']]){
+  f.customers.set(id,{object:'customer',id,livemode:false,metadata:{app,household_id:hh}})
+ }
+ await f.cleanup()
+ assert.deepEqual(f.calls.filter(call=>call[0]==='delete').map(call=>call[1]),['cus_unbound'])
+ assert.ok((await f.db.query('select stripe_customer_deleted_at from household_billing where household_id=$1',[f.transfer])).rows[0].stripe_customer_deleted_at)
+ assert.equal(f.customers.get('cus_member_only').deleted,undefined,'Membership alone is not ownership of its billing customer')
+})
+
+test('test-clock inventory is paginated and includes its separately listed customers',options,async t=>{
+ const f=await setup(t),clockCalls=[],scans=[]
+ const orphan={object:'customer',id:'cus_clock_orphan',livemode:false,metadata:{app:'cyntch',household_id:f.transfer}}
+ f.customers.set(orphan.id,orphan)
+ f.provider.client.testHelpers.testClocks.list=async params=>{
+  clockCalls.push(params.starting_after??null)
+  return {object:'list',data:[{object:'test_helpers.test_clock',id:params.starting_after?'clock_two':'clock_one',livemode:false}],has_more:!params.starting_after}
+ }
+ f.provider.client.customers.list=async params=>{scans.push(params.test_clock??null);return {object:'list',data:params.test_clock==='clock_two'?[orphan]:[],has_more:false}}
+ await f.cleanup()
+ assert.deepEqual(clockCalls,[null,'clock_one']);assert.deepEqual(scans,[null,'clock_one','clock_two'])
+ assert.equal(f.calls.filter(call=>call[0]==='delete').length,3)
+})
+
+test('one undeleted orphan keeps purchases frozen and finalized retries cannot unlock a newer billing account',options,async t=>{
+ const f=await setup(t),orphan={object:'customer',id:'cus_pending_orphan',livemode:false,metadata:{app:'cyntch',household_id:f.transfer}}
+ f.customers.set(orphan.id,orphan)
+ const retrieve=f.provider.client.customers.retrieve
+ f.provider.client.customers.retrieve=async(...args)=>{if(args[0]===orphan.id)throw Error('Unavailable');return retrieve(...args)}
+ await assert.rejects(f.cleanup(),{code:'stripe_cleanup_failed'})
+ assert.equal(f.calls.filter(call=>call[0]==='delete').length,2)
+ assert.equal((await f.db.query('select stripe_customer_deleted_at from household_billing where household_id=$1',[f.transfer])).rows[0].stripe_customer_deleted_at,null)
+ await assert.rejects(f.load(['lib/native-billing-actions.ts']).assertNoStripePurchase(f.transfer),{code:'purchase_in_progress'})
+ f.provider.client.customers.retrieve=retrieve;await f.cleanup()
+ await f.db.query("update household_billing set stripe_customer_id='cus_new_owner',stripe_customer_deleted_at=null,stripe_customer_retired=true where household_id=$1",[f.transfer])
+ await f.cleanup()
+ assert.deepEqual((await f.db.query('select stripe_customer_id,stripe_customer_deleted_at from household_billing where household_id=$1',[f.transfer])).rows[0],{stripe_customer_id:'cus_new_owner',stripe_customer_deleted_at:null})
+})
+
+test('an expired worker cannot persist an inventory page or start customer deletion',options,async t=>{
+ const f=await setup(t),list=f.provider.client.customers.list
+ f.provider.client.customers.list=async(...args)=>{
+  const result=await list(...args);await f.db.query("update account_deletion_requests set lease_until=now()-interval '1 second' where id=$1",[f.job.id]);return result
+ }
+ await assert.rejects(f.cleanup(),{code:'stripe_cleanup_failed'});assert.equal(f.calls.length,0)
+ const work=(await f.db.query('select work from account_deletion_requests where id=$1',[f.job.id])).rows[0].work
+ assert.equal(work.stripeDiscovery.scans[0].cursor,null);assert.equal(work.stripeDiscovery.complete,false)
+ f.provider.client.customers.list=list;f.job.leaseId=randomUUID()
+ await f.db.query("update account_deletion_requests set lease_id=$2,lease_until=now()+interval '60 seconds' where id=$1",[f.job.id,f.job.leaseId])
+ await f.cleanup();assert.equal(f.calls.filter(call=>call[0]==='delete').length,2)
+})
+
+test('malformed or wrong-environment inventories never count as an empty billing account',options,async t=>{
+ const f=await setup(t)
+ for(const page of [{object:'list',data:[]},{object:'list',data:[],has_more:true},
+  {object:'list',data:[{object:'customer',id:'cus_wrong_mode',livemode:true,metadata:{}}],has_more:false}]) {
+  f.provider.client.customers.list=async()=>page;await assert.rejects(f.cleanup(),{code:'stripe_cleanup_failed'})
+ }
+ assert.equal(f.calls.length,0)
+ assert.equal((await f.db.query('select stripe_customer_deleted_at from household_billing where household_id=$1',[f.transfer])).rows[0].stripe_customer_deleted_at,null)
+})
+
+test('an account with no owned households completes Stripe cleanup without provider configuration',options,async t=>{
+ const f=await fixture(t),accountId='user_empty_'+randomUUID(),scope={...f.scope,accountId,deviceId:randomUUID()}
+ await f.db.query('insert into users(id) values($1)',[accountId])
+ const review=await f.lib.readAccountDeletionReview(scope,f.secret),intent={operationId:randomUUID(),revision:review.revision,ownership:[],confirmAccountDeletion:true,acknowledgeSubscriptions:true}
+ await f.lib.acceptAccountDeletion(f.db,scope,f.secret,intent,true,async()=>{})
+ const leaseId=randomUUID();await f.db.query("update account_deletion_requests set lease_id=$2,lease_until=now()+interval '60 seconds' where id=$1",[intent.operationId,leaseId])
+ const work=(await f.db.query('select work from account_deletion_requests where id=$1',[intent.operationId])).rows[0].work
+ const job={id:intent.operationId,accountId,leaseId,work};await f.lib.deleteAccountData(f.db,job)
+ await f.db.query(`update account_deletion_requests set work=jsonb_set(work,'{phases,data}','true') where id=$1`,[job.id])
+ const lib=f.load(['lib/account-deletion-stripe.ts'],{'@/lib/stripe-billing':{stripeClient:()=>assert.fail('No owned billing scope requires no provider access')}})
+ await lib.deleteAccountStripeData(f.db,job)
+ assert.equal((await f.db.query('select work from account_deletion_requests where id=$1',[job.id])).rows[0].work.stripeDiscovery.finalized,true)
+ assert.equal((await f.db.query('select stripe_customer_retired from household_billing where household_id=$1',[f.transfer])).rows[0].stripe_customer_retired,false)
 })

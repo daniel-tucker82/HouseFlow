@@ -1108,10 +1108,20 @@ Checkout commits its customer binding before requesting a checkout session,
 then rechecks ownership, entitlement, reservation and binding under the
 household lock. A lost checkout response cannot roll back the customer link
 needed by a later deletion request.
-Before enabling deletion, audit legacy orphan customers from checkout attempts
-made before this durable binding boundary. The adapter currently processes the
-accepted request's stored billing bindings; it does not yet discover unbound
-historical customers at Stripe.
+The adapter also inventories orphan customers from historical checkouts that
+lost their database binding. Acceptance captures the exact owned-household
+scope and freezes replacement purchases even when a household has no billing
+row. Inventory uses Stripe's paginated customer list, persisting each cursor
+and matching Cyntch customer ID before continuing. Test mode also enumerates
+test clocks and their separate customer lists. Unrelated customers' personal
+details are neither saved nor deleted. Membership without ownership does not
+authorize cleanup of that household's customer.
+
+No customer deletion begins until the inventory is complete. A provider failure
+or expired worker resumes from saved progress. Replacement purchases remain
+frozen until every discovered customer has been deleted. Finalization and
+releasing the former owner's Stripe reservations commit atomically, so a lost
+acknowledgement cannot later unlock a successor's new payment account.
 
 The final confirmation and privacy disclosures must explain immediate Stripe
 cancellation, retained financial records, and the separate Apple/Google store
@@ -1142,3 +1152,15 @@ including TypeScript checks, passed. The Stripe step changes no native modules;
 the earlier Android/iOS exports cover the shared kiosk parser change. The full
 account-deletion workflow remains unavailable until the remaining provider,
 recovery, UI and disclosure requirements above are implemented and verified.
+
+Inventory follow-up verification on 2026-11-04: all 354 general tests and 19
+isolated web billing tests passed, alongside root lint and the production build.
+The Stripe-focused suite now has 16 tests, including pagination recovery,
+unbound customers, ownership isolation, test-clock lists, expired inventory
+workers, incomplete erasure keeping purchases frozen, safe finalization retries
+and an account with no owned billing scope. The real Stripe test was extended
+to three active test subscriptions: the third customer's only connection to
+the household was its Cyntch metadata, and it lived under a test clock. Inventory
+found it and deletion cancelled all three subscriptions. Customers and clock
+were deleted, product/price were archived, and the isolated schema was dropped.
+No production database or live billing state was changed.
