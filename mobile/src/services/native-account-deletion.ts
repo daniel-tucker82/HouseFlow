@@ -4,6 +4,7 @@ import { fetch as expoFetch } from "expo/fetch"
 import { AccountDeletionVault } from "../storage/account-deletion-vault"
 import { AccountDeletionStatusApi } from "./account-deletion-status"
 import { AccountDeletionDrafts } from "./account-deletion-drafts"
+import { AccountDeletionWithdrawalApi } from "./account-deletion-withdrawal"
 import type { AccountDeletionStore } from "../storage/account-deletion-store"
 
 const options = { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }
@@ -19,4 +20,8 @@ export function nativeAccountDeletionStatusApi() {
 
 export function nativeAccountDeletionDrafts(journal: AccountDeletionStore) {
   return new AccountDeletionDrafts(journal, nativeAccountDeletionVault, value => digestStringAsync(CryptoDigestAlgorithm.SHA256, value), __DEV__)
+}
+
+export function nativeAccountDeletionWithdrawalApi() {
+  return new AccountDeletionWithdrawalApi(process.env.EXPO_PUBLIC_API_URL ?? "https://www.cyntch.com",(url,init) => expoFetch(url,init),__DEV__)
 }

@@ -68,7 +68,8 @@ export class AccountDeletionStore {
       await tx.runAsync("DELETE FROM native_account_deletion_intent WHERE id=1")
     })
   }
-  /** Caller first durably saves the server's accepted status in the vault. */
+  /** Caller first durably saves server-confirmed acceptance or withdrawal in
+   * the vault. A missing/failed response never authorizes this cleanup. */
   async clearConfirmed(expected: SavedDeletionIntent) {
     await this.db.withExclusiveTransactionAsync(async tx => {
       await this.require(tx, expected)

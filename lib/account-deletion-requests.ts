@@ -39,7 +39,7 @@ const busy = () => new AccountDeletionError("Another account or household change
 /** Internal acceptance boundary. The HTTP caller must pass Clerk's current
  * auth.has({reverification:'strict'}) result, never a client-supplied boolean.
  * Do not wrap this in the normal shared account-admission lock. This function
- * takes its own exclusive account lock and shared kiosk lock in that order. */
+ * takes account, operation, kiosk and device locks in that order. */
 export async function acceptAccountDeletion(pool: Pool, scope: AccountDeletionScope, secret: string, raw: unknown,
   recentlyVerified: boolean, verifySuccessors: (accountIds: string[]) => Promise<void>, verifiedSessionIssuer: string, recoverySecret: string): Promise<AccountDeletionReceipt> {
   if (!/^user_[A-Za-z0-9_-]{1,200}$/.test(scope.accountId) || !notificationSessionId.test(scope.sessionId) || !notificationUuid.test(scope.deviceId)) throw new AccountDeletionError("Sign in again before deleting your account.",401)
@@ -52,7 +52,7 @@ export async function acceptAccountDeletion(pool: Pool, scope: AccountDeletionSc
   // A provider lookup has no authority by itself. Membership and role are
   // checked again under the household locks after this network work finishes.
   const successors=[...new Set(intent.ownership.flatMap(choice=>choice.action==="transfer"?[choice.successorId]:[]))].sort()
-  const prior=(await pool.query("select 1 from account_deletion_requests where account_hash=$1 or id=$2",[accountHash(scope.accountId),intent.operationId])).rowCount
+  const prior=(await pool.query("select 1 from account_deletion_requests where account_hash=$1 or id=$2 union all select 1 from account_deletion_withdrawals where id=$2",[accountHash(scope.accountId),intent.operationId])).rowCount
   if (!prior && successors.length) await verifySuccessors(successors)
   const client=await pool.connect()
   try {
@@ -60,6 +60,7 @@ export async function acceptAccountDeletion(pool: Pool, scope: AccountDeletionSc
     await client.query("set local lock_timeout='2s'")
     await client.query("set local statement_timeout='15s'")
     if (!(await client.query("select pg_try_advisory_xact_lock(hashtextextended($1,0)) as acquired",[accountAccessKey(scope.accountId)])).rows[0].acquired) throw busy()
+    if (!(await client.query("select pg_try_advisory_xact_lock(hashtextextended($1,0)) as acquired",[`account-deletion-operation:${intent.operationId}`])).rows[0].acquired) throw busy()
     if (!(await client.query("select pg_try_advisory_xact_lock_shared(hashtextextended($1,0)) as acquired",[kioskSessionKey(scope.sessionId)])).rows[0].acquired) throw busy()
     if (!(await client.query("select pg_try_advisory_xact_lock(hashtextextended($1,0)) as acquired",[`native-device:${scope.deviceId}`])).rows[0].acquired) throw busy()
     const existing=(await client.query<RequestRow>("select * from account_deletion_requests where account_hash=$1 or id=$2",[accountHash(scope.accountId),intent.operationId])).rows
@@ -73,6 +74,9 @@ export async function acceptAccountDeletion(pool: Pool, scope: AccountDeletionSc
       const saved=existing.find(row=>row.account_hash===accountHash(scope.accountId))
       if (!saved || saved.id!==intent.operationId || saved.request_hash!==fingerprint || existing.length!==1) throw new AccountDeletionError("A different deletion request already exists. Check its status.",409,"account_deletion_request_exists")
       await client.query("commit");return receipt(scope,saved)
+    }
+    if ((await client.query("select 1 from account_deletion_withdrawals where id=$1",[intent.operationId])).rowCount) {
+      throw new AccountDeletionError("This deletion attempt was withdrawn. Review again to start a new request.",409,"account_deletion_withdrawn")
     }
     await assertAccountActive(client,scope.accountId)
     const lockedUser=await client.query("select id from users where id=$1 for update",[scope.accountId])

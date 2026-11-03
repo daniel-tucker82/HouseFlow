@@ -1442,9 +1442,10 @@ removed from SQLite. Late or repeated callbacks cannot rebuild an accepted
 request. Legacy submitted recovery records without a bound intent can still
 read status, but cannot synthesize a new destructive request.
 
-The remaining submission UI needs an explicit recovery path for an authenticated
-request rejected before acceptance. A 404 or lost acknowledgement alone must
-never authorize discarding a submitted record or changing its original choices.
+The remaining submission UI must use the authenticated withdrawal flow below
+when returning from an unaccepted attempt to a new review. A 404 or lost
+acknowledgement alone must never authorize discarding a submitted record or
+changing its original choices.
 
 Verification on 2026-11-04: all 433 general regression checks passed without
 skips or cancellations. The 27 focused draft/recovery checks also passed on the
@@ -1454,3 +1455,56 @@ production build, and separate Android/iOS Expo exports passed. These exports
 verify JavaScript/Hermes packaging, not signed store binaries or physical-device
 keychain behavior. This change adds no server migration and enables no
 destructive public endpoint or background deletion worker.
+
+### Withdraw an unaccepted deletion attempt
+
+Apply `database/0039_account_deletion_withdrawals.sql` before deploying this
+revision. `POST /api/mobile/account-deletion/withdraw` requires a current Clerk
+identity, `has({reverification: 'strict'})`, matching account/session/device
+headers, the installation secret and the original recovery key/request ID.
+Neither a recovery key by itself nor a boolean supplied by the client grants
+permission. A new verified sign-in by the same account can withdraw its original
+attempt. Revoked sessions, kiosk restrictions and mismatched keys are rejected.
+
+Acceptance and withdrawal take the same account and operation locks. If
+acceptance already committed, withdrawal returns `outcome: 'accepted'` and leaves
+deletion untouched. Otherwise it records a permanent opaque fence for that
+request ID and returns `outcome: 'withdrawn'`. Retries return the same withdrawal
+time. Account/household/provider data is not deleted or transferred by withdrawal.
+The fence contains only request ID, account hash, recovery-key hash and creation
+time. It must not expire: an arbitrarily delayed old submission must stay blocked.
+Database triggers also prevent conflicting outcomes from older application
+revisions that do not perform the new application-level check. Starting deletion
+again requires a new request ID and fresh review.
+
+The endpoint has a separate ten-attempt/minute authenticated rate limit, charged
+outside the outcome transaction so failures cannot bypass it. It never uses the
+normal shared account-admission wrapper, which would conflict with its exclusive
+lock or hide an already accepted outcome. Responses are private/no-store; recovery
+headers never belong in URLs or logs. Other account and kiosk controls remain
+unchanged.
+
+`AccountDeletionWithdrawalApi` uses authenticated POST with the current scope,
+omits cookies, rejects redirects and validates the returned scope/outcome. It
+preserves Clerk's strict reverification hint for the native `useReverification`
+flow instead of treating that hint as a success. Obtain current credentials for
+each callback/retry; never freeze a JWT with the original intent. This follows
+[Clerk's reverification protocol](https://clerk.com/docs/guides/secure/reverification).
+Tests check the server hint with the actual installed mobile Clerk recognizer.
+
+Only a matching withdrawn receipt lets `AccountDeletionDrafts.rememberWithdrawal`
+save proof in SecureStore, remove the SQLite intent, and finally remove the key.
+If either cleanup write is interrupted, `finishWithdrawal` resumes from the
+persisted proof without another server mutation. An accepted outcome preserves
+recovery information and requires the independent status lookup. Conflicting or
+late replies cannot overwrite an accepted/withdrawn outcome or clear another
+request. No response, a 404, a timeout or reverification cancellation is withdrawal
+proof.
+
+Migration 0039 was applied twice only to localhost `cyntch_mobile_test`; two
+users, one household, zero deletion requests and zero withdrawals remained.
+Production has not been migrated. All 450 general regression checks passed with
+no skips/cancellations, including real PostgreSQL race/trigger checks and SQLite
+interruption checks. Root/mobile lint, TypeScript and the production build passed. Native confirmation
+and recovery screens still need integration; the destructive acceptance endpoint
+and deletion worker remain disabled.

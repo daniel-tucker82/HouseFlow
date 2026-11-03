@@ -183,3 +183,53 @@ test('large household decisions stay out of the OS keychain and malformed intent
  const sql=(await f.db.getFirstAsync('SELECT data FROM native_account_deletion_intent')).data
  assert.ok(sql.length>2048);assert.equal(sql.includes('Do not persist this name'),false);assert.equal(sql.includes(recovery.secret),false)
 })
+
+test('only a matching withdrawn receipt can release submitted recovery for a fresh review',async t=>{
+ const f=await fixture(t),recovery=await f.drafts.prepare(f.submission);await f.drafts.requestForSubmission(recovery,f.scope)
+ const receipt={...f.scope,requestId:recovery.requestId,outcome:'withdrawn',withdrawnAt:'2026-11-04T02:00:00.000Z'}
+ const before=await f.vault.read()
+ await assert.rejects(f.drafts.finishWithdrawal(recovery),/does not match/)
+ for(const patch of [{accountId:'user_other'},{sessionId:'sess_other'},{deviceId:randomUUID()},{requestId:randomUUID()},{withdrawnAt:null}]){
+  await assert.rejects(f.drafts.rememberWithdrawal(recovery,{...receipt,...patch},f.scope),/invalid withdrawal receipt/)
+  assert.deepEqual(await f.vault.read(),before);assert.ok(await f.local.accountDeletion.read())
+ }
+ const accepted={...f.scope,requestId:recovery.requestId,outcome:'accepted',withdrawnAt:null}
+ assert.deepEqual(await f.drafts.rememberWithdrawal(recovery,accepted,f.scope),accepted)
+ assert.deepEqual(await f.vault.read(),before);assert.ok(await f.local.accountDeletion.read())
+ assert.deepEqual(await f.drafts.rememberWithdrawal(recovery,receipt,f.scope),receipt)
+ assert.equal(await f.vault.read(),null);assert.equal(await f.local.accountDeletion.read(),null)
+ const next={...f.submission,intent:{...f.submission.intent,operationId:randomUUID(),revision:'b'.repeat(64)}}
+ const fresh=await f.drafts.prepare(next);assert.notEqual(fresh.secret,recovery.secret)
+})
+
+test('interrupted receipt, journal and key cleanup retain authoritative withdrawal proof across restarts',async t=>{
+ const f=await fixture(t),recovery=await f.drafts.prepare(f.submission);await f.drafts.requestForSubmission(recovery,f.scope)
+ const current={...f.scope,sessionId:'sess_reverified'},receipt={...current,requestId:recovery.requestId,outcome:'withdrawn',withdrawnAt:'2026-11-04T02:00:00.000Z'}
+ f.control.failSave=true
+ await assert.rejects(f.drafts.rememberWithdrawal(recovery,receipt,current),/keychain write/)
+ assert.equal((await f.vault.read()).withdrawal,null);assert.ok(await f.local.accountDeletion.read())
+ f.control.failSave=false;f.db.failSql='DELETE FROM native_account_deletion_intent'
+ await assert.rejects(f.drafts.rememberWithdrawal(recovery,receipt,current),/SQLite write/)
+ assert.deepEqual((await f.vault.read()).withdrawal,receipt)
+ await assert.rejects(f.drafts.rememberWithdrawal(recovery,{...receipt,outcome:'accepted',withdrawnAt:null},current),/does not match/)
+ await assert.rejects(f.drafts.requestForSubmission(recovery,f.scope),/was withdrawn/)
+ await assert.rejects(f.drafts.rememberStatus(recovery,f.status),/unavailable/)
+ await f.restart();f.control.failRemove=true
+ await assert.rejects(f.drafts.finishWithdrawal(recovery),/keychain removal/)
+ assert.equal(await f.local.accountDeletion.read(),null);assert.deepEqual((await f.vault.read()).withdrawal,receipt)
+ await f.restart();f.control.failRemove=false;await f.drafts.finishWithdrawal(recovery)
+ assert.equal(await f.vault.read(),null)
+})
+
+test('a late withdrawal reply cannot clear a different request or overwrite already accepted status',async t=>{
+ const f=await fixture(t),recovery=await f.drafts.prepare(f.submission);await f.drafts.requestForSubmission(recovery,f.scope)
+ const receipt={...f.scope,requestId:recovery.requestId,outcome:'withdrawn',withdrawnAt:'2026-11-04T02:00:00.000Z'}
+ await f.drafts.rememberWithdrawal(recovery,receipt,f.scope)
+ const fresh=await f.drafts.prepare({...f.submission,intent:{...f.submission.intent,operationId:randomUUID()}})
+ await assert.rejects(f.drafts.rememberWithdrawal(recovery,receipt,f.scope),/does not match/)
+ assert.deepEqual(await f.vault.read(),fresh)
+ await f.drafts.requestForSubmission(fresh,f.scope)
+ await f.drafts.rememberStatus(fresh,{...f.status,requestId:fresh.requestId})
+ await assert.rejects(f.drafts.rememberWithdrawal(fresh,{...receipt,requestId:fresh.requestId},f.scope),/unavailable/)
+ assert.equal((await f.vault.read()).status.state,'pending')
+})

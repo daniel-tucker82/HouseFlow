@@ -1,5 +1,5 @@
-import { accountDeletionOrigin, parseAccountDeletionStatus, validAccountDeletionRecovery,
-  type AccountDeletionRecovery, type AccountDeletionStatus } from "../../../shared/mobile/account-deletion"
+import { accountDeletionOrigin, parseAccountDeletionStatus, parseAccountDeletionWithdrawal, validAccountDeletionRecovery,
+  type AccountDeletionRecovery, type AccountDeletionStatus, type AccountDeletionScope, type AccountDeletionWithdrawalResult } from "../../../shared/mobile/account-deletion"
 
 export interface DeletionSecureStorage {
   get(key: string): Promise<string | null>
@@ -13,6 +13,7 @@ export interface SavedAccountDeletion extends AccountDeletionRecovery {
   submitted: boolean
   intentHash: string | null
   status: AccountDeletionStatus | null
+  withdrawal: Extract<AccountDeletionWithdrawalResult, { outcome: "withdrawn" }> | null
 }
 const key = "cyntch.account-deletion-recovery"
 let queue: Promise<unknown> = Promise.resolve()
@@ -29,9 +30,13 @@ function parse(raw: string | null): SavedAccountDeletion | null {
     const row = JSON.parse(raw) as SavedAccountDeletion
     if (!validAccountDeletionRecovery(row) || row.format !== 1 || typeof row.origin !== "string" || accountDeletionOrigin(row.origin, true) !== row.origin ||
       typeof row.accountId !== "string" || !/^user_[A-Za-z0-9_-]{1,200}$/.test(row.accountId) || typeof row.submitted !== "boolean" ||
-      (row.status !== null && !row.submitted) || (row.intentHash != null && (typeof row.intentHash !== "string" || !/^[a-f0-9]{64}$/.test(row.intentHash)))) throw unavailable()
+      (row.status !== null && !row.submitted) || (row.intentHash != null && (typeof row.intentHash !== "string" || !/^[a-f0-9]{64}$/.test(row.intentHash))) ||
+      (row.withdrawal != null && (!row.submitted || row.status !== null))) throw unavailable()
+    const withdrawal = row.withdrawal == null ? null : parseAccountDeletionWithdrawal(row.withdrawal,
+      { accountId: row.accountId, sessionId: row.withdrawal.sessionId, deviceId: row.withdrawal.deviceId, requestId: row.requestId })
+    if (withdrawal && withdrawal.outcome !== "withdrawn") throw unavailable()
     return { format: 1, origin: row.origin, accountId: row.accountId, requestId: row.requestId, secret: row.secret, submitted: row.submitted,
-      intentHash: row.intentHash ?? null, status: row.status === null ? null : parseAccountDeletionStatus(row.status, row.requestId) }
+      intentHash: row.intentHash ?? null, withdrawal, status: row.status === null ? null : parseAccountDeletionStatus(row.status, row.requestId) }
   } catch { throw unavailable() }
 }
 
@@ -57,7 +62,7 @@ export class AccountDeletionVault {
         return prior
       }
       const record: SavedAccountDeletion = { format: 1, origin: canonical, accountId, requestId,
-        secret: await this.randomSecret(), submitted: false, intentHash: null, status: null }
+        secret: await this.randomSecret(), submitted: false, intentHash: null, status: null, withdrawal: null }
       const serialized = JSON.stringify(record)
       parse(serialized)
       await this.storage.set(key, serialized)
@@ -84,7 +89,7 @@ export class AccountDeletionVault {
   markSubmitted(expected: AccountDeletionRecovery, intentHash: string) {
     return serial(async () => {
       const record = await this.require(expected)
-      if (typeof intentHash !== "string" || !/^[a-f0-9]{64}$/.test(intentHash) || record.intentHash !== intentHash) throw unavailable()
+      if (typeof intentHash !== "string" || !/^[a-f0-9]{64}$/.test(intentHash) || record.intentHash !== intentHash || record.withdrawal) throw unavailable()
       if (!record.submitted) {
         record.submitted = true
         await this.storage.set(key, JSON.stringify(record))
@@ -95,7 +100,7 @@ export class AccountDeletionVault {
   rememberStatus(expected: AccountDeletionRecovery, value: unknown) {
     return serial(async () => {
       const record = await this.require(expected), status = parseAccountDeletionStatus(value, record.requestId)
-      if (!record.submitted || (record.status && record.status.acceptedAt !== status.acceptedAt)) throw unavailable()
+      if (!record.submitted || record.withdrawal || (record.status && record.status.acceptedAt !== status.acceptedAt)) throw unavailable()
       // An older in-flight read must not overwrite completion or remove a
       // previously recorded manual Apple action. Never trust the device clock.
       if (record.status?.state === "completed") return record
@@ -117,6 +122,27 @@ export class AccountDeletionVault {
     return serial(async () => {
       const record = await this.require(expected)
       if (record.status?.state !== "completed") throw new Error("Deletion has not been confirmed complete.")
+      await this.storage.remove(key)
+    })
+  }
+  rememberWithdrawal(expected: AccountDeletionRecovery, value: unknown, current: AccountDeletionScope) {
+    return serial(async () => {
+      const record = await this.require(expected), receipt = parseAccountDeletionWithdrawal(value, { ...current, requestId: record.requestId })
+      if (!record.submitted || record.status || record.accountId !== current.accountId || receipt.outcome !== "withdrawn") throw unavailable()
+      if (record.withdrawal && record.withdrawal.withdrawnAt !== receipt.withdrawnAt) throw unavailable()
+      if (!record.withdrawal) {
+        record.withdrawal = receipt
+        await this.storage.set(key, JSON.stringify(record))
+      }
+      return record
+    })
+  }
+  /** The authenticated server permanently fenced this unaccepted operation.
+   * Remove only after its journal has been cleared. A 404 is never this proof. */
+  dismissWithdrawn(expected: AccountDeletionRecovery) {
+    return serial(async () => {
+      const record = await this.require(expected)
+      if (!record.withdrawal || record.status) throw unavailable()
       await this.storage.remove(key)
     })
   }

@@ -37,6 +37,21 @@ export function parseAccountDeletionStatus(value: unknown, requestId: string): A
 }
 
 export interface AccountDeletionScope { accountId: string; sessionId: string; deviceId: string }
+export type AccountDeletionWithdrawalResult = AccountDeletionScope & { requestId: string } & (
+  | { outcome: "withdrawn"; withdrawnAt: string }
+  | { outcome: "accepted"; withdrawnAt: null }
+)
+export function parseAccountDeletionWithdrawal(value: unknown, expected: AccountDeletionScope & { requestId: string }): AccountDeletionWithdrawalResult {
+  const row = value as Partial<AccountDeletionWithdrawalResult> | null
+  if (!row || typeof row !== "object" || Array.isArray(row) || row.accountId !== expected.accountId || row.sessionId !== expected.sessionId || row.deviceId !== expected.deviceId ||
+    row.requestId !== expected.requestId || !/^user_[A-Za-z0-9_-]{1,200}$/.test(expected.accountId) || !notificationSessionId.test(expected.sessionId) || !notificationUuid.test(expected.deviceId) || !notificationUuid.test(expected.requestId) ||
+    (row.outcome !== "withdrawn" && row.outcome !== "accepted") ||
+    (row.outcome === "accepted" ? row.withdrawnAt !== null : typeof row.withdrawnAt !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(row.withdrawnAt) || !Number.isFinite(Date.parse(row.withdrawnAt)) || new Date(row.withdrawnAt).toISOString() !== row.withdrawnAt)) {
+    throw new Error("Cyntch returned an invalid withdrawal receipt. Keep the recovery information and retry.")
+  }
+  const scope = { accountId: expected.accountId, sessionId: expected.sessionId, deviceId: expected.deviceId, requestId: expected.requestId }
+  return row.outcome === "accepted" ? { ...scope, outcome: "accepted", withdrawnAt: null } : { ...scope, outcome: "withdrawn", withdrawnAt: row.withdrawnAt! }
+}
 export interface DeletionContentCounts { routines: number; runs: number; tasks: number }
 export interface DeletionBillingSource {
   provider: "stripe" | "app_store" | "play_store"

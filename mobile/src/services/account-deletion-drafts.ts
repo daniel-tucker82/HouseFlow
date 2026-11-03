@@ -1,4 +1,4 @@
-import { normalizeAccountDeletionSubmission, validAccountDeletionRecovery, type AccountDeletionRecovery, type AccountDeletionScope, type AccountDeletionSubmission } from "../../../shared/mobile/account-deletion"
+import { normalizeAccountDeletionSubmission, parseAccountDeletionWithdrawal, validAccountDeletionRecovery, type AccountDeletionRecovery, type AccountDeletionScope, type AccountDeletionSubmission } from "../../../shared/mobile/account-deletion"
 import type { AccountDeletionStore, SavedDeletionIntent } from "../storage/account-deletion-store"
 import type { AccountDeletionVault, SavedAccountDeletion } from "../storage/account-deletion-vault"
 
@@ -43,6 +43,7 @@ export class AccountDeletionDrafts {
   requestForSubmission(expected: AccountDeletionRecovery, current: AccountDeletionScope) {
     return serial(async () => {
       const recovery = await this.recovery(expected), intent = await this.journal.read()
+      if (recovery.withdrawal) throw new Error("This attempt was withdrawn. Finish clearing its saved recovery information before a new review.")
       if (recovery.status) throw new Error("Deletion has already been accepted. Check its saved status.")
       if (!intent) throw mismatch()
       await this.match(recovery, intent)
@@ -75,5 +76,29 @@ export class AccountDeletionDrafts {
       }
       return record
     })
+  }
+  private async clearWithdrawn(record: SavedAccountDeletion) {
+    if (!record.withdrawal) throw mismatch()
+    const intent = await this.journal.read()
+    if (intent) { await this.match(record,intent); await this.journal.clearConfirmed(intent) }
+    await this.vault.dismissWithdrawn(record)
+  }
+  rememberWithdrawal(expected: AccountDeletionRecovery, value: unknown, current: AccountDeletionScope) {
+    return serial(async () => {
+      const record = await this.recovery(expected), receipt = parseAccountDeletionWithdrawal(value,{ ...current,requestId: record.requestId })
+      if (record.accountId !== current.accountId) throw mismatch()
+      // Already accepted is NOT a cancellation receipt. Retain everything and
+      // let the independent status transport show progress/completion.
+      if (receipt.outcome === "accepted") {
+        if (record.withdrawal) throw mismatch()
+        return receipt
+      }
+      const confirmed = await this.vault.rememberWithdrawal(record,receipt,current)
+      await this.clearWithdrawn(confirmed)
+      return receipt
+    })
+  }
+  finishWithdrawal(expected: AccountDeletionRecovery) {
+    return serial(async () => this.clearWithdrawn(await this.recovery(expected)))
   }
 }
