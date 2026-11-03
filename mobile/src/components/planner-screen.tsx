@@ -9,6 +9,7 @@ import { useBoard, usePlanner, useRuntime } from "../providers/runtime"
 import { Action, Card, Copy, Loading, styles, usePalette } from "./ui"
 import { PlannerField, PlannerTaskEditor } from "./planner-task-editor"
 import { PlannerPendingCreations } from "./planner-pending-creations"
+import { PlannerSchedulePanel } from "./planner-schedule-panel"
 
 export default function PlannerScreen() {
   const board = useBoard(), state = usePlanner()
@@ -127,7 +128,7 @@ function PlannerWorkspace({ householdId }: { householdId: string }) {
               <Action secondary label="Use the household’s version" disabled={!state.online} onPress={() => Alert.alert("Discard this saved edit?", "The task will return to the household’s current version.", [{ text: "Cancel", style: "cancel" }, { text: "Discard edit", style: "destructive", onPress: () => void act(() => planner.discard(change)) }])} />
             </View>)}
           </Card> : null}
-          {creations.length ? <Card><PlannerPendingCreations householdId={householdId} /></Card> : null}
+          {creations.some(item => item.body.action !== "saveRoutineSchedule") ? <Card><PlannerPendingCreations householdId={householdId} excludeSchedules /></Card> : null}
           {routine ? <Card><Copy tone="heading">{routine.name}</Copy><Copy tone="muted">{tasks.length} tasks and rewards · Start a fresh copy whenever your household needs it.</Copy>
             <View style={[styles.row, { flexWrap: "wrap" }]}>
               <Action label={starting ? "Start saved" : "Start routine"} disabled={onlineActionDisabled || starting || !tasks.length} onPress={() => Alert.alert(`Start “${routine.name}”?`, "A fresh copy will appear in Today after your saved request syncs.", [{ text: "Cancel", style: "cancel" }, { text: "Start", onPress: () => void act(() => planner.create("createOccurrence", { routineId: routine.id }, `Start routine: ${routine.name}`)) }])} />
@@ -137,6 +138,7 @@ function PlannerWorkspace({ householdId }: { householdId: string }) {
             {starting ? <Copy tone="muted">Your start request is saved. Let it sync or review it above before changing this template.</Copy> : null}
             <Action secondary label="Add task or reward" disabled={onlineActionDisabled || starting} onPress={() => edit()} />
           </Card> : <Card><Copy tone="heading">Make room for an easier day</Copy><Copy tone="muted">Create a routine, add a few tasks, and choose who will do them.</Copy></Card>}
+          <PlannerSchedulePanel householdId={householdId} routine={routine} />
         </View>}
         renderItem={({ item: task }) => {
           const assignees = data?.taskAssignees.filter(row => row.task_id === task.id).map(row => data.members.find(member => member.id === row.user_id)?.name).filter(Boolean) ?? []

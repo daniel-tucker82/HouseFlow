@@ -4,7 +4,7 @@ import type { PoolClient } from "pg"
 export class PlannerCreationError extends Error {
   constructor(message: string, public status = 400) { super(message) }
 }
-export interface PlannerCreation { id: string; action: "createRoutine" | "createTask" | "createOccurrence"; hash: string }
+export interface PlannerCreation { id: string; action: "createRoutine" | "createTask" | "createOccurrence" | "saveRoutineSchedule"; hash: string }
 
 function canonical(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonical)
@@ -19,7 +19,7 @@ export function parsePlannerCreation(body: Record<string, unknown>): PlannerCrea
   }
   if (body.creationId === undefined) return null
   if (typeof body.creationId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.creationId) ||
-    !["createRoutine", "createTask", "createOccurrence"].includes(String(body.action)) ||
+    !["createRoutine", "createTask", "createOccurrence", "saveRoutineSchedule"].includes(String(body.action)) ||
     (body.action === "createTask" && (!Object.hasOwn(body, "prerequisiteIds") || body.occurrenceId))) {
     throw new PlannerCreationError("Invalid routine creation request.")
   }
@@ -35,12 +35,12 @@ export async function findPlannerCreation(client: PoolClient, householdId: strin
     [householdId, userId, creation.id])).rows[0]
   if (!row) return null
   if (row.action !== creation.action || row.request_hash !== creation.hash) throw new PlannerCreationError("This saved request was already used for different details.", 409)
-  const exists = await client.query(creation.action === "createRoutine"
+  const exists = await client.query(creation.action === "createRoutine" || creation.action === "saveRoutineSchedule"
     ? "select id from routines where id=$1::uuid and household_id=$2::uuid"
     : creation.action === "createOccurrence"
       ? "select id from routine_occurrences where id=$1::uuid and household_id=$2::uuid"
       : "select id from tasks where id=$1::uuid and household_id=$2::uuid and routine_occurrence_id is null", [row.entity_id, householdId])
-  if (!exists.rowCount) throw new PlannerCreationError("This item was created, then removed. It has not been recreated.", 410)
+  if (!exists.rowCount) throw new PlannerCreationError("This item was saved, then removed. It has not been recreated.", 410)
   return row.result
 }
 

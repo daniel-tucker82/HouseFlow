@@ -42,6 +42,7 @@ import {
 } from "@/lib/notifications"
 import { dispatchPushForNotificationIds } from "@/lib/push"
 import { PlannerSaveError, savePlannerTask } from "@/lib/save-planner-task"
+import { saveRoutineSchedule } from "@/lib/save-routine-schedule"
 import { findPlannerCreation, parsePlannerCreation, PlannerCreationError, recordPlannerCreation, type PlannerCreation } from "@/lib/planner-creation"
 import { claimTaskEditVersion, validTaskEditVersion } from "@/lib/task-edit-version"
 import { CompletionOperationError, parseCompletionOperation, findCompletionReceipt, claimCompletionVersion, recordCompletionReceipt } from "@/lib/completion-operations"
@@ -990,7 +991,7 @@ export async function POST(request: Request) {
     if (!locked) return NextResponse.json({ error: "Another household change is in progress. Please retry." }, { status: 429 })
     const created = creation ? await findPlannerCreation(lockClient, householdId, userId, creation) : null
     const entitlement = created ? await getHouseholdEntitlement(lockClient, householdId) : await enforceFlowEntitlements(lockClient, householdId, body)
-    const response = await handleFlowPost(request, { userId, body, membership, creation, created })
+    const response = await handleFlowPost(request, { userId, body, membership, creation, created, automationAllowed: entitlement.limits?.automation ?? false })
     if (body.action !== "deleteHousehold") {
       const duration = Date.now() - started
       after(async () => {
@@ -1021,6 +1022,7 @@ async function handleFlowPost(request: Request, context?: {
   membership: NonNullable<Awaited<ReturnType<typeof getHouseholdMembershipAuthz>>>
   creation?: PlannerCreation | null
   created?: Record<string, unknown> | null
+  automationAllowed?: boolean
 }) {
   const { userId } = context ?? await auth()
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -1028,7 +1030,7 @@ async function handleFlowPost(request: Request, context?: {
   const action = body?.action as string | undefined
   // An authorized task edit already has a household/user record. Fetching the
   // Clerk profile on every keystroke batch adds a remote round trip to each save.
-  if (action !== "updateTask") await ensureCurrentUserRecord()
+  if (action !== "updateTask" && action !== "saveRoutineSchedule") await ensureCurrentUserRecord()
   await ensureRoutineSchemaColumns()
   const clientTimeZone = String(body?.timezone ?? "").trim() || null
 
@@ -1100,6 +1102,10 @@ async function handleFlowPost(request: Request, context?: {
     return NextResponse.json({ error: "Kiosk mode is active." }, { status: 423 })
   }
   if (context?.created) return NextResponse.json(context.created)
+
+  if (action === "saveRoutineSchedule") {
+    return NextResponse.json(await saveRoutineSchedule(householdId, userId, body, context?.creation ?? null, context?.automationAllowed ?? false))
+  }
 
   if (action === "updateKioskSettings") {
     const visibleMemberIds = Array.isArray(body?.visibleMemberIds)

@@ -50,6 +50,7 @@ const managementActions = new Set<string>([
   "deleteRoutine",
   "updateMemberTokenColor",
   "updateRoutineRecurrenceSettings",
+  "saveRoutineSchedule",
   "createOccurrence",
   "addRecurrenceRule",
   "updateRecurrenceRule",

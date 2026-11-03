@@ -1,5 +1,7 @@
 import type { HouseholdSummary } from "../../../shared/mobile/contracts"
-import { applyPlannerDraft, validatePlannerDraft, type PlannerCreation, type PlannerEdit, type PlannerSnapshot, type PlannerTaskDraft } from "../../../shared/mobile/planner"
+import { applyPlannerDraft, applyPlannerSchedule, validatePlannerDraft, type PlannerCreation, type PlannerEdit, type PlannerSnapshot, type PlannerTaskDraft } from "../../../shared/mobile/planner"
+import { scheduleForRoutine, validateRoutineSchedule } from "../../../shared/routine-schedule"
+import type { Routine } from "../../../lib/types"
 import { retryDelayMs } from "../../../shared/mobile/sync-policy"
 import type { LocalDatabase, SqlConnection } from "./local-store"
 
@@ -60,7 +62,13 @@ export class PlannerStore {
   }
   private async write(accountId: string, householdId: string, server: PlannerSnapshot, tx: SqlConnection) {
     const edits = (await this.pending(accountId, tx)).filter(edit => edit.householdId === householdId)
-    const view = edits.reduce((snapshot, edit) => applyPlannerDraft(snapshot, edit.draft), server)
+    let view = edits.reduce((snapshot, edit) => applyPlannerDraft(snapshot, edit.draft), server)
+    for (const saved of await this.creations(accountId, tx)) {
+      if (saved.householdId === householdId && saved.body.action === "saveRoutineSchedule") {
+        validateRoutineSchedule(saved.body.schedule)
+        view = applyPlannerSchedule(view, String(saved.body.routineId), saved.body.schedule)
+      }
+    }
     await tx.runAsync(`INSERT INTO planner_snapshots VALUES (?, ?, ?) ON CONFLICT(account_id,household_id) DO UPDATE SET data=excluded.data`,
       accountId, householdId, JSON.stringify({ server, view } satisfies CachedPlanner))
     return view
@@ -140,9 +148,18 @@ export class PlannerStore {
       throw new Error("This routine has a saved start request. Let it sync or review it before changing the template.")
     }
   }
-  async enqueueCreation(creation: PlannerCreation) {
+  async enqueueCreation(creation: PlannerCreation, replacesId?: string) {
     await this.database.withExclusiveTransactionAsync(async tx => {
       if (!await this.allowed(creation.accountId, creation.householdId, tx)) throw new Error("You no longer have permission to manage this household.")
+      if (creation.body.action === "saveRoutineSchedule") {
+        validateRoutineSchedule(creation.body.baseSchedule); validateRoutineSchedule(creation.body.schedule)
+        await this.requireNoPendingStart(creation.accountId, creation.householdId, String(creation.body.routineId), tx)
+        const queued = (await this.creations(creation.accountId, tx)).filter(item => item.householdId === creation.householdId && item.body.action === "saveRoutineSchedule" && item.body.routineId === creation.body.routineId)
+        if (replacesId && !queued.some(item => item.id === replacesId && item.state === "rejected")) throw new Error("This saved request has changed. Review it again before saving.")
+        if (queued.some(item => item.id !== replacesId)) throw new Error("This routine already has a saved schedule. Let it sync or review it first.")
+        const cached = await this.cached(creation.accountId, creation.householdId, tx)
+        if (!cached?.view.routines.some(routine => routine.id === creation.body.routineId)) throw new Error("This routine was removed. Refresh your routines.")
+      } else if (replacesId) throw new Error("Only a rejected schedule can be replaced here.")
       if (creation.body.action === "createTask") await this.requireNoPendingStart(creation.accountId, creation.householdId, String(creation.body.routineId), tx)
       if (creation.body.action === "createOccurrence") {
         const edits = await this.pending(creation.accountId, tx), creations = await this.creations(creation.accountId, tx)
@@ -153,14 +170,28 @@ export class PlannerStore {
       // Immutable payload: a retry must never change the meaning of its ID.
       await tx.runAsync("INSERT INTO planner_creations(account_id,household_id,id,label,body) VALUES(?,?,?,?,?)",
         creation.accountId, creation.householdId, creation.id, creation.label, JSON.stringify(creation.body))
+      if (replacesId) await tx.runAsync("DELETE FROM planner_creations WHERE account_id=? AND id=? AND state='rejected'", creation.accountId, replacesId)
+      if (creation.body.action === "saveRoutineSchedule") {
+        const cached = await this.cached(creation.accountId, creation.householdId, tx)
+        if (cached) await this.write(creation.accountId, creation.householdId, cached.server, tx)
+        await tx.runAsync("DELETE FROM device_settings WHERE account_id=? AND setting_key=?", creation.accountId, `planner-schedule-draft:${creation.householdId}`)
+      }
       if (creation.body.action === "createTask") {
         // Clear the unfinished form atomically with its durable submission.
         await tx.runAsync("DELETE FROM device_settings WHERE account_id=? AND setting_key=?", creation.accountId, `planner-task-draft:${creation.householdId}`)
       }
     })
   }
-  async acknowledgeCreation(accountId: string, id: string) {
-    await this.database.runAsync("DELETE FROM planner_creations WHERE account_id=? AND id=?", accountId, id)
+  async acknowledgeCreation(accountId: string, id: string, result?: { routine?: Routine }) {
+    await this.database.withExclusiveTransactionAsync(async tx => {
+      const saved = (await this.creations(accountId, tx)).find(item => item.id === id)
+      if (saved?.body.action === "saveRoutineSchedule" && (result?.routine?.id !== saved.body.routineId || result?.routine?.household_id !== saved.householdId)) throw new Error("The schedule response did not match your household. Retrying safely.")
+      await tx.runAsync("DELETE FROM planner_creations WHERE account_id=? AND id=?", accountId, id)
+      if (saved?.body.action === "saveRoutineSchedule" && result?.routine) {
+        const cached = await this.cached(accountId, saved.householdId, tx)
+        if (cached) await this.write(accountId, saved.householdId, applyPlannerSchedule(cached.server, result.routine.id, scheduleForRoutine(result.routine)), tx)
+      }
+    })
   }
   async failCreation(creation: PlannerCreation, error: string, rejected: boolean, now: number) {
     await this.database.withExclusiveTransactionAsync(async tx => {
@@ -177,6 +208,12 @@ export class PlannerStore {
   }
   async discardCreation(accountId: string, id: string) {
     // An uncertain network outcome stays queued until the server resolves it.
-    await this.database.runAsync("DELETE FROM planner_creations WHERE account_id=? AND id=? AND state='rejected'", accountId, id)
+    await this.database.withExclusiveTransactionAsync(async tx => {
+      const saved = (await this.creations(accountId, tx)).find(item => item.id === id && item.state === "rejected")
+      if (!saved) return
+      await tx.runAsync("DELETE FROM planner_creations WHERE account_id=? AND id=? AND state='rejected'", accountId, id)
+      const cached = await this.cached(accountId, saved.householdId, tx)
+      if (cached) await this.write(accountId, saved.householdId, cached.server, tx)
+    })
   }
 }

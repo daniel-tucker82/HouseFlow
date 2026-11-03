@@ -2,6 +2,8 @@ import type { HouseholdSummary } from "../../../shared/mobile/contracts"
 import { applyPlannerDraft, validatePlannerDraft, type PlannerCreation, type PlannerEdit, type PlannerSnapshot, type PlannerTaskDraft } from "../../../shared/mobile/planner"
 import type { PlannerStore } from "../storage/planner-store"
 import { TransportError } from "../storage/sync-engine"
+import { scheduleForRoutine, validateRoutineSchedule, type RoutineScheduleDraft } from "../../../shared/routine-schedule"
+import type { Routine } from "../../../lib/types"
 
 interface PlannerApi {
   planner(householdId: string): Promise<PlannerSnapshot>
@@ -96,7 +98,7 @@ export class PlannerController {
       await this.readLocal(); this.wake()
     }
   }
-  async create(action: "createRoutine" | "createTask" | "createOccurrence", values: Record<string, unknown>, label: string) {
+  async create(action: "createRoutine" | "createTask" | "createOccurrence" | "saveRoutineSchedule", values: Record<string, unknown>, label: string, replacesId?: string) {
     const household = this.state.household
     if (!household || this.stopped) throw new Error("Choose a household you can manage.")
     if (this.state.busy) throw new Error("Another change is still saving.")
@@ -112,7 +114,7 @@ export class PlannerController {
       // the atomic store guard explains any earlier changes still awaiting sync.
       if (action === "createOccurrence") await Promise.all(this.saves)
       if (this.stopped) return
-      await this.store.enqueueCreation(creation); await this.readLocal(); this.wake()
+      await this.store.enqueueCreation(creation, replacesId); await this.readLocal(); this.wake()
     }
     finally { this.update({ busy: false }) }
   }
@@ -149,9 +151,9 @@ export class PlannerController {
         if (!await this.store.allowed(this.accountId, creation.householdId)) continue
         if (!(await this.store.creations(this.accountId)).some(current => current.id === creation.id && current.state === "pending")) continue
         try {
-          await this.api.request("/api/leader/flow", creation.body)
+          const result = await this.api.request<{ routine?: Routine }>("/api/leader/flow", creation.body)
           if (this.stopped) return
-          await this.store.acknowledgeCreation(this.accountId, creation.id); changed = true; this.mutations++
+          await this.store.acknowledgeCreation(this.accountId, creation.id, result); changed = true; this.mutations++
         } catch (error) {
           if (this.stopped) return
           const rejected = error instanceof TransportError && [400, 402, 403, 404, 409, 410, 422].includes(error.status)
@@ -176,7 +178,19 @@ export class PlannerController {
   }
   async retry(edit: PlannerEdit) { await this.store.retry(this.accountId, edit); await this.readLocal(); this.wake() }
   async retryCreation(creation: PlannerCreation) { await this.store.retryCreation(this.accountId, creation); await this.readLocal(); this.wake() }
-  async discardCreation(creation: PlannerCreation) { await this.store.discardCreation(this.accountId, creation.id); await this.readLocal() }
+  async discardCreation(creation: PlannerCreation) { await this.store.discardCreation(this.accountId, creation.id); await this.readLocal(); void this.refresh() }
+  async reviewSchedule(creation: PlannerCreation): Promise<RoutineScheduleDraft> {
+    if (!this.state.online || this.stopped) throw new Error("Connect to review the household’s current schedule.")
+    if (!await this.store.allowed(this.accountId, creation.householdId)) throw new Error("You no longer have permission to manage this household.")
+    const saved = (await this.store.creations(this.accountId)).find(item => item.id === creation.id && item.state === "rejected" && item.body.action === "saveRoutineSchedule")
+    if (!saved) throw new Error("This request has changed. Refresh your routines.")
+    const fresh = await this.api.planner(saved.householdId)
+    const routine = fresh.routines.find(item => item.id === saved.body.routineId)
+    if (!routine) throw new Error("This routine was removed. You can discard its saved schedule.")
+    validateRoutineSchedule(saved.body.schedule)
+    await this.store.cache(this.accountId, saved.householdId, fresh); await this.readLocal()
+    return { routineId: routine.id, routineName: routine.name, baseSchedule: scheduleForRoutine(routine), schedule: saved.body.schedule, replacesId: saved.id }
+  }
   async discard(edit: PlannerEdit) {
     const allowed = await this.store.allowed(this.accountId, edit.householdId)
     const fresh = allowed ? await this.api.planner(edit.householdId) : null

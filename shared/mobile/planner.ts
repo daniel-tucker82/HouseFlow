@@ -1,6 +1,7 @@
 import type { Routine, RoutineOccurrence, Task } from "../../lib/types"
 import type { HouseholdMember } from "./contracts"
 import { validateTaskTiming, type TaskTiming } from "../scheduling"
+import type { RoutineSchedule } from "../routine-schedule"
 
 export interface PlannerSnapshot {
   householdId: string
@@ -69,6 +70,12 @@ export function applyPlannerDraft(snapshot: PlannerSnapshot, draft: PlannerTaskD
     dependencies: [...snapshot.dependencies.filter(row => row.target_task_id !== draft.taskId),
       ...draft.prerequisiteIds.map(source_task_id => ({ source_task_id, target_task_id: draft.taskId }))],
   }
+}
+
+export function applyPlannerSchedule(snapshot: PlannerSnapshot, routineId: string, schedule: RoutineSchedule): PlannerSnapshot {
+  return { ...snapshot, routines: snapshot.routines.map(routine => routine.id === routineId ? { ...routine,
+    recurrence_rule: schedule.rules.length ? JSON.stringify(schedule.rules) : null,
+    complete_older_occurrences_on_new: schedule.completeOlderOccurrencesOnNew } : routine) }
 }
 
 export function plannerDescendants(snapshot: PlannerSnapshot, taskId: string) {

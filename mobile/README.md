@@ -52,8 +52,9 @@ The Routines tab provides native template and task management, assignments,
 prerequisites, rewards and task activation/expiry rules. Existing task edits update the screen immediately and
 commit to a separate SQLite queue. Unfinished task forms stay on this device;
 submitting a form atomically clears its draft and retains its saved operation.
-New routines, tasks and manual routine starts use durable requests with immutable
-creation IDs. Apply `0020_planner_creations.sql` and `0021_routine_start_receipts.sql`
+New routines, tasks, manual routine starts and schedule edits use durable requests
+with immutable operation IDs. Apply `0020_planner_creations.sql`,
+`0021_routine_start_receipts.sql` and `0022_routine_schedule_receipts.sql`
 before deploying this version of the planner API. Receipts commit with the created item, allow retries at full quota, and
 remain after item deletion to prevent resurrection. The queue is scoped to the
 account, preserves rejected requests for review, and stops uploading after a
@@ -84,10 +85,21 @@ they have never generated. Monthly ordinal weekdays are counted correctly, and
 monthly/yearly dates missing in a shorter month use its last day (including
 February 29 in non-leap years). Previews use the same household timezone.
 Generation and editor writes share the household lock, and schedule edits cannot
-replace server-owned generation watermarks. This does not yet provide the native
-recurrence editor or prove the production scheduler's throughput/delivery window.
+replace server-owned generation watermarks. Production scheduler throughput and
+the delivery window still need verification.
 
-Recurrence editing, full run management/history, kiosk protection,
+The native schedule editor supports daily, weekly, monthly and yearly rules,
+calendar dates and ordinal weekdays, household-timezone previews, and completing
+older runs when a fresh copy starts. Unfinished forms persist locally; submitting
+one atomically replaces its draft with an immutable SQLite request and updates
+the cached schedule. Uploads run separately from the save interaction. The server
+compares the editable rules with the form's starting version, ignoring generation
+watermarks. Conflicts retain the intended changes for review against the current
+household settings; replacing a rejected request is atomic. A late replay returns
+its receipt without overwriting newer rules. After a downgrade, households can
+remove recurrences or disable automatic completion without re-enabling automation.
+
+Full run management/history, kiosk protection,
 push delivery and store billing are still under development. Rename/delete
 actions currently require a connection; extending interruption recovery to those
 remaining management actions is still required.
@@ -146,6 +158,18 @@ generation implementations against PostgreSQL, checking copied task timing,
 concurrent retries, rollback, capacity gating and stable legacy anchors. These
 tests use isolated schemas and mocked notification delivery; they do not verify
 production scheduling or mobile push delivery.
+
+Native schedule editing was verified on the Android emulator: a monthly ordinal
+rule and the complete-older option survived a force-stop as an unfinished draft,
+then survived a second restart as an offline saved request. PostgreSQL stayed
+unchanged while offline. A simulated competing edit caused a visible conflict on
+reconnect; reviewing and saving the intended schedule produced one receipt.
+The review editor was inspected and saved in landscape. Removing the recurrence
+and disabling automatic completion also succeeded after restoring the fixture to
+Free. `tests/routine-schedule.test.cjs`, `tests/routine-schedule-db.test.cjs` and
+the mobile planner tests cover validation, access/entitlement checks, transaction
+rollback, immutable retries, concurrent changes and interruption recovery.
+Android and iOS JavaScript exports pass; this does not establish native iOS behavior.
 
 Changing Android system font size while the development app is running produced
 an Expo Router multiple-linking-handlers warning; a clean launch did not. This

@@ -315,3 +315,66 @@ test('P17 two simultaneous start submissions cannot pass the local transaction g
   assert.equal((await f.local.planner.creations('parent')).length, 1)
   assert.deepEqual(await f.local.planner.creations('other'), [])
 })
+
+const emptySchedule = { rules: [], completeOlderOccurrencesOnNew: false }
+const dailySchedule = { rules: [{ id: 'daily', frequency: 'daily', interval: 2, time: '09:00', startDate: '2026-11-04' }], completeOlderOccurrencesOnNew: true }
+const scheduleRequest = id => ({ id, accountId: 'parent', householdId: 'h1', label: 'Schedule: Morning', body: {
+  action: 'saveRoutineSchedule', routineId: 'r1', baseSchedule: emptySchedule, schedule: dailySchedule, creationId: id,
+} })
+
+test('P18 schedule and draft submission survive restart together, and acknowledgement keeps the saved view', async t => {
+  const f = await fixture(t)
+  await f.local.saveSetting('parent', 'planner-schedule-draft:h1', { schedule: dailySchedule })
+  await f.local.planner.enqueueCreation(scheduleRequest('schedule1'))
+  const local = await f.reopen()
+  assert.equal(await local.setting('parent', 'planner-schedule-draft:h1'), null)
+  assert.equal((await local.planner.get('parent', 'h1')).routines[0].complete_older_occurrences_on_new, true)
+  assert.deepEqual(JSON.parse((await local.planner.get('parent', 'h1')).routines[0].recurrence_rule), dailySchedule.rules)
+  assert.deepEqual(await local.planner.creations('other'), [])
+  await assert.rejects(local.planner.enqueueCreation(scheduleRequest('schedule2')), /already has a saved schedule/)
+  await assert.rejects(local.planner.acknowledgeCreation('parent', 'schedule1', { routine: { id: 'r1', household_id: 'other' } }), /did not match/)
+  assert.equal((await local.planner.creations('parent')).length, 1)
+  await local.planner.acknowledgeCreation('parent', 'schedule1', { routine: { id: 'r1', household_id: 'h1', recurrence_rule: JSON.stringify(dailySchedule.rules), complete_older_occurrences_on_new: true } })
+  assert.equal((await local.planner.creations('parent')).length, 0)
+  assert.equal((await local.planner.get('parent', 'h1')).routines[0].complete_older_occurrences_on_new, true)
+})
+
+test('P19 rejected schedule review retains intended changes and atomically replaces only the reviewed request', async t => {
+  const f = await fixture(t)
+  await f.local.planner.enqueueCreation(scheduleRequest('schedule1'))
+  const queued = (await f.local.planner.creations('parent'))[0]
+  await f.local.planner.failCreation(queued, 'Changed on another device', true, Date.now())
+  const fresh = snapshot(); fresh.routines[0].recurrence_rule = JSON.stringify([{ ...dailySchedule.rules[0], time: '11:00' }])
+  const controller = new PlannerController(f.local.planner, 'parent', 'device', { planner: async () => fresh }, () => 'reviewed')
+  t.after(() => controller.stop())
+  await controller.selectHousehold(household); controller.setConnectivity(true)
+  const draft = await controller.reviewSchedule(queued)
+  controller.setConnectivity(false)
+  assert.equal(draft.baseSchedule.rules[0].time, '11:00')
+  assert.equal(draft.schedule.rules[0].time, '09:00')
+  assert.equal(draft.replacesId, 'schedule1')
+  await f.local.saveSetting('parent', 'planner-schedule-draft:h1', draft)
+  f.adapter.fail = true
+  await assert.rejects(controller.create('saveRoutineSchedule', { routineId: draft.routineId, baseSchedule: draft.baseSchedule, schedule: draft.schedule }, 'Schedule', draft.replacesId), /Disk full/)
+  assert.equal((await f.local.planner.creations('parent'))[0].id, 'schedule1', 'failed replacement leaves the old request')
+  assert.equal((await f.local.setting('parent', 'planner-schedule-draft:h1')).replacesId, 'schedule1')
+  f.adapter.fail = false
+  await controller.create('saveRoutineSchedule', { routineId: draft.routineId, baseSchedule: draft.baseSchedule, schedule: draft.schedule }, 'Schedule', draft.replacesId)
+  assert.equal((await f.local.planner.creations('parent'))[0].id, 'reviewed')
+  assert.equal(await f.local.setting('parent', 'planner-schedule-draft:h1'), null)
+  await f.local.planner.acknowledgeCreation('parent', 'schedule1')
+  assert.equal((await f.local.planner.creations('parent'))[0].id, 'reviewed', 'a late reply cannot delete its replacement')
+  await assert.rejects(f.local.planner.enqueueCreation(scheduleRequest('replacement'), 'reviewed'), /has changed/, 'an uncertain request cannot be replaced')
+})
+
+test('P20 discarding a rejected schedule restores the household version and does not resurrect removed routines', async t => {
+  const f = await fixture(t)
+  await f.local.planner.enqueueCreation(scheduleRequest('schedule1'))
+  const queued = (await f.local.planner.creations('parent'))[0]
+  await f.local.planner.failCreation(queued, 'Rejected', true, Date.now())
+  await f.local.planner.discardCreation('parent', queued.id)
+  assert.equal((await f.local.planner.get('parent', 'h1')).routines[0].recurrence_rule, undefined)
+  await f.local.planner.enqueueCreation(scheduleRequest('schedule2'))
+  await f.local.planner.cache('parent', 'h1', { ...snapshot(), routines: [] })
+  assert.deepEqual((await f.local.planner.get('parent', 'h1')).routines, [])
+})
