@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-require-imports -- Isolated embedded PostgreSQL regression. */
+/* eslint-disable @typescript-eslint/no-require-imports -- Isolated PostgreSQL regression. */
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
@@ -22,9 +22,24 @@ test('save versions reject incomplete, malformed and unsafe values', () => {
   }
 })
 
-test('PostgreSQL rejects late/duplicate saves and rolls back version claims with failed writes', { skip: !process.env.CYNTCH_PGLITE_PATH }, async () => {
-  const { PGlite } = require(process.env.CYNTCH_PGLITE_PATH)
-  const database = new PGlite()
+test('PostgreSQL rejects late/duplicate saves and rolls back version claims with failed writes', { skip: !process.env.CYNTCH_PGLITE_PATH && !process.env.CYNTCH_TEST_DATABASE_URL }, async () => {
+  let database
+  if (process.env.CYNTCH_TEST_DATABASE_URL) {
+    const target = new URL(process.env.CYNTCH_TEST_DATABASE_URL)
+    assert.ok(['localhost', '127.0.0.1', '[::1]'].includes(target.hostname) && target.pathname === '/cyntch_mobile_test')
+    const { Pool } = require('pg'), { randomUUID } = require('node:crypto')
+    const pool = new Pool({ connectionString: target.toString() }), connection = await pool.connect()
+    const schema = `task_version_${randomUUID().replaceAll('-', '')}`
+    await connection.query(`create schema ${schema}`)
+    await connection.query(`set search_path to ${schema}`)
+    database = { exec: sql => connection.query(sql), query: (sql, values) => connection.query(sql, values), close: async () => {
+      try { await connection.query('rollback'); await connection.query('set search_path to public'); await connection.query(`drop schema ${schema} cascade`) }
+      finally { connection.release(); await pool.end() }
+    } }
+  } else {
+    const { PGlite } = require(process.env.CYNTCH_PGLITE_PATH)
+    database = new PGlite()
+  }
   const client = { query: async (sql, values) => { const result = await database.query(sql, values); return { ...result, rowCount: result.rows.length } } }
   try {
     await database.exec('create table users (id text primary key); create table tasks (id uuid primary key, title text);')

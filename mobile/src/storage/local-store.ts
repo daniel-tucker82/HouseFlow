@@ -1,5 +1,6 @@
 import type { BoardSnapshot, BoardTask, CompletionChange, CompletionResult, HouseholdSummary } from "../../../shared/mobile/contracts"
 import { retryDelayMs } from "../../../shared/mobile/sync-policy"
+import { PlannerStore } from "./planner-store"
 
 export type SqlValue = string | number | null
 export interface SqlConnection {
@@ -64,7 +65,8 @@ function mergeServerBoard(incoming: BoardSnapshot, previous?: BoardSnapshot): Bo
 
 /** The device database is the durable outbox. Network callbacks never own it. */
 export class LocalStore {
-  constructor(private readonly database: LocalDatabase) {}
+  readonly planner: PlannerStore
+  constructor(private readonly database: LocalDatabase) { this.planner = new PlannerStore(database) }
 
   async initialize() {
     await this.database.execAsync(`
@@ -96,8 +98,9 @@ export class LocalStore {
         account_id TEXT NOT NULL, household_id TEXT NOT NULL,
         PRIMARY KEY(account_id, household_id)
       );
-      PRAGMA user_version = 3;
+      PRAGMA user_version = 4;
     `)
+    await this.planner.initialize()
   }
 
   async getBoard(accountId: string, householdId: string, connection: SqlConnection = this.database) {
@@ -145,6 +148,7 @@ export class LocalStore {
   /** Only a successful, authenticated membership response can invalidate an offline cache. */
   async reconcileHouseholds(accountId: string, households: HouseholdSummary[]) {
     await this.database.withExclusiveTransactionAsync(async transaction => {
+      await this.planner.reconcile(accountId, households, transaction)
       const allowed = new Map(households.map(household => [household.id, household]))
       const known = await transaction.getAllAsync<{ household_id: string }>(`
         SELECT household_id FROM board_snapshots WHERE account_id = ?

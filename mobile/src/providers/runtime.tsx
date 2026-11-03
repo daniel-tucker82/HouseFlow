@@ -6,11 +6,12 @@ import { createContext, useContext, useEffect, useRef, useState, useSyncExternal
 import { AppState, View } from "react-native"
 import { MobileApi } from "../services/api"
 import { BoardController } from "../services/board-controller"
+import { PlannerController } from "../services/planner-controller"
 import { getDeviceId, openLocalStore } from "../storage/native-store"
 import type { LocalStore } from "../storage/local-store"
 import { Action, Copy, Loading, styles } from "../components/ui"
 
-interface Runtime { controller: BoardController; api: MobileApi; store: LocalStore; keepAwake: boolean; setKeepAwake: (enabled: boolean) => Promise<void> }
+interface Runtime { controller: BoardController; planner: PlannerController; api: MobileApi; store: LocalStore; keepAwake: boolean; setKeepAwake: (enabled: boolean) => Promise<void> }
 const RuntimeContext = createContext<Runtime | null>(null)
 
 export function RuntimeProvider({ children, accountId }: PropsWithChildren<{ accountId: string }>) {
@@ -26,6 +27,8 @@ export function RuntimeProvider({ children, accountId }: PropsWithChildren<{ acc
   useEffect(() => {
     let cancelled = false
     let controller: BoardController | undefined
+    let planner: PlannerController | undefined
+    let boardSubscription: (() => void) | undefined
     let network: ReturnType<typeof Network.addNetworkStateListener> | undefined
     let app: ReturnType<typeof AppState.addEventListener> | undefined
     void (async () => {
@@ -34,16 +37,22 @@ export function RuntimeProvider({ children, accountId }: PropsWithChildren<{ acc
       const displaySetting = await store.setting<boolean>(accountId, "keep-awake")
       if (cancelled) return
       controller = new BoardController(store, accountId, deviceId, api, randomUUID)
-      const connected = (state: Network.NetworkState) => controller?.setConnectivity(state.isConnected === true && state.isInternetReachable !== false)
+      planner = new PlannerController(store.planner, accountId, deviceId, api, randomUUID)
+      boardSubscription = controller.subscribe(() => { void planner?.selectHousehold(controller?.getSnapshot().board?.household ?? null) })
+      const connected = (state: Network.NetworkState) => {
+        const online = state.isConnected === true && state.isInternetReachable !== false
+        controller?.setConnectivity(online); planner?.setConnectivity(online)
+      }
       network = Network.addNetworkStateListener(connected)
-      app = AppState.addEventListener("change", state => { setActive(state === "active"); controller?.setActive(state === "active") })
+      app = AppState.addEventListener("change", state => { setActive(state === "active"); controller?.setActive(state === "active"); planner?.setActive(state === "active") })
       setAwake(displaySetting === true)
-      setRuntime({ controller, api, store })
+      setRuntime({ controller, planner, api, store })
       controller.setActive(AppState.currentState === "active")
+      planner.setActive(AppState.currentState === "active")
       await controller.start()
       connected(await Network.getNetworkStateAsync())
     })().catch(cause => { if (!cancelled) setError(cause instanceof Error ? cause.message : "Unable to open your saved household") })
-    return () => { cancelled = true; network?.remove(); app?.remove(); controller?.stop() }
+    return () => { cancelled = true; network?.remove(); app?.remove(); boardSubscription?.(); controller?.stop(); planner?.stop() }
   }, [accountId, attempt])
 
   useEffect(() => {
@@ -71,4 +80,8 @@ export function useRuntime() {
 export function useBoard() {
   const { controller } = useRuntime()
   return useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot)
+}
+export function usePlanner() {
+  const { planner } = useRuntime()
+  return useSyncExternalStore(planner.subscribe, planner.getSnapshot, planner.getSnapshot)
 }

@@ -48,10 +48,28 @@ completion handler are deployed. Server status revisions cover web, mobile and
 scheduled updates. The device keeps the latest server state separately from its
 pending edits, so delayed responses cannot undo a newer status after sync.
 
+The Routines tab provides native template and task management, assignments,
+prerequisites and rewards. Existing task edits update the screen immediately and
+commit to a separate SQLite queue. Unfinished task forms stay on this device;
+submitting a form atomically clears its draft and retains its saved operation.
+New routines and tasks also use durable requests with immutable creation IDs.
+Apply `0020_planner_creations.sql` before deploying this version of the planner
+API. Its receipts commit with the created item, allow retries at full quota, and
+remain after item deletion to prevent resurrection. The queue is scoped to the
+account, preserves rejected requests for review, and stops uploading after a
+confirmed management-role revocation.
+
+Recurrence/time-rule editing, full run management/history, kiosk protection,
+push delivery and store billing are still under development. Rename/delete/start
+actions currently require a connection; extending interruption recovery to run
+creation and the remaining management actions is still required.
+
 From the repository root, run `node --experimental-sqlite --test tests/mobile-*.test.cjs`.
 PostgreSQL tests additionally require `CYNTCH_TEST_DATABASE_URL` pointing to a local
 database named `cyntch_mobile_test`; their safety guard rejects other destinations.
 They create isolated fixtures and clean up their own data.
+Also run `node --test tests/planner-creation-db.test.cjs` with that database URL
+to exercise creation receipts through the actual flow route and PostgreSQL.
 
 The previous Capacitor implementation is recoverable from the Git tag
 `archive/capacitor-before-native-20261103`. Its platform projects, shell UI,
@@ -65,6 +83,15 @@ offline completion, force-stop/restart recovery, automatic reconnect upload,
 exactly one server receipt, and the next task unlocking. Phone portrait,
 landscape and 1.6× system font size were inspected, including welcome-screen
 scrolling. The keep-awake setting releases its screen wake lock in the background.
+
+The native planner was exercised against the same local API: create a routine,
+create an assigned task, add a reward with a prerequisite, edit a task offline,
+force-stop/restart, reconnect and verify its new title in PostgreSQL. The offline
+edit remained queued after restart and uploaded without another user action.
+One routine and two tasks produced exactly three creation receipts. Portrait
+and landscape planner layouts were inspected; a horizontal selector sizing bug
+found during this walkthrough was corrected. Starting the template then copied
+its current tasks into Today. Free-plan active-run admission was also exercised.
 
 Changing Android system font size while the development app is running produced
 an Expo Router multiple-linking-handlers warning; a clean launch did not. This

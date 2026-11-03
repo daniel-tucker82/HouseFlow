@@ -1,5 +1,6 @@
 import type { BoardSnapshot, CompletionChange, CompletionResult, HouseholdSummary } from "../../../shared/mobile/contracts"
 import { TransportError, type SyncTransport } from "../storage/sync-engine"
+import type { PlannerEdit, PlannerSnapshot } from "../../../shared/mobile/planner"
 
 export interface BootstrapResult { accountId: string; households: HouseholdSummary[]; board: BoardSnapshot | null }
 
@@ -41,6 +42,18 @@ export class MobileApi implements SyncTransport {
   }
 
   async serverTime() { return (await this.request<{ serverTimeMs: number }>("/api/mobile/time")).serverTimeMs }
+
+  async planner(householdId: string): Promise<PlannerSnapshot> {
+    const data = await this.request<PlannerSnapshot>(`/api/leader/flow?householdId=${encodeURIComponent(householdId)}`)
+    return { householdId, routines: data.routines, tasks: data.tasks, dependencies: data.dependencies,
+      taskAssignees: data.taskAssignees, members: data.members, occurrences: data.occurrences }
+  }
+
+  savePlannerEdit(edit: PlannerEdit) {
+    if (edit.accountId !== this.accountId) throw new Error("Your account changed. Sign in again to save this edit.")
+    return this.request("/api/leader/flow", { ...edit.draft, action: "updateTask", householdId: edit.householdId,
+      saveStreamId: edit.deviceId, saveRevision: edit.revision, saveId: edit.id })
+  }
 
   send(change: CompletionChange) {
     if (change.accountId !== this.accountId || change.correctedTimeMs === null) throw new Error("This change is not ready to sync")

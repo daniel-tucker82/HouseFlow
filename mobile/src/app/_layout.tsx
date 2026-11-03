@@ -7,7 +7,7 @@ import { StatusBar } from "expo-status-bar"
 import { useState } from "react"
 import { Modal, ScrollView, View } from "react-native"
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context"
-import { CircleCheck, Settings, Users } from "lucide-react-native"
+import { CircleCheck, ListChecks, Settings, Users } from "lucide-react-native"
 import { Action, Copy, Loading, styles, usePalette } from "../components/ui"
 import { RuntimeProvider } from "../providers/runtime"
 
@@ -21,6 +21,7 @@ function Application() {
         tabBarActiveTintColor: colors.primary, tabBarInactiveTintColor: colors.muted,
         tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border }, tabBarLabelStyle: { fontSize: 12 } }}>
         <Tabs.Screen name="index" options={{ title: "Today", tabBarIcon: ({ color, size }) => <CircleCheck color={color} size={size} /> }} />
+        <Tabs.Screen name="routines" options={{ title: "Routines", tabBarIcon: ({ color, size }) => <ListChecks color={color} size={size} /> }} />
         <Tabs.Screen name="household" options={{ title: "Household", tabBarIcon: ({ color, size }) => <Users color={color} size={size} /> }} />
         <Tabs.Screen name="settings" options={{ title: "Settings", tabBarIcon: ({ color, size }) => <Settings color={color} size={size} /> }} />
       </Tabs>

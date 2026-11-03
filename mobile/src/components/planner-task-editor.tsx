@@ -1,0 +1,66 @@
+import { useState } from "react"
+import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Switch, TextInput, View } from "react-native"
+import { SafeAreaView } from "react-native-safe-area-context"
+import { Check } from "lucide-react-native"
+import { plannerDescendants, type PlannerSnapshot, type PlannerTaskDraft } from "../../../shared/mobile/planner"
+import { Action, Card, Copy, styles, usePalette } from "./ui"
+
+export function PlannerField({ label, value, onChange, multiline = false, maxLength = 200 }: {
+  label: string; value: string; onChange: (value: string) => void; multiline?: boolean; maxLength?: number
+}) {
+  const colors = usePalette()
+  return <View style={{ gap: 8 }}><Copy tone="label">{label}</Copy><TextInput accessibilityLabel={label}
+    value={value} onChangeText={onChange} multiline={multiline} maxLength={maxLength} textAlignVertical={multiline ? "top" : "center"}
+    style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 12, backgroundColor: colors.surface, color: colors.text,
+      padding: 14, minHeight: multiline ? 110 : 52, fontSize: 17 }} /></View>
+}
+
+export function PlannerChoice({ label, selected, onPress, detail }: { label: string; selected: boolean; onPress: () => void; detail?: string }) {
+  const colors = usePalette()
+  return <Pressable accessibilityRole="checkbox" accessibilityLabel={label} accessibilityState={{ checked: selected }} onPress={onPress}
+    style={({ pressed }) => [styles.row, { minHeight: 52, padding: 12, borderRadius: 12, backgroundColor: selected ? colors.soft : colors.surface, opacity: pressed ? 0.7 : 1 }]}>
+    <View style={{ width: 26, height: 26, borderWidth: 1.5, borderRadius: 7, borderColor: selected ? colors.primary : colors.border, alignItems: "center", justifyContent: "center" }}>
+      {selected ? <Check size={18} color={colors.primary} /> : null}
+    </View><View style={{ flex: 1 }}><Copy>{label}</Copy>{detail ? <Copy tone="muted">{detail}</Copy> : null}</View>
+  </Pressable>
+}
+
+export function PlannerTaskEditor({ initial, snapshot, busy, error, onSave, onClose, onDraft }: {
+  initial: PlannerTaskDraft; snapshot: PlannerSnapshot; busy: boolean; error: string | null;
+  onSave: (draft: PlannerTaskDraft) => void; onClose: () => void; onDraft: (draft: PlannerTaskDraft) => void
+}) {
+  const [draft, setDraft] = useState(initial)
+  const colors = usePalette()
+  const excluded = plannerDescendants(snapshot, draft.taskId)
+  const candidates = snapshot.tasks.filter(task => !excluded.has(task.id) && (task.routine_id === draft.routineId || draft.prerequisiteIds.includes(task.id)))
+  function update(patch: Partial<PlannerTaskDraft>) { const next = { ...draft, ...patch }; setDraft(next); onDraft(next) }
+  function toggle(key: "assigneeIds" | "prerequisiteIds", id: string) {
+    update({ [key]: draft[key].includes(id) ? draft[key].filter(value => value !== id) : [...draft[key], id] })
+  }
+  return <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}
+    supportedOrientations={["portrait", "landscape-left", "landscape-right"]}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.content, { maxWidth: 720 }]}>
+          <View style={[styles.row, { justifyContent: "space-between", flexWrap: "wrap" }]}>
+            <Copy tone="heading" style={{ flex: 1, minWidth: 160 }}>{draft.isNew ? "Add a task" : "Edit task"}</Copy><Action secondary label="Close" disabled={busy} onPress={onClose} />
+          </View>
+          {error ? <View accessibilityRole="alert"><Copy style={{ color: colors.danger }}>{error}</Copy></View> : null}
+          <PlannerField label="Task name" value={draft.title} onChange={title => update({ title })} />
+          <PlannerField label="Notes" value={draft.notes} onChange={notes => update({ notes })} multiline maxLength={4000} />
+          <Card><View style={styles.row}><View style={{ flex: 1 }}><Copy tone="label">Make this a reward</Copy><Copy tone="muted">Something to look forward to when the earlier tasks are done.</Copy></View>
+            <Switch accessibilityLabel="Make this a reward" value={draft.isReward} onValueChange={isReward => update({ isReward })} trackColor={{ true: colors.primary }} />
+          </View></Card>
+          <Card><Copy tone="heading">Who’s doing it?</Copy><Copy tone="muted">Choose one or more people. Leave everyone unselected for an unassigned task.</Copy>
+            {snapshot.members.map(member => <PlannerChoice key={member.id} label={member.name} selected={draft.assigneeIds.includes(member.id)} onPress={() => toggle("assigneeIds", member.id)} />)}
+          </Card>
+          <Card><Copy tone="heading">What comes before?</Copy><Copy tone="muted">All selected tasks must be complete first.</Copy>
+            {candidates.length ? candidates.map(task => <PlannerChoice key={task.id} label={task.title} selected={draft.prerequisiteIds.includes(task.id)} onPress={() => toggle("prerequisiteIds", task.id)} />)
+              : <Copy tone="muted">There are no earlier tasks to choose from yet.</Copy>}
+          </Card>
+          <Action label={busy ? "Saving…" : draft.isNew ? "Add task" : "Save changes"} disabled={busy || !draft.title.trim()} onPress={() => onSave(draft)} />
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  </Modal>
+}
