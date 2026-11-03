@@ -309,9 +309,10 @@ membership checks and read-only behavior. The completion-route integration test
 now runs its historical migrations in an isolated schema, leaving emulator data
 and public-schema constraints untouched.
 
-Changing Android system font size while the development app is running produced
-an Expo Router multiple-linking-handlers warning; a clean launch did not. This
-needs investigation and release-build verification before launch. No physical
+Changing Android system font size previously recreated the activity and produced
+an Expo Router multiple-linking-handlers warning. The font-scale configuration
+plugin and emulator verification below address this; release-build verification
+on the supported OS/device matrix remains required. No physical
 device performance measurements, iOS native build, store release or household
 pilot has been completed.
 
@@ -439,7 +440,7 @@ email-less profile, a school-bag task and a dependent bedtime-story reward.
 | K03 | Open `cyntch://settings` while locked. Parent tabs remain unavailable and the restricted board stays visible. |
 | K04 | Submit an incorrect PIN, then the correct PIN offline. The first keeps the lock; the second exposes parent controls with an unsynced-unlock notice. Kill/relaunch offline: the unlock intent and task queue remain. |
 | O02 | Restore connectivity. Server lock becomes unlocked, completion uploads, dependent reward unlocks, and the local operation/lock records clear. Reopen the bag task to restore the fixture; no pending operations remain. |
-| U01, U02 | Inspect kiosk portrait/landscape and 1.6× text, including PIN controls. Landscape uses a member sidebar at normal text size; the single header leaves task space. Font changes reproduce the existing development linking warning noted above. |
+| U01, U02 | Inspect kiosk portrait/landscape and 1.6× text, including PIN controls. Landscape uses a member sidebar at normal text size; the single header leaves task space. The initially reproduced activity-recreation warning was then fixed and rechecked as described below. |
 | K04 | Enable again, select forgotten-PIN recovery, sign out and authenticate through native Clerk email-code UI using its reserved test identity. The display remains restricted through sign-out. Fresh parent authentication creates a server recovery receipt, retires the original kiosk session and clears the local lock. Parent tabs return. |
 
 Server notification preferences remained at revision 11 across activation, offline
@@ -455,3 +456,21 @@ offline unlock and interruption. Root/mobile lint and typecheck, the production
 Next.js build and Android/iOS JavaScript exports passed. Native iOS, physical
 phones/tablets, device reboot/app upgrade, multi-device kiosk UI, remote pushes,
 release performance and the household pilot still require their specified checks.
+
+The Android font-scale config plugin adds `fontScale` to the generated main
+activity's existing configuration-change handling. React Native 0.88 updates font
+metrics/layout when the activity receives configuration changes and resumes.
+This preserves open forms without modifying generated native files or hiding
+navigation warnings. An Android development APK rebuilt successfully and replaced
+the installed build with an active kiosk lock; the restricted board and secure PIN
+remained available afterward.
+
+On that build, open Parent access and enter four PIN digits, background the app,
+change system text scale from 1.0 to 1.6, and resume. The same Android activity and
+single React root remained; the modal and entered digits survived. React Native
+reported fontScale 1.6, the visible text resized, and no duplicate-linking warning
+was emitted. Returning to 1.0 also preserved state, and a correct PIN unlocked and
+synced successfully. Evidence: `cyntch-font-scale-pin-retained.png` and
+`cyntch-font-scale-build.log` in the local Codex temporary directory. Root/mobile
+lint and mobile typecheck passed. This verifies a development APK replacement,
+not store delivery, database-version migration or the complete OS/device matrix.

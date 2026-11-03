@@ -31,7 +31,8 @@
       "expo-sqlite",
       ["expo-notifications", { "color": "#23685b" }],
       "expo-background-task",
-      "@clerk/expo-native-components"
+      "@clerk/expo-native-components",
+      "./plugins/with-android-font-scale"
     ],
     "experiments": {
       "typedRoutes": true,
