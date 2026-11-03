@@ -32,11 +32,13 @@ export class BoardController {
   private refreshRevision = 0
   private retryTimer: ReturnType<typeof setTimeout> | undefined
   private flushing: Promise<void> | null = null
+  private refreshAfterSync = false
   private optimistic = new Map<string, { id: string; completed: boolean }>()
 
   constructor(private readonly store: LocalStore, readonly accountId: string, readonly deviceId: string,
     private readonly api: BoardApi, private readonly uuid: () => string) {
-    this.engine = new SyncEngine(store, accountId, api, () => {
+    this.engine = new SyncEngine(store, accountId, api, acknowledged => {
+      this.refreshAfterSync ||= acknowledged === true
       this.mutationRevision++
       void this.readLocal().catch(error => this.fail(error))
     })
@@ -173,6 +175,12 @@ export class BoardController {
       this.flushing = null
       await this.readLocal().catch(error => this.fail(error))
       if (this.stopped || !this.active || !this.state.online) return
+      // Once per changed batch, fetch task metadata and routine visibility too.
+      // This also replaces a reconnect refresh skipped during local writes.
+      if (this.refreshAfterSync) {
+        this.refreshAfterSync = false
+        void this.refresh()
+      }
       const delay = nextSyncDelay(this.state.pending, Date.now())
       if (delay !== null) this.retryTimer = setTimeout(() => this.wake(), Math.max(50, delay))
     })

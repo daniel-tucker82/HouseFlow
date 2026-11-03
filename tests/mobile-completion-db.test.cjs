@@ -94,3 +94,45 @@ test('C03 O05 PostgreSQL serializes conflicts, preserves stream order, and atomi
   assert.equal(inspect.rows[0].status, 'completed', 'the newest cross-device estimate wins regardless of lock acquisition order')
   assert.equal((await pool.query(`select count(*)::int as count from ${schema}.completion_operations where operation_id=$1`, [first.clientOperation.id])).rows[0].count, 1)
 })
+
+test('O09 server status revisions cover direct writers, survive migration replay, and roll back with the change', { skip: !url }, async t => {
+  const target = new URL(url)
+  assert.ok(['localhost', '127.0.0.1', '[::1]'].includes(target.hostname) && target.pathname === '/cyntch_mobile_test')
+  const pool = new Pool({ connectionString: url, max: 3 })
+  const schema = `status_test_${randomUUID().replaceAll('-', '')}`
+  const client = await pool.connect()
+  await client.query(`create schema ${schema}`)
+  t.after(async () => { client.release(); await pool.query(`drop schema ${schema} cascade`); await pool.end() })
+  await client.query(`set search_path to ${schema}`)
+  await client.query(`create table occurrence_tasks(task_id text primary key, status text not null, updated_at timestamptz default now());
+    insert into occurrence_tasks(task_id,status) values ('existing','unlocked')`)
+  const migration = readFileSync(path.resolve(__dirname, '../database/0019_occurrence_status_versions.sql'), 'utf8')
+  await client.query(migration)
+  const initial = (await client.query('select status_version from occurrence_tasks')).rows[0].status_version
+  assert.ok(BigInt(initial) > 0n, 'existing rows receive a revision')
+  await client.query(migration)
+  assert.equal((await client.query('select status_version from occurrence_tasks')).rows[0].status_version, initial, 'reapplying migration preserves revisions')
+  const inserted = await client.query("insert into occurrence_tasks(task_id,status) values ('new','locked') returning status_version")
+  assert.ok(BigInt(inserted.rows[0].status_version) > BigInt(initial))
+  await client.query("update occurrence_tasks set status='unlocked',updated_at=now() where task_id='existing'")
+  assert.equal((await client.query("select status_version from occurrence_tasks where task_id='existing'")).rows[0].status_version, initial, 'no-change recomputation keeps revision')
+  await client.query('begin')
+  const rolledBack = (await client.query("update occurrence_tasks set status='completed' where task_id='existing' returning status_version")).rows[0].status_version
+  assert.ok(BigInt(rolledBack) > BigInt(initial))
+  await client.query('rollback')
+  assert.equal((await client.query("select status_version from occurrence_tasks where task_id='existing'")).rows[0].status_version, initial)
+
+  const second = await pool.connect()
+  try {
+    await second.query(`set search_path to ${schema}`)
+    await client.query('begin')
+    const first = await client.query("update occurrence_tasks set status='completed' where task_id='existing' returning status_version")
+    // A concurrent writer must wait for the first row lock. Its revision must
+    // describe the later state even when the transactions start together.
+    const waiting = second.query("update occurrence_tasks set status='locked' where task_id='existing' returning status_version")
+    await client.query('commit')
+    const later = await waiting
+    assert.ok(BigInt(later.rows[0].status_version) > BigInt(first.rows[0].status_version))
+    assert.equal((await client.query("select status from occurrence_tasks where task_id='existing'")).rows[0].status, 'locked')
+  } finally { second.release() }
+})

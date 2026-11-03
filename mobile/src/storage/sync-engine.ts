@@ -19,7 +19,7 @@ export class SyncEngine {
     private readonly store: LocalStore,
     private readonly accountId: string,
     private readonly transport: SyncTransport,
-    private readonly onChange: () => void,
+    private readonly onChange: (acknowledged?: boolean) => void,
     private readonly now: () => number = Date.now,
   ) {}
 
@@ -66,7 +66,7 @@ export class SyncEngine {
         if (this.cancelled) return // The next sign-in can safely retry the same operation ID.
         if (response.operationId !== change.id) throw new Error("Unexpected synchronisation response")
         await this.store.acknowledge(this.accountId, response)
-        this.onChange()
+        this.onChange(response.outcome !== "rejected")
         if (response.outcome === "rejected") break
       } catch (error) {
         if (this.cancelled) return

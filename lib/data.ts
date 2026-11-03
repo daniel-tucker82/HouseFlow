@@ -130,6 +130,7 @@ type MemberViewTask = {
   description: string | null
   is_reward: boolean
   status: "locked" | "unlocked" | "completed"
+  status_version: string
   assignee_ids: string[]
   created_at: string
   lock_type: "none" | "prerequisite" | "time"
@@ -346,6 +347,7 @@ export async function getHouseholdMemberViewData(
             t.description,
             t.is_reward,
             ot.status,
+            ot.status_version::text,
             t.created_at,
             t.unlock_at,
             t.expires_at,
@@ -365,7 +367,7 @@ export async function getHouseholdMemberViewData(
          where ot_incomplete.occurrence_id = ot.occurrence_id
            and ot_incomplete.status <> 'completed'
        )
-     group by t.id, ot.occurrence_id, ro.title, ro.kind, t.title, t.description, t.is_reward, ot.status, t.created_at
+     group by t.id, ot.occurrence_id, ro.title, ro.kind, t.title, t.description, t.is_reward, ot.status, ot.status_version, t.created_at
      order by t.created_at asc`,
     [householdId],
   )
@@ -448,6 +450,7 @@ export async function getHouseholdMemberViewData(
     description: string | null
     is_reward: boolean
     status: "locked" | "unlocked" | "completed"
+    status_version: string
     assignee_ids: string[]
     created_at: string
     unlock_at: string | null

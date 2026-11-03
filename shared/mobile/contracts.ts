@@ -26,6 +26,8 @@ export interface BoardTask {
   description: string | null
   is_reward: boolean
   status: TaskState
+  /** Decimal server revision; absent only in caches/responses from older releases. */
+  status_version?: string
   assignee_ids: string[]
   lock_type: "none" | "prerequisite" | "time"
   blocking_task_title: string | null
@@ -62,7 +64,7 @@ export interface CompletionResult {
   operationId: string
   outcome: "applied" | "superseded" | "rejected"
   error?: string
-  occurrenceTaskStatuses: { task_id: string; status: TaskState }[]
+  occurrenceTaskStatuses: { task_id: string; status: TaskState; status_version?: string }[]
 }
 
 export interface CompletionVersion {

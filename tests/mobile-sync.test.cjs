@@ -165,6 +165,113 @@ test('O08 account boundaries prevent reading, sending or acknowledging another a
   assert.equal((await f.store.pending('parent')).length, 1)
 })
 
+test('O09 delayed acknowledgement reveals newer server state after removing the optimistic edit, including after restart', async t => {
+  const f = await fixture(t)
+  const newer = snapshot()
+  newer.tasks = [{ ...newer.tasks[0], status: 'unlocked', status_version: '9007199254740993' },
+    { ...newer.tasks[0], id: 't2', status: 'completed', status_version: '9007199254740995' }]
+  await f.store.enqueueCompletion(change())
+  await f.store.cacheBoard('parent', newer)
+  assert.equal((await f.store.getBoard('parent', 'h1')).tasks[0].status, 'completed', 'pending user intent remains visible')
+  const store = await f.reopen()
+  await store.acknowledge('parent', { operationId: 'op-1', outcome: 'applied', occurrenceTaskStatuses: [
+    { task_id: 't1', status: 'completed', status_version: '9007199254740992' },
+    { task_id: 't2', status: 'unlocked', status_version: '9007199254740994' },
+  ] })
+  assert.deepEqual((await store.getBoard('parent', 'h1')).tasks.map(task => task.status), ['unlocked', 'completed'])
+  assert.equal((await store.pending('parent')).length, 0)
+  assert.equal((await (await f.reopen()).getBoard('parent', 'h1')).tasks[0].status, 'unlocked')
+})
+
+test('O10 older server refresh and unversioned receipt cannot roll back acknowledged status', async t => {
+  const f = await fixture(t)
+  await f.store.enqueueCompletion(change())
+  await f.store.acknowledge('parent', { operationId: 'op-1', outcome: 'applied', occurrenceTaskStatuses: [
+    { task_id: 't1', status: 'completed', status_version: '20' },
+  ] })
+  const stale = snapshot()
+  stale.tasks[0].status_version = '19'
+  await f.store.cacheBoard('parent', stale)
+  assert.equal((await f.store.getBoard('parent', 'h1')).tasks[0].status, 'completed')
+  await f.store.enqueueCompletion(change('op-2', false))
+  await f.store.acknowledge('parent', { operationId: 'op-2', outcome: 'superseded', occurrenceTaskStatuses: [
+    { task_id: 't1', status: 'unlocked' },
+  ] })
+  assert.equal((await f.store.getBoard('parent', 'h1')).tasks[0].status, 'completed', 'clears the optimistic change to the canonical base')
+})
+
+test('O11 acknowledgements do not resurrect tasks removed by a refreshed board', async t => {
+  const f = await fixture(t)
+  await f.store.enqueueCompletion(change())
+  await f.store.cacheBoard('parent', { ...snapshot(), tasks: [] })
+  await f.store.acknowledge('parent', { operationId: 'op-1', outcome: 'applied', occurrenceTaskStatuses: [
+    { task_id: 't1', status: 'completed', status_version: '20' },
+  ] })
+  assert.deepEqual((await f.store.getBoard('parent', 'h1')).tasks, [])
+  assert.equal((await f.store.pending('parent')).length, 0)
+})
+
+test('O12 old cache format upgrades without losing offline intent or account scope', async t => {
+  const f = await fixture(t)
+  await f.store.enqueueCompletion(change())
+  const legacy = await f.store.getBoard('parent', 'h1')
+  await f.adapter.runAsync('UPDATE board_snapshots SET data = ? WHERE account_id = ?', JSON.stringify(legacy), 'parent')
+  await f.adapter.execAsync('PRAGMA user_version = 2')
+  const store = await f.reopen()
+  assert.equal((await store.getBoard('parent', 'h1')).tasks[0].status, 'completed')
+  assert.equal((await store.pending('parent')).length, 1)
+  const authoritative = snapshot()
+  authoritative.tasks[0].status_version = '50'
+  await store.cacheBoard('parent', authoritative)
+  await store.acknowledge('parent', { operationId: 'op-1', outcome: 'superseded', occurrenceTaskStatuses: [
+    { task_id: 't1', status: 'unlocked', status_version: '50' },
+  ] })
+  assert.equal((await store.getBoard('parent', 'h1')).tasks[0].status, 'unlocked')
+  assert.equal(await store.getBoard('other', 'h1'), null)
+})
+
+test('O13 discarding a rejected edit preserves newer canonical status learned during the refresh', async t => {
+  const f = await fixture(t)
+  await f.store.enqueueCompletion(change())
+  await f.store.acknowledge('parent', { operationId: 'op-1', outcome: 'rejected', occurrenceTaskStatuses: [] })
+  const latest = snapshot()
+  latest.tasks[0] = { ...latest.tasks[0], status: 'locked', status_version: '8', lock_type: 'prerequisite', blocking_task_title: 'New prerequisite' }
+  await f.store.cacheBoard('parent', latest)
+  await f.store.discardRejected('parent', 'op-1', snapshot())
+  const task = (await f.store.getBoard('parent', 'h1')).tasks[0]
+  assert.equal(task.status, 'locked')
+  assert.equal(task.blocking_task_title, 'New prerequisite')
+})
+
+test('O14 a completed upload batch refreshes routine visibility without another clock sample', { timeout: 2000 }, async t => {
+  const f = await fixture(t)
+  await f.store.enqueueCompletion(change())
+  let reads = 0, clocks = 0, uploaded = false
+  const controller = new BoardController(f.store, 'parent', 'device-1', {
+    bootstrap: async () => {
+      reads++
+      return { accountId: 'parent', households: [snapshot().household], board: { ...snapshot(), tasks: uploaded ? [] : snapshot().tasks } }
+    },
+    serverTime: async () => { clocks++; return Date.now() },
+    send: async edit => {
+      uploaded = true
+      return { operationId: edit.id, outcome: 'applied', occurrenceTaskStatuses: [{ task_id: 't1', status: 'completed', status_version: '2' }] }
+    },
+  }, () => 'unused')
+  t.after(() => controller.stop())
+  await controller.start()
+  const completed = new Promise(resolve => {
+    const unsubscribe = controller.subscribe(() => {
+      const state = controller.getSnapshot()
+      if (uploaded && !state.pending.length && state.board?.tasks.length === 0) { unsubscribe(); resolve() }
+    })
+  })
+  controller.setConnectivity(true)
+  await completed
+  assert.equal(reads, 2, 'one reconnect read and one read after the changed batch')
+  assert.equal(clocks, 1, 'no ongoing clock polling')
+})
+
 test('C04 empty queue performs no time request; one sample serves a batch', async t => {
   const f = await fixture(t)
   let checks = 0, sends = 0

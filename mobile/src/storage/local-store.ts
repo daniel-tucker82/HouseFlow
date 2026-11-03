@@ -1,4 +1,4 @@
-import type { BoardSnapshot, CompletionChange, CompletionResult, HouseholdSummary } from "../../../shared/mobile/contracts"
+import type { BoardSnapshot, BoardTask, CompletionChange, CompletionResult, HouseholdSummary } from "../../../shared/mobile/contracts"
 import { retryDelayMs } from "../../../shared/mobile/sync-policy"
 
 export type SqlValue = string | number | null
@@ -36,6 +36,32 @@ function overlayChanges(snapshot: BoardSnapshot, changes: CompletionChange[]): B
   }) }
 }
 
+// Keep the server base as well as the materialized screen. Removing an optimistic
+// edit must reveal the latest server value, even if its acknowledgement is older.
+type CachedBoard = { format: 3; server: BoardSnapshot; board: BoardSnapshot }
+function readCachedBoard(data: string): CachedBoard {
+  const cached = JSON.parse(data) as CachedBoard | BoardSnapshot
+  if ("format" in cached && cached.format === 3) return cached
+  // Legacy snapshots already contain pending edits. Preserve them until a server
+  // refresh/acknowledgement supplies a versioned base; never discard their outbox.
+  return { format: 3, server: cached as BoardSnapshot, board: cached as BoardSnapshot }
+}
+
+function statusVersion(task: { status_version?: string }) {
+  return typeof task.status_version === "string" && /^\d+$/.test(task.status_version) ? BigInt(task.status_version) : 0n
+}
+
+function mergeServerBoard(incoming: BoardSnapshot, previous?: BoardSnapshot): BoardSnapshot {
+  const prior = new Map(previous?.tasks.map(task => [`${task.occurrence_id}:${task.id}`, task]))
+  return { ...incoming, tasks: incoming.tasks.map(task => {
+    const old = prior.get(`${task.occurrence_id}:${task.id}`)
+    // Keep fresh metadata, but never roll back a status learned from a newer
+    // server response. Missing tasks stay missing; acknowledgements cannot add them.
+    return old && statusVersion(old) > statusVersion(task) ? { ...task, status: old.status,
+      status_version: old.status_version, lock_type: old.lock_type, blocking_task_title: old.blocking_task_title } : task
+  }) }
+}
+
 /** The device database is the durable outbox. Network callbacks never own it. */
 export class LocalStore {
   constructor(private readonly database: LocalDatabase) {}
@@ -70,19 +96,23 @@ export class LocalStore {
         account_id TEXT NOT NULL, household_id TEXT NOT NULL,
         PRIMARY KEY(account_id, household_id)
       );
-      PRAGMA user_version = 2;
+      PRAGMA user_version = 3;
     `)
   }
 
   async getBoard(accountId: string, householdId: string, connection: SqlConnection = this.database) {
+    return (await this.getCachedBoard(accountId, householdId, connection))?.board ?? null
+  }
+
+  private async getCachedBoard(accountId: string, householdId: string, connection: SqlConnection) {
     const row = await connection.getFirstAsync<{ data: string }>(
       "SELECT data FROM board_snapshots WHERE account_id = ? AND household_id = ?", accountId, householdId)
-    return row ? JSON.parse(row.data) as BoardSnapshot : null
+    return row ? readCachedBoard(row.data) : null
   }
 
   async getBoards(accountId: string) {
     const rows = await this.database.getAllAsync<{ data: string }>("SELECT data FROM board_snapshots WHERE account_id = ?", accountId)
-    return rows.map(row => JSON.parse(row.data) as BoardSnapshot)
+    return rows.map(row => readCachedBoard(row.data).board)
   }
 
   async pending(accountId: string, connection: SqlConnection = this.database) {
@@ -90,10 +120,13 @@ export class LocalStore {
       "SELECT * FROM pending_completions WHERE account_id = ? ORDER BY sequence", accountId)).map(fromRow)
   }
 
-  private async writeBoard(connection: SqlConnection, accountId: string, snapshot: BoardSnapshot) {
+  private async writeBoard(connection: SqlConnection, accountId: string, server: BoardSnapshot) {
+    const pending = (await this.pending(accountId, connection)).filter(change => change.householdId === server.household.id)
+    const cached: CachedBoard = { format: 3, server, board: overlayChanges(server, pending) }
     await connection.runAsync(`INSERT INTO board_snapshots(account_id, household_id, data) VALUES (?, ?, ?)
       ON CONFLICT(account_id, household_id) DO UPDATE SET data = excluded.data`,
-    accountId, snapshot.household.id, JSON.stringify(snapshot))
+    accountId, server.household.id, JSON.stringify(cached))
+    return cached.board
   }
 
   async cacheBoard(accountId: string, snapshot: BoardSnapshot) {
@@ -102,10 +135,9 @@ export class LocalStore {
       if (await this.isHouseholdRevoked(accountId, snapshot.household.id, transaction)) {
         throw new Error("Access to this household has been removed.")
       }
-      const pending = (await this.pending(accountId, transaction)).filter(change => change.householdId === snapshot.household.id)
+      const previous = await this.getCachedBoard(accountId, snapshot.household.id, transaction)
       // A refresh cannot erase an edit created while the request was in flight.
-      merged = overlayChanges(snapshot, pending)
-      await this.writeBoard(transaction, accountId, merged)
+      merged = await this.writeBoard(transaction, accountId, mergeServerBoard(snapshot, previous?.server))
     })
     return merged
   }
@@ -119,9 +151,9 @@ export class LocalStore {
         UNION SELECT household_id FROM pending_completions WHERE account_id = ?`, accountId, accountId)
       for (const household of households) {
         await transaction.runAsync("DELETE FROM revoked_households WHERE account_id = ? AND household_id = ?", accountId, household.id)
-        const cached = await this.getBoard(accountId, household.id, transaction)
+        const cached = await this.getCachedBoard(accountId, household.id, transaction)
         // Role changes also take effect locally, including when task edits are still pending.
-        if (cached) await this.writeBoard(transaction, accountId, { ...cached, household })
+        if (cached) await this.writeBoard(transaction, accountId, { ...cached.server, household })
       }
       for (const { household_id: householdId } of known) {
         if (allowed.has(householdId)) continue
@@ -141,7 +173,8 @@ export class LocalStore {
   async enqueueCompletion(input: Omit<CompletionChange, "sequence" | "correctedTimeMs" | "attempts" | "nextAttemptMs" | "state" | "error">) {
     let saved: CompletionChange | undefined
     await this.database.withExclusiveTransactionAsync(async transaction => {
-      const snapshot = await this.getBoard(input.accountId, input.householdId, transaction)
+      const cached = await this.getCachedBoard(input.accountId, input.householdId, transaction)
+      const snapshot = cached?.board
       const task = snapshot?.tasks.find(item => item.id === input.taskId && item.occurrence_id === input.occurrenceId)
       if (!snapshot || !task) throw new Error("This task is not available on this device. Refresh the board first.")
       if (input.completed && task.status === "locked") throw new Error("This task is not startable yet.")
@@ -156,7 +189,7 @@ export class LocalStore {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       input.id, input.accountId, input.householdId, input.deviceId, input.taskId, input.occurrenceId,
       input.memberId, input.completed ? 1 : 0, input.deviceTimeMs, saved.sequence)
-      await this.writeBoard(transaction, input.accountId, overlayChanges(snapshot, [saved]))
+      await this.writeBoard(transaction, input.accountId, cached!.server)
     })
     if (!saved) throw new Error("Unable to save the task safely")
     return saved
@@ -184,13 +217,15 @@ export class LocalStore {
         return
       }
       await transaction.runAsync("DELETE FROM pending_completions WHERE account_id = ? AND id = ?", accountId, result.operationId)
-      const snapshot = await this.getBoard(accountId, row.household_id, transaction)
-      if (snapshot) {
-        const statuses = new Map(result.occurrenceTaskStatuses.map(item => [item.task_id, item.status]))
-        const updated: BoardSnapshot = { ...snapshot, tasks: snapshot.tasks.map(task =>
-          task.occurrence_id === row.occurrence_id && statuses.has(task.id) ? { ...task, status: statuses.get(task.id)! } : task) }
-        const outstanding = (await this.pending(accountId, transaction)).filter(change => change.householdId === row.household_id)
-        await this.writeBoard(transaction, accountId, overlayChanges(updated, outstanding))
+      const cached = await this.getCachedBoard(accountId, row.household_id, transaction)
+      if (cached) {
+        const statuses = new Map(result.occurrenceTaskStatuses.map(item => [item.task_id, item]))
+        const updated: BoardSnapshot = { ...cached.server, tasks: cached.server.tasks.map((task): BoardTask => {
+          const incoming = task.occurrence_id === row.occurrence_id ? statuses.get(task.id) : undefined
+          if (!incoming || statusVersion(incoming) < statusVersion(task)) return task
+          return { ...task, status: incoming.status, status_version: incoming.status_version }
+        }) }
+        await this.writeBoard(transaction, accountId, updated)
       }
     })
   }
@@ -224,8 +259,8 @@ export class LocalStore {
       }
       await transaction.runAsync("DELETE FROM pending_completions WHERE account_id = ? AND id = ? AND state = 'rejected'", accountId, id)
       if (revoked || !freshBoard) return
-      const pending = (await this.pending(accountId, transaction)).filter(change => change.householdId === freshBoard.household.id)
-      await this.writeBoard(transaction, accountId, overlayChanges(freshBoard, pending))
+      const previous = await this.getCachedBoard(accountId, freshBoard.household.id, transaction)
+      await this.writeBoard(transaction, accountId, mergeServerBoard(freshBoard, previous?.server))
     })
   }
 

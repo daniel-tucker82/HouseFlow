@@ -2040,8 +2040,14 @@ async function handleFlowPost(request: Request, context?: {
       await client.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [`completion:${userId}:${operation.version.operationId}`])
       const receipt = await findCompletionReceipt(client, userId, operation)
       if (receipt) {
+        // The operation's outcome is immutable, but other devices or timers may
+        // have changed tasks since it committed. Never replay its old board state.
+        const statuses = await client.query<{ task_id: string; status: "locked" | "unlocked" | "completed"; status_version: string }>(
+          `select ot.task_id, ot.status, ot.status_version::text from occurrence_tasks ot
+           join routine_occurrences ro on ro.id = ot.occurrence_id
+           where ot.occurrence_id = $1::uuid and ro.household_id = $2::uuid`, [occurrenceId, householdId])
         await client.query("COMMIT")
-        return NextResponse.json({ ok: true, ...receipt })
+        return NextResponse.json({ ok: true, ...receipt, occurrenceTaskStatuses: statuses.rows })
       }
       await client.query("select id from routine_occurrences where id = $1::uuid and household_id = $2::uuid for update", [occurrenceId, householdId])
 
@@ -2092,8 +2098,8 @@ async function handleFlowPost(request: Request, context?: {
       }
 
       if (!(await claimCompletionVersion(client, occurrenceId, taskId, operation))) {
-        const statuses = await client.query<{ task_id: string; status: "locked" | "unlocked" | "completed" }>(
-          "select task_id, status from occurrence_tasks where occurrence_id = $1::uuid", [occurrenceId])
+        const statuses = await client.query<{ task_id: string; status: "locked" | "unlocked" | "completed"; status_version: string }>(
+          "select task_id, status, status_version::text from occurrence_tasks where occurrence_id = $1::uuid", [occurrenceId])
         const result = { operationId: operation.version.operationId, outcome: "superseded" as const, occurrenceTaskStatuses: statuses.rows }
         await recordCompletionReceipt(client, userId, householdId, operation, result)
         await client.query("COMMIT")
@@ -2133,8 +2139,8 @@ async function handleFlowPost(request: Request, context?: {
       await materializeDeferredExpiryForUnlockedTasks(client, occurrenceId)
       await applyRewardAutoCompletion(client, occurrenceId)
 
-      const afterStatuses = await client.query<{ task_id: string; status: "locked" | "unlocked" | "completed" }>(
-        `select task_id, status
+      const afterStatuses = await client.query<{ task_id: string; status: "locked" | "unlocked" | "completed"; status_version: string }>(
+        `select task_id, status, status_version::text
          from occurrence_tasks
          where occurrence_id = $1::uuid`,
         [occurrenceId],
@@ -2236,6 +2242,7 @@ async function handleFlowPost(request: Request, context?: {
         occurrenceTaskStatuses: afterStatuses.rows.map((row) => ({
           task_id: row.task_id,
           status: row.status,
+          status_version: row.status_version,
         })),
       })
     } catch (err) {
