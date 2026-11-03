@@ -38,6 +38,15 @@ Verified live catalog in the user-selected Aspyre account, under Aspyre Pty Ltd 
 - Annual: price_1UXZJYAJcWjR3ecTHfb4oXwN — AUD 4999.
 - No trial. No charges were created during catalog setup.
 
+Verified live configuration on 2026-11-03 (application not yet released):
+
+- Restricted runtime key saved as sensitive production STRIPE_SECRET_KEY in Vercel. Read-only SDK checks passed for prices, customers, subscriptions, invoices, invoice payments, charges, disputes, Checkout Sessions and portal configuration.
+- Webhook we_1UXZt8AJcWjR3ecT3np8Rt7c is active for exactly the 14 handled events at https://www.cyntch.com/api/billing/webhook, using snapshot API version 2026-10-28.endive. Its signing secret is saved as sensitive production STRIPE_WEBHOOK_SECRET. Production delivery is not yet verified; the application endpoint still awaits deployment.
+- Default portal bpc_1UXZvCAJcWjR3ecTk12fkbrf enables invoice history, payment-method updates and cancellation at period end. Subscription/product/quantity changes and public login links are disabled.
+- Both live price IDs are saved in production environment variables. No secrets are stored in this repository; temporary credential transfer files were removed.
+- The Stripe connector now correctly exposes Aspyre acct_1U4XwUAJcWjR3ecT in live mode. Earlier OAuth/account-selection problems are resolved for live configuration.
+- Latest preview revision d4e762c1fe90ef01b14c9fe2e47a0c3d4eaaa957 is READY. Sandbox financial tests, authenticated preview verification, production owner grant, migration and production deployment remain outstanding.
+
 Aspyre's owner corrected the business status: **not GST registered**. Automatic GST collection is not enabled. Revisit tax settings when registration or sales jurisdictions change; absence of Australian GST registration is not a conclusion about other jurisdictions.
 
 The runtime needs customer read/write, price read, subscription read, invoice/invoice-payment read, Checkout Session read/write/expire, customer portal session creation, charge read, and dispute read access. Configure portal cancellation at period end and payment-method updates. Avoid enabling arbitrary product/quantity changes.
