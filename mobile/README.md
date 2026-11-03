@@ -906,3 +906,57 @@ role limits, removed members and foreign-household IDs are covered. The complete
 general suite passed 288 checks; root lint, typecheck and the production build
 passed. This follow-up changes only server authorization selection, with no
 database migration or native module change.
+
+## Account deletion preparation
+
+The account deletion workflow is **not complete**. The current addition is a
+read-only review API at `/api/mobile/account-deletion`, shared contracts and a
+native `MobileApi.accountDeletionReview()` method. There is no deletion endpoint
+or deletion button yet, and Clerk profile management alone does not remove
+Cyntch data.
+
+The review lists current memberships, owned households, counts of content and
+profiles without sign-in, possible ownership successors with an existing
+manager/supervisor role and a Clerk-linked account, permanent owner access, and
+stored Stripe/Apple/Google subscription state. Billing data is included even
+when new purchases are disabled, is labelled by environment, and reflects the
+last stored verification rather than a new provider check. Provider IDs, email
+addresses and unrelated household details are omitted. Authored content in a
+former household contributes only to account-level counts.
+
+The review uses one repeatable-read transaction. Its fingerprint binds the
+account/session/device to household ownership, member roles, content identity,
+subscription state and pending purchases. Future acceptance must recompute the
+review under the relevant write locks, validate explicit choices for every
+owned household, and check recent identity verification. The fingerprint is
+not authorization or consent. Transfer candidates exclude members without
+management access and profiles without independent sign-in.
+
+The API checks the authenticated account/session, existing installation secret,
+revocation records and kiosk restrictions. A first-install review does not
+require push registration or notification permission. The native transport
+rejects a response belonging to another account, session or device. Reads do
+not create an installation, delete content, transfer ownership, or change a
+subscription.
+
+Verification on 2026-11-04: seven focused tests exercise real PostgreSQL and API
+boundaries, including stale reviews, replacement with unchanged content counts,
+pending payments, explicit confirmation, unrelated/child successor rejection,
+empty accounts, first-install access and kiosk/session protection. The Android
+development app fetched an actual local API review through its authenticated
+MobileApi instance: one owned test household, one profile without sign-in, one
+routine, three runs and nine tasks. Temporary inspection hooks were removed.
+Existing migrations 0030–0032 were applied only to the local test database so
+its billing tables match the integration-test schemas; no production or billing
+provider state was changed.
+
+The final general regression run passed 295 checks. Root/mobile lint and type
+checks, the Next.js production build and Android/iOS JavaScript exports passed.
+
+Next work is the durable deletion processor, current-session/reverification
+checks at confirmation, safe handling of ownership and subscriptions, personal
+data removal at Cyntch and its providers, rejection of late uploads, local data
+cleanup, native confirmation UI, and the web deletion path. Account deletion
+must be available in-app under [Apple's guidance](https://developer.apple.com/help/app-review/guideline-reference/5-1-1-account-deletion);
+[Google also requires a web request path](https://support.google.com/googleplay/android-developer/answer/13327111?hl=en-EN).
+Provider deletion and interrupted recovery still need end-to-end verification.

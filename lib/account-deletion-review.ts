@@ -1,0 +1,121 @@
+import { createHash } from "node:crypto"
+import type { PoolClient } from "pg"
+import { db } from "@/lib/db"
+import { normalizeRole } from "@/lib/household-authz"
+import { verifyInstallation } from "@/lib/native-notification-settings"
+import { notificationUuid } from "@/shared/mobile/notification-settings"
+import type { AccountDeletionScope, AccountDeletionReview, AccountDeletionHousehold, AccountDeletionIntent,
+  AccountDeletionOwnershipChoice, DeletionContentCounts, DeletionBillingSource } from "@/shared/mobile/account-deletion"
+
+export class AccountDeletionError extends Error {
+  constructor(message: string, public status = 400, public code = "account_deletion_invalid") { super(message) }
+}
+const emptyCounts = (): DeletionContentCounts => ({ routines: 0, runs: 0, tasks: 0 })
+type HouseholdRow = { id: string; name: string; leader_id: string; role: string | null }
+type MemberRow = { household_id: string; id: string; name: string; role: string; linked: boolean }
+type ContentRow = { household_id: string; kind: keyof DeletionContentCounts; count: number; authored: number; stamp: string | null }
+type BillingRow = { household_id: string; provider: DeletionBillingSource["provider"]; environment: DeletionBillingSource["environment"];
+  provider_id: string; status: string; renewal: string; pending_payment: boolean; access_through: string | null; verified_at: string | null }
+
+/** Reused by acceptance under its account/household locks. A review fingerprint
+ * is an optimistic concurrency check, never proof of authorization or consent. */
+export async function reviewAccountDeletion(client: PoolClient, scope: AccountDeletionScope): Promise<AccountDeletionReview> {
+  if (!(await client.query("select 1 from users where id=$1", [scope.accountId])).rowCount) throw new AccountDeletionError("Your account is no longer available.", 404, "account_unavailable")
+  const households = (await client.query<HouseholdRow>(`select h.id,h.name,h.leader_id,hm.role::text
+    from households h left join household_members hm on hm.household_id=h.id and hm.user_id=$1
+    where hm.user_id=$1 or h.leader_id=$1 order by h.id`, [scope.accountId])).rows
+  const owned = households.filter(household => household.leader_id === scope.accountId).map(household => household.id)
+  const members = (await client.query<MemberRow>(`select hm.household_id,u.id,coalesce(nullif(u.full_name,''),'Household member') as name,
+      hm.role::text,u.id like 'user\\_%' escape '\\' as linked
+    from household_members hm join users u on u.id=hm.user_id where hm.household_id=any($1::uuid[]) order by hm.household_id,u.id`, [owned])).rows
+  // IDs, rather than counts alone, detect replacement of records between review
+  // and confirmation. Task completion does not change the deletion impact.
+  const content = (await client.query<ContentRow>(`select household_id,kind,count(*)::int as count,
+      count(*) filter(where created_by=$1)::int as authored,
+      md5(string_agg(id::text||':'||coalesce(created_by,''),',' order by id)) as stamp
+    from (
+      select id,household_id,created_by,'routines' as kind from routines where household_id=any($2::uuid[]) or created_by=$1
+      union all select id,household_id,created_by,'runs' from routine_occurrences where household_id=any($2::uuid[]) or created_by=$1
+      union all select id,household_id,created_by,'tasks' from tasks where household_id=any($2::uuid[]) or created_by=$1
+    ) affected group by household_id,kind order by household_id,kind`, [scope.accountId,owned])).rows
+  // Include stored provider records even when the purchase feature is disabled.
+  // This is a disclosure of the last verified state, not a live renewal promise.
+  const billing = (await client.query<BillingRow>(`select household_id,'stripe' as provider,'unknown' as environment,
+      stripe_subscription_id as provider_id,subscription_status as status,
+      case when cancel_at_period_end or subscription_status in ('canceled','incomplete_expired') then 'will_not_renew' else 'unknown' end as renewal,
+      subscription_status in ('incomplete','past_due','unpaid') as pending_payment,
+      paid_through::text as access_through,last_reconciled_at::text as verified_at
+    from household_billing where household_id=any($1::uuid[]) and stripe_subscription_id is not null
+    union all select a.household_id,s.store,a.environment,s.subscription_id,s.status,s.auto_renewal_status,s.pending_payment,
+      s.access_through::text,s.verified_at::text from native_billing_accounts a join native_subscriptions s on s.account_id=a.id
+    where a.household_id=any($1::uuid[]) order by household_id,provider,environment,provider_id`, [owned])).rows
+  const purchases = (await client.query<{ household_id: string; id: string; provider: string; state: string }>(`select household_id,id,provider,state
+    from billing_purchase_attempts where household_id=any($1::uuid[]) and state in ('reserved','submitted') and expires_at>now()
+    order by household_id,id`, [owned])).rows
+  const permanentOwnerAccess = Boolean((await client.query("select 1 from owner_entitlements where user_id=$1", [scope.accountId])).rowCount)
+  const authoredContent = emptyCounts()
+  for (const row of content) authoredContent[row.kind] += row.authored
+  const result: AccountDeletionHousehold[] = households.map(household => {
+    const owned = household.leader_id === scope.accountId
+    const others = members.filter(member => member.household_id === household.id && member.id !== scope.accountId)
+    const counts = emptyCounts()
+    for (const row of content) if (row.household_id === household.id) counts[row.kind] = row.count
+    return { id: household.id, name: household.name, role: normalizeRole(household.role), owned,
+      ownership: owned ? {
+        otherAccounts: others.filter(member => member.linked).length,
+        profilesWithoutSignIn: others.filter(member => !member.linked).length,
+        possibleSuccessors: others.flatMap(member => {
+          const role = normalizeRole(member.role)
+          return member.linked && role !== "member" ? [{ id: member.id, name: member.name, role }] : []
+        }), content: counts,
+        billing: billing.filter(source => source.household_id === household.id).map(source => ({ provider: source.provider,
+          environment: source.environment,status: source.status,renewal: source.renewal,pendingPayment:source.pending_payment,accessThrough: source.access_through,verifiedAt: source.verified_at })),
+        purchasePending: purchases.some(purchase => purchase.household_id === household.id),
+      } : null }
+  })
+  const revision = createHash("sha256").update(JSON.stringify([scope,households,members,content,billing,purchases,permanentOwnerAccess])).digest("hex")
+  return { ...scope,revision,reviewedAt:new Date().toISOString(),households:result,authoredContent,permanentOwnerAccess }
+}
+
+export async function readAccountDeletionReview(scope: AccountDeletionScope, secret: string) {
+  const client = await db.connect()
+  try {
+    await client.query("begin isolation level repeatable read read only")
+    await verifyInstallation(client,scope.deviceId,secret)
+    // A first-install review needs no push registration or notification permission.
+    // Existing installation secrets and durable session revocations still apply.
+    if ((await client.query("select 1 from native_notification_revocations where device_id=$1 and account_id=$2 and session_id=$3",[scope.deviceId,scope.accountId,scope.sessionId])).rowCount) {
+      throw new AccountDeletionError("Sign in again before reviewing account deletion.",403,"account_session_ended")
+    }
+    const result = await reviewAccountDeletion(client,scope)
+    await client.query("commit")
+    return result
+  } catch (error) { await client.query("rollback"); throw error } finally { client.release() }
+}
+
+export function parseAccountDeletionIntent(value: unknown): AccountDeletionIntent {
+  const row = value as Partial<AccountDeletionIntent> | null
+  if (!row || typeof row.operationId !== "string" || !notificationUuid.test(row.operationId) || typeof row.revision !== "string" ||
+    !/^[a-f0-9]{64}$/.test(row.revision) || row.confirmAccountDeletion !== true || row.acknowledgeSubscriptions !== true || !Array.isArray(row.ownership) || row.ownership.length > 100) {
+    throw new AccountDeletionError("Review and confirm the account and subscription consequences first.")
+  }
+  const seen = new Set<string>()
+  const ownership: AccountDeletionOwnershipChoice[] = row.ownership.map((choice): AccountDeletionOwnershipChoice => {
+    if (!choice || typeof choice.householdId !== "string" || !notificationUuid.test(choice.householdId) || seen.has(choice.householdId.toLowerCase())) throw new AccountDeletionError("Choose what happens to each household once.")
+    const householdId = choice.householdId.toLowerCase(); seen.add(householdId)
+    if (choice.action === "delete") return { householdId,action:"delete" }
+    if (choice.action === "transfer" && typeof choice.successorId === "string" && /^user_[A-Za-z0-9_-]{1,200}$/.test(choice.successorId)) return { householdId,action:"transfer",successorId:choice.successorId }
+    throw new AccountDeletionError("Choose a parent to take over this household, or choose household deletion.")
+  }).sort((left,right) => left.householdId.localeCompare(right.householdId))
+  return { operationId:row.operationId.toLowerCase(),revision:row.revision,ownership,confirmAccountDeletion:true,acknowledgeSubscriptions:true }
+}
+
+export function validateAccountDeletionIntent(review: AccountDeletionReview, intent: AccountDeletionIntent) {
+  if (review.revision !== intent.revision) throw new AccountDeletionError("Your households or subscriptions changed. Review account deletion again.",409,"account_deletion_review_changed")
+  const owned = review.households.filter(household => household.owned)
+  if (owned.length !== intent.ownership.length || owned.some(household => intent.ownership.filter(choice => choice.householdId === household.id).length !== 1)) throw new AccountDeletionError("Choose what happens to every household you own.")
+  for (const household of owned) {
+    const choice = intent.ownership.find(choice => choice.householdId === household.id)!
+    if (choice.action === "transfer" && !household.ownership?.possibleSuccessors.some(member => member.id === choice.successorId)) throw new AccountDeletionError("That parent can no longer take over this household.",409,"account_deletion_review_changed")
+  }
+}
