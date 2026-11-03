@@ -145,9 +145,11 @@ async function materializeDeferredExpiryForUnlockedTasks(client: PoolClient, occ
 
 async function applyRewardAutoCompletion(client: PoolClient, occurrenceId: string) {
   if (!await occurrenceAutomationAllowed(client, occurrenceId)) return
+  await client.query("select id from routine_occurrences where id=$1::uuid for update", [occurrenceId])
   await client.query(
     `update occurrence_tasks ot
      set status = 'completed',
+         completion_reason = 'expiry',
          completed_at = coalesce(ot.completed_at, now()),
          updated_at = now()
      from tasks t
@@ -161,6 +163,7 @@ async function applyRewardAutoCompletion(client: PoolClient, occurrenceId: strin
 }
 
 async function recomputeOccurrenceStatuses(client: PoolClient, occurrenceId: string) {
+  await client.query("select id from routine_occurrences where id=$1::uuid for update", [occurrenceId])
   await client.query(
     `with lock_flags as (
        select
@@ -207,6 +210,7 @@ async function recomputeOccurrenceStatuses(client: PoolClient, occurrenceId: str
        ) then 'locked'::task_status
        else 'unlocked'::task_status
        end,
+      completion_reason = case when lf.is_expired then 'expiry' else ot.completion_reason end,
       completed_at = case
        when lf.is_expired then coalesce(ot.completed_at, now())
        else ot.completed_at
@@ -242,9 +246,12 @@ async function completeOlderRoutineOccurrences(
       : new Date(String(scheduledForRaw)).toISOString()
   if (!scheduledFor || Number.isNaN(new Date(scheduledFor).getTime())) return
 
+  await client.query(`select id from routine_occurrences where routine_id=$1::uuid and id<>$2::uuid
+    and scheduled_for<$3::timestamptz and status='active' order by id for update`, [routineId, newOccurrenceId, scheduledFor])
   await client.query(
     `update occurrence_tasks ot
      set status = 'completed'::task_status,
+         completion_reason = 'newer_copy',
          completed_at = coalesce(ot.completed_at, now()),
          updated_at = now()
      where ot.occurrence_id in (
@@ -253,6 +260,7 @@ async function completeOlderRoutineOccurrences(
        where ro.routine_id = $1::uuid
          and ro.id <> $2::uuid
          and ro.scheduled_for < $3::timestamptz
+         and ro.status = 'active'
      )
        and ot.status <> 'completed'::task_status`,
     [routineId, newOccurrenceId, scheduledFor],
@@ -260,10 +268,11 @@ async function completeOlderRoutineOccurrences(
   await client.query(
     `update routine_occurrences ro
      set status = 'completed'::occurrence_status,
+         completion_reason = 'newer_copy',
          updated_at = now()
      where ro.routine_id = $1::uuid
        and ro.id <> $2::uuid
-       and ro.scheduled_for < $3::timestamptz`,
+       and ro.scheduled_for < $3::timestamptz and ro.status = 'active'`,
     [routineId, newOccurrenceId, scheduledFor],
   )
 }
@@ -331,8 +340,8 @@ async function materializeDueRecurrences(
       if (generationAllowance <= 0) break
       generationAllowance -= 1
       const occurrenceInsert = await client.query(
-        `insert into routine_occurrences (routine_id, household_id, kind, title, scheduled_for, status, created_by)
-         values ($1::uuid, $2::uuid, 'routine', $3, $4::timestamptz, 'active', $5)
+        `insert into routine_occurrences (routine_id, household_id, kind, title, scheduled_for, status, created_by, created_via)
+         values ($1::uuid, $2::uuid, 'routine', $3, $4::timestamptz, 'active', $5, 'recurrence')
          returning id`,
         [routine.id, householdId, `Recurrence - ${rule.id}`, dueIso, actorUserId],
       )
@@ -543,6 +552,7 @@ async function processActiveOccurrenceTimers(
      from routine_occurrences
      where household_id = $1::uuid
        and status = 'active'::occurrence_status
+     order by id
      for update`,
     [householdId],
   )

@@ -160,6 +160,7 @@ export async function getHouseholdMemberViewData(
   const pushNotificationIds: string[] = []
   try {
     await client.query("BEGIN")
+    await client.query("select id from routine_occurrences where household_id=$1 and status='active' order by id for update", [householdId])
     const beforeStatuses = await client.query<{ occurrence_id: string; task_id: string; status: "locked" | "unlocked" | "completed" }>(
       `select ot.occurrence_id, ot.task_id, ot.status
        from occurrence_tasks ot
@@ -225,6 +226,7 @@ export async function getHouseholdMemberViewData(
            ) then 'locked'::task_status
            else 'unlocked'::task_status
          end,
+        completion_reason = case when lf.is_expired then 'expiry' else ot.completion_reason end,
         completed_at = case
           when lf.is_expired then coalesce(ot.completed_at, now())
           else ot.completed_at

@@ -19,8 +19,8 @@ test('planner creation routes recover lost replies at capacity, reject altered r
   t.after(async () => { await db.end(); await admin.query(`drop schema ${schema} cascade`); await admin.end() })
   await db.query(`create type task_status as enum ('locked','unlocked','completed');
     create type occurrence_status as enum ('active','completed','cancelled');
-    create table users(id text primary key);
-    create table households(id uuid primary key, timezone text);
+    create table users(id text primary key,email text,full_name text);
+    create table households(id uuid primary key, timezone text,leader_id text);
     create table household_members(household_id uuid, user_id text);
     create table routines(id uuid primary key default gen_random_uuid(), household_id uuid, name text, type text, recurrence_rule text,
       complete_older_occurrences_on_new boolean, created_by text, updated_at timestamptz default now());
@@ -37,9 +37,10 @@ test('planner creation routes recover lost replies at capacity, reject altered r
   const startMigration = readFileSync(path.resolve(__dirname, '../database/0021_routine_start_receipts.sql'), 'utf8')
   await db.query(startMigration); await db.query(startMigration)
   await db.query(readFileSync(path.resolve(__dirname, '../database/0017_task_edit_versions.sql'), 'utf8'))
+  await db.query(readFileSync(path.resolve(__dirname, '../database/0025_native_notification_events.sql'), 'utf8'))
   const householdId = randomUUID(), taskId = randomUUID()
-  await db.query("insert into users values ('parent'),('other'); insert into household_members values (null,'child')")
-  await db.query("insert into households values($1,'Australia/Sydney')", [householdId])
+  await db.query("insert into users(id) values ('parent'),('other'),('child'); insert into household_members values (null,'child')")
+  await db.query("insert into households values($1,'Australia/Sydney','parent')", [householdId])
   await db.query("update household_members set household_id=$1", [householdId])
   let denied = false, kiosk = false, member = true, userId = 'parent', admissionChecks = 0
   class EntitlementError extends Error { constructor(message, status) { super(message); this.status = status } }
@@ -134,11 +135,17 @@ test('planner creation routes recover lost replies at capacity, reject altered r
   assert.equal((await send({ ...clear, saveRevision: 12, timing: { ...timing, unlockRule: { kind: 'fixed', date: '2026-02-30' } } })).status, 400)
 
   const startBody = { action: 'createOccurrence', routineId, creationId: randomUUID() }
+  const events = async () => (await db.query('select kind,subject,member_ids from native_notification_events order by kind')).rows
+  assert.deepEqual(await events(), [], 'template edits are not active task or routine events')
   const start = await send(startBody)
   assert.equal(start.status, 200)
   const started = await start.json(), occurrenceId = started.occurrence.id
+  const startEvents = await events()
+  assert.deepEqual(startEvents.map(row => row.kind), ['routine_started', 'task_assigned', 'task_available'])
+  assert.deepEqual(startEvents.find(row => row.kind === 'task_available').member_ids, ['child'])
   denied = true
   assert.deepEqual(await (await send(startBody)).json(), started, 'lost reply replays the original server-generated start time at full quota')
+  assert.deepEqual(await events(), startEvents, 'a replay cannot enqueue a second set of alerts')
   assert.equal((await db.query('select count(*)::int n from routine_occurrences')).rows[0].n, 1)
   assert.equal((await db.query('select count(*)::int n from tasks')).rows[0].n, 2)
   assert.equal((await db.query('select count(*)::int n from task_assignees')).rows[0].n, 2)
@@ -153,11 +160,14 @@ test('planner creation routes recover lost replies at capacity, reject altered r
     create trigger interrupt_start_receipt before insert on planner_creations for each row execute function fail_start_receipt()`)
   const secondStart = { ...startBody, creationId: randomUUID(), scheduledFor: new Date(Date.parse(started.occurrence.scheduled_for) + 60000).toISOString() }
   await assert.rejects(send(secondStart), /Interrupted start receipt/)
+  assert.deepEqual(await events(), startEvents, 'start and superseded alerts roll back with the failed receipt')
   assert.equal((await db.query('select count(*)::int n from routine_occurrences')).rows[0].n, 1)
   assert.equal((await db.query('select count(*)::int n from tasks')).rows[0].n, 2)
   assert.equal((await db.query('select status from routine_occurrences where id=$1', [occurrenceId])).rows[0].status, 'active', 'older-run completion rolls back with the receipt')
   await db.query('drop trigger interrupt_start_receipt on planner_creations')
   assert.equal((await send(secondStart)).status, 200)
+  assert.equal((await events()).filter(row => row.kind === 'routine_superseded').length, 1)
+  assert.equal((await events()).filter(row => row.kind === 'routine_completed' || row.kind === 'task_completed').length, 0)
   assert.equal((await db.query('select status from routine_occurrences where id=$1', [occurrenceId])).rows[0].status, 'completed')
   await db.query('delete from routine_occurrences where id=$1', [occurrenceId])
   assert.equal((await send(startBody)).status, 410, 'a delayed start retry never recreates a removed run')

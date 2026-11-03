@@ -193,9 +193,11 @@ async function materializeDeferredExpiryForUnlockedTasks(client: PoolClient, occ
 
 async function applyRewardAutoCompletion(client: PoolClient, occurrenceId: string) {
   if (!await occurrenceAutomationAllowed(client, occurrenceId)) return
+  await client.query("select id from routine_occurrences where id=$1::uuid for update", [occurrenceId])
   const result = await client.query(
     `update occurrence_tasks ot
      set status = 'completed',
+         completion_reason = 'expiry',
          completed_at = coalesce(ot.completed_at, now()),
          updated_at = now()
      from tasks t
@@ -231,6 +233,7 @@ async function clearExpiredOccurrenceTaskExpiryRules(client: PoolClient, occurre
 }
 
 async function recomputeOccurrenceStatuses(client: PoolClient, occurrenceId: string) {
+  await client.query("select id from routine_occurrences where id=$1::uuid for update", [occurrenceId])
   await client.query(
     `with lock_flags as (
        select
@@ -277,6 +280,7 @@ async function recomputeOccurrenceStatuses(client: PoolClient, occurrenceId: str
          ) then 'locked'::task_status
          else 'unlocked'::task_status
        end,
+      completion_reason = case when lf.is_expired then 'expiry' else ot.completion_reason end,
       completed_at = case
         when lf.is_expired then coalesce(ot.completed_at, now())
         else ot.completed_at
@@ -356,8 +360,8 @@ async function materializeDueRecurrences(
       if (generationAllowance <= 0) break
       generationAllowance -= 1
       const occurrenceInsert = await client.query(
-        `insert into routine_occurrences (routine_id, household_id, kind, title, scheduled_for, status, created_by)
-         values ($1::uuid, $2::uuid, 'routine', $3, $4::timestamptz, 'active', $5)
+        `insert into routine_occurrences (routine_id, household_id, kind, title, scheduled_for, status, created_by, created_via)
+         values ($1::uuid, $2::uuid, 'routine', $3, $4::timestamptz, 'active', $5, 'recurrence')
          returning id`,
         [routine.id, householdId, `Recurrence - ${rule.id}`, dueIso, userId],
       )
@@ -582,9 +586,12 @@ async function completeOlderRoutineOccurrences(
       : new Date(String(scheduledForRaw)).toISOString()
   if (!scheduledFor || Number.isNaN(new Date(scheduledFor).getTime())) return
 
+  await client.query(`select id from routine_occurrences where routine_id=$1::uuid and id<>$2::uuid
+    and scheduled_for<$3::timestamptz and status='active' order by id for update`, [routineId, newOccurrenceId, scheduledFor])
   await client.query(
     `update occurrence_tasks ot
      set status = 'completed'::task_status,
+         completion_reason = 'newer_copy',
          completed_at = coalesce(ot.completed_at, now()),
          updated_at = now()
      where ot.occurrence_id in (
@@ -593,6 +600,7 @@ async function completeOlderRoutineOccurrences(
        where ro.routine_id = $1::uuid
          and ro.id <> $2::uuid
          and ro.scheduled_for < $3::timestamptz
+         and ro.status = 'active'
      )
        and ot.status <> 'completed'::task_status`,
     [routineId, newOccurrenceId, scheduledFor],
@@ -600,10 +608,11 @@ async function completeOlderRoutineOccurrences(
   await client.query(
     `update routine_occurrences ro
      set status = 'completed'::occurrence_status,
+         completion_reason = 'newer_copy',
          updated_at = now()
      where ro.routine_id = $1::uuid
        and ro.id <> $2::uuid
-       and ro.scheduled_for < $3::timestamptz`,
+       and ro.scheduled_for < $3::timestamptz and ro.status = 'active'`,
     [routineId, newOccurrenceId, scheduledFor],
   )
 }
@@ -2150,6 +2159,7 @@ async function handleFlowPost(request: Request, context?: {
         await client.query(
           `update occurrence_tasks
            set status = 'completed',
+               completion_reason = case when status='completed' then completion_reason else 'manual' end,
                completed_at = coalesce(completed_at, now()),
                updated_at = now()
            where occurrence_id = $1::uuid and task_id = $2::uuid`,
@@ -2159,6 +2169,7 @@ async function handleFlowPost(request: Request, context?: {
         await client.query(
           `update occurrence_tasks
            set status = 'unlocked',
+               completion_reason = null,
                completed_at = null,
                updated_at = now()
            where occurrence_id = $1::uuid and task_id = $2::uuid`,
@@ -2234,6 +2245,7 @@ async function handleFlowPost(request: Request, context?: {
       }
 
       await client.query(`update routine_occurrences set
+        completion_reason = null,
         status = case when exists (select 1 from occurrence_tasks where occurrence_id = $1::uuid)
           and not exists (select 1 from occurrence_tasks where occurrence_id = $1::uuid and status <> 'completed')
           then 'completed'::occurrence_status else 'active'::occurrence_status end,
@@ -2321,107 +2333,106 @@ async function handleFlowPost(request: Request, context?: {
       timeZone: householdTimeZone,
     })
 
-    if (occurrenceId) {
-      const occCheck = await db.query(
-        `select ro.id
-         from routine_occurrences ro
-         where ro.id = $1::uuid
-           and ro.household_id = $2
-         limit 1`,
-        [occurrenceId, householdId],
-      )
-      if ((occCheck.rowCount ?? 0) === 0) {
-        return NextResponse.json({ error: "Occurrence not found" }, { status: 404 })
+    const client = await db.connect()
+    try {
+      await client.query("BEGIN")
+      if (occurrenceId) {
+        const occCheck = await client.query(
+          `select ro.id
+           from routine_occurrences ro
+           where ro.id = $1::uuid
+             and ro.household_id = $2
+           for update`,
+          [occurrenceId, householdId],
+        )
+        if ((occCheck.rowCount ?? 0) === 0) {
+          await client.query("ROLLBACK")
+          return NextResponse.json({ error: "Occurrence not found" }, { status: 404 })
+        }
       }
-    }
 
-    const result = await db.query(
-      `insert into tasks (
-         household_id, routine_id, routine_occurrence_id, title, is_reward, assignee_id, status, description,
-         unlock_rule, unlock_at, unlock_combiner, expiry_rule, expires_at,
-         created_by, position_x, position_y
-       )
-       values ($1, $2, $3, $4, $5, $6, 'locked', $7, $8::jsonb, $9::timestamptz, $10, $11::jsonb, $12::timestamptz, $13, $14, $15)
-       returning id, household_id, routine_id, routine_occurrence_id, assignee_id, title, description, is_reward, status, position_x, position_y, scheduled_time, unlock_rule, unlock_at, unlock_combiner, expiry_rule, expires_at`,
-      [
-        householdId,
-        routineId,
-        occurrenceId,
-        title,
-        isReward,
-        assigneeId,
-        notes || null,
-        unlockRule && unlockRule.kind !== "none" ? JSON.stringify(unlockRule) : null,
-        resolvedUnlockAt ? resolvedUnlockAt.toISOString() : null,
-        unlockCombiner,
-        expiryRule && expiryRule.kind !== "none" ? JSON.stringify(expiryRule) : null,
-        resolvedExpiryAt ? resolvedExpiryAt.toISOString() : null,
-        userId,
-        body?.positionX ?? null,
-        body?.positionY ?? null,
-      ],
-    )
-    if (assigneeIds.length > 0) {
-      await db.query(
-        `insert into task_assignees (task_id, user_id)
-         select $1, unnest($2::text[])
-         on conflict (task_id, user_id) do nothing`,
-        [result.rows[0].id, assigneeIds],
-      )
-    }
-    if (occurrenceId) {
-      await db.query(
-        `insert into occurrence_tasks (occurrence_id, task_id, status)
-         values (
-           $1::uuid,
-           $2::uuid,
-           case
-             when exists (
-               select 1
-               from task_dependencies td
-               join tasks st on st.id = td.source_task_id
-               where td.target_task_id = $2::uuid
-                 and st.routine_occurrence_id = $1::uuid
-             )
-             then 'locked'::task_status
-             else 'unlocked'::task_status
-           end
+      const result = await client.query(
+        `insert into tasks (
+           household_id, routine_id, routine_occurrence_id, title, is_reward, assignee_id, status, description,
+           unlock_rule, unlock_at, unlock_combiner, expiry_rule, expires_at,
+           created_by, position_x, position_y
          )
-         on conflict (occurrence_id, task_id) do nothing`,
-        [occurrenceId, result.rows[0].id],
+         values ($1, $2, $3, $4, $5, $6, 'locked', $7, $8::jsonb, $9::timestamptz, $10, $11::jsonb, $12::timestamptz, $13, $14, $15)
+         returning id, household_id, routine_id, routine_occurrence_id, assignee_id, title, description, is_reward, status, position_x, position_y, scheduled_time, unlock_rule, unlock_at, unlock_combiner, expiry_rule, expires_at`,
+        [
+          householdId,
+          routineId,
+          occurrenceId,
+          title,
+          isReward,
+          assigneeId,
+          notes || null,
+          unlockRule && unlockRule.kind !== "none" ? JSON.stringify(unlockRule) : null,
+          resolvedUnlockAt ? resolvedUnlockAt.toISOString() : null,
+          unlockCombiner,
+          expiryRule && expiryRule.kind !== "none" ? JSON.stringify(expiryRule) : null,
+          resolvedExpiryAt ? resolvedExpiryAt.toISOString() : null,
+          userId,
+          body?.positionX ?? null,
+          body?.positionY ?? null,
+        ],
       )
-      const client = await db.connect()
-      try {
-        await client.query("BEGIN")
+      if (assigneeIds.length > 0) {
+        await client.query(
+          `insert into task_assignees (task_id, user_id)
+           select $1, unnest($2::text[])
+           on conflict (task_id, user_id) do nothing`,
+          [result.rows[0].id, assigneeIds],
+        )
+      }
+      if (occurrenceId) {
+        await client.query(
+          `insert into occurrence_tasks (occurrence_id, task_id, status)
+           values (
+             $1::uuid,
+             $2::uuid,
+             case
+               when exists (
+                 select 1
+                 from task_dependencies td
+                 join tasks st on st.id = td.source_task_id
+                 where td.target_task_id = $2::uuid
+                   and st.routine_occurrence_id = $1::uuid
+               )
+               then 'locked'::task_status
+               else 'unlocked'::task_status
+             end
+           )
+           on conflict (occurrence_id, task_id) do nothing`,
+          [occurrenceId, result.rows[0].id],
+        )
         await recomputeOccurrenceStatuses(client, occurrenceId)
         await materializeDeferredExpiryForUnlockedTasks(client, occurrenceId)
         await applyRewardAutoCompletion(client, occurrenceId)
-        await client.query("COMMIT")
-      } catch (error) {
-        await client.query("ROLLBACK")
-        throw error
-      } finally {
-        client.release()
       }
-    }
-    let occurrenceTaskStatus: { task_id: string; status: string } | null = null
-    if (occurrenceId) {
-      const occRow = await db.query<{ task_id: string; status: string }>(
-        `select task_id, status::text as status
-         from occurrence_tasks
-         where occurrence_id = $1::uuid
-           and task_id = $2::uuid
-         limit 1`,
-        [occurrenceId, result.rows[0].id],
-      )
-      if ((occRow.rowCount ?? 0) > 0 && occRow.rows[0]) {
-        occurrenceTaskStatus = {
-          task_id: String(occRow.rows[0].task_id),
-          status: String(occRow.rows[0].status),
+      let occurrenceTaskStatus: { task_id: string; status: string } | null = null
+      if (occurrenceId) {
+        const occRow = await client.query<{ task_id: string; status: string }>(
+          `select task_id, status::text as status
+           from occurrence_tasks
+           where occurrence_id = $1::uuid
+             and task_id = $2::uuid
+           limit 1`,
+          [occurrenceId, result.rows[0].id],
+        )
+        if ((occRow.rowCount ?? 0) > 0 && occRow.rows[0]) {
+          occurrenceTaskStatus = {
+            task_id: String(occRow.rows[0].task_id),
+            status: String(occRow.rows[0].status),
+          }
         }
       }
-    }
-    return NextResponse.json({ task: result.rows[0], occurrenceTaskStatus })
+      await client.query("COMMIT")
+      return NextResponse.json({ task: result.rows[0], occurrenceTaskStatus })
+    } catch (error) {
+      await client.query("ROLLBACK")
+      throw error
+    } finally { client.release() }
   }
 
   if (action === "updateTask") {
@@ -2469,6 +2480,10 @@ async function handleFlowPost(request: Request, context?: {
         await client.query("COMMIT")
         return NextResponse.json({ task: current.rows[0] })
       }
+      // Match completion/timer lock order before editing task metadata or assignees.
+      await client.query(`select ro.id from routine_occurrences ro
+        join occurrence_tasks ot on ot.occurrence_id=ro.id
+        where ot.task_id=$1::uuid and ro.household_id=$2::uuid order by ro.id for update of ro`, [taskId, householdId])
       const result = await client.query(
         `update tasks
          set title = $1,
@@ -2552,16 +2567,25 @@ async function handleFlowPost(request: Request, context?: {
       return NextResponse.json({ error: "taskId is required" }, { status: 400 })
     }
 
-    await db.query(
-      `delete from tasks
-       where id = $1
-         and household_id = $2
-         and (
-           ($3::uuid is null and routine_occurrence_id is null)
-           or routine_occurrence_id = $3::uuid
-         )`,
-      [taskId, householdId, occurrenceId],
-    )
+    const client = await db.connect()
+    try {
+      await client.query("BEGIN")
+      await client.query(`select ro.id from routine_occurrences ro
+        join occurrence_tasks ot on ot.occurrence_id=ro.id
+        where ot.task_id=$1::uuid and ro.household_id=$2::uuid order by ro.id for update of ro`, [taskId, householdId])
+      await client.query(
+        `delete from tasks
+         where id = $1
+           and household_id = $2
+           and (
+             ($3::uuid is null and routine_occurrence_id is null)
+             or routine_occurrence_id = $3::uuid
+           )`,
+        [taskId, householdId, occurrenceId],
+      )
+      await client.query("COMMIT")
+    } catch (error) { await client.query("ROLLBACK"); throw error }
+    finally { client.release() }
     return NextResponse.json({ ok: true })
   }
 

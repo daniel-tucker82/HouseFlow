@@ -141,11 +141,30 @@ Permission inspection does not prompt. Android creates one channel per event typ
 before asking permission; iOS provisional permission is distinguished from normal
 alerts. Token refresh failures preserve existing registrations and queued tokens.
 The installation secret is retained in SecureStore. Token rotation is observed,
-but complete sign-out cleanup, background settings sync, kiosk integration, event
-creation and push delivery/receipts remain to be implemented. An EAS project ID and
+but complete sign-out cleanup, background settings sync, kiosk integration and
+push delivery/receipts remain to be implemented. An EAS project ID and
 FCM/APNs credentials must be configured before push can register and deliver.
 This build reports their absence while allowing preference editing. A registration
 or a passing JavaScript export is not evidence of delivered push.
+
+Migration `0025_native_notification_events.sql` captures all 15 native event types
+in the transaction that changes a task, run or household membership. It records
+the first state and compares it with the final state at commit, so recalculation,
+assignment replacement, failed writes and replayed receipts do not create
+intermediate or duplicate events. Manual boards emit task events without claiming
+to be routine runs. Recurrence generation and replacement of an older run have
+distinct events; replacement suppresses per-task completion alerts and preserves
+cancelled runs. Availability includes reopened tasks and newly assigned startable
+tasks, with the latter targeting only newly added assignees.
+
+The outbox writes no network requests and performs no per-device delivery during
+task saving. Its pending records survive a stopped server process. Background
+fan-out, permission/preference revalidation, retries, provider receipts, expiration
+and retention are still required before delivery can be enabled. Apply this
+migration before deploying the updated task/timer writers. Local schema tests
+cover commit/rollback, concurrent completion, household deletion and 100-task
+completion. Real route tests cover routine starts, both recurrence generators,
+timer availability/expiry and task creation/editing without premature alerts.
 
 From the repository root, run `node --experimental-sqlite --test tests/mobile-*.test.cjs`.
 PostgreSQL tests additionally require `CYNTCH_TEST_DATABASE_URL` pointing to a local

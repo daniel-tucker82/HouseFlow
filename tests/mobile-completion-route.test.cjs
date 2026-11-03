@@ -55,18 +55,20 @@ test('F01 O05 O07 native completion endpoint enforces real membership, prerequis
     '@clerk/nextjs/server': { auth: async () => ({ userId }) },
     'next/server': { NextResponse: { json: Response.json }, after: () => {} },
     '@/lib/usage-controls': { enforceRequestLimit: async () => {} },
-    '@/lib/flow-entitlements': { enforceFlowEntitlements: async () => ({ tier: 'premium' }) },
+    '@/lib/flow-entitlements': { enforceFlowEntitlements: async () => ({ tier: 'premium', limits: { automation: true } }) },
     '@/lib/entitlements': { EntitlementError },
     '@/lib/user-sync': { ensureCurrentUserRecord: async () => {} },
     '@/lib/schema-ensure': { ensureRoutineSchemaColumns: async () => {} },
     '@/lib/automation-entitlements': { TASK_AUTOMATION_ALLOWED_SQL: 'true', occurrenceAutomationAllowed: async () => true },
-    '@/lib/time-rules': { parseExpiryRule: () => null },
     '@/lib/notifications': { createUnlockNotifications: async () => [] },
     '@/lib/push': { dispatchPushForNotificationIds: async () => {} },
     '@/lib/completion-operations': operationModule.exports,
   }
   mocks['@/lib/household-authz'] = compile('lib/household-authz.ts', mocks)
   mocks['@/lib/planner-creation'] = compile('lib/planner-creation.ts', mocks)
+  mocks['@/lib/task-edit-version'] = compile('lib/task-edit-version.ts', mocks)
+  mocks['@/shared/scheduling'] = compile('shared/scheduling.ts', mocks)
+  mocks['@/lib/time-rules'] = compile('lib/time-rules.ts', mocks)
   const route = compile('app/api/leader/flow/route.ts', mocks)
   let sequence = 0
   function change(values = {}) {
@@ -93,17 +95,21 @@ test('F01 O05 O07 native completion endpoint enforces real membership, prerequis
   await db.query("update routine_occurrences set status='cancelled' where id=$1", [occurrenceId])
   assert.equal((await send(change())).status, 409)
   await db.query("update routine_occurrences set status='active' where id=$1", [occurrenceId])
+  await db.query('delete from native_notification_events')
   const edit = change()
   const accepted = await send(edit)
   assert.equal(accepted.status, 200)
   assert.equal(accepted.data.outcome, 'applied')
   assert.match(accepted.data.occurrenceTaskStatuses.find(task => task.task_id === taskId).status_version, /^\d+$/)
   assert.deepEqual(await send(edit), accepted, 'retry preserves the outcome and unchanged statuses')
+  const completionEvents = (await db.query('select kind,member_ids from native_notification_events')).rows
+  assert.deepEqual(completionEvents, [{ kind: 'task_completed', member_ids: [child] }], 'manual boards emit task completion once, without claiming routine completion')
   assert.equal((await send({ ...edit, completed: false })).status, 409)
   const old = change({ completed: false })
   old.clientOperation.correctedTimeMs = 1000
   old.clientOperation.deviceId = randomUUID()
   assert.equal((await send(old)).data.outcome, 'superseded')
+  assert.deepEqual((await db.query('select kind,member_ids from native_notification_events')).rows, completionEvents, 'rejected and superseded edits produce no alerts')
   assert.equal((await db.query('select status from occurrence_tasks where occurrence_id=$1 and task_id=$2', [occurrenceId, taskId])).rows[0].status, 'completed')
   const reopened = await send(change({ completed: false }))
   const current = reopened.data.occurrenceTaskStatuses.find(task => task.task_id === taskId)
@@ -112,8 +118,33 @@ test('F01 O05 O07 native completion endpoint enforces real membership, prerequis
   const replayed = await send(edit)
   assert.equal(replayed.data.outcome, 'applied', 'retry does not change the recorded operation outcome')
   assert.deepEqual(replayed.data.occurrenceTaskStatuses, reopened.data.occurrenceTaskStatuses, 'retry returns current state, not the original stale snapshot')
+  assert.equal((await db.query("select count(*)::int n from native_notification_events where kind='task_reopened'")).rows[0].n, 1)
   assert.equal((await db.query('select count(*)::int as count from completion_operations where operation_id=$1', [edit.clientOperation.id])).rows[0].count, 1)
   await db.query('delete from tasks where id=$1', [taskId])
   assert.ok(!(await send(edit)).data.occurrenceTaskStatuses.some(task => task.task_id === taskId), 'replayed receipt cannot recreate a removed task')
   assert.equal((await send(change())).status, 404, 'deleted task is never recreated by an offline edit')
+
+  await db.query('delete from native_notification_events')
+  const create = { action: 'createTask', householdId, occurrenceId, title: 'Future task', assigneeIds: [child],
+    unlockRule: { kind: 'fixed', date: '2090-01-01', time: '09:00' } }
+  const future = await send(create)
+  assert.equal(future.status, 200)
+  assert.equal(future.data.occurrenceTaskStatus.status, 'locked')
+  assert.deepEqual((await db.query('select kind from native_notification_events')).rows, [{ kind: 'task_assigned' }],
+    'a future task is never announced as available between insertion and recalculation')
+  await db.query('delete from native_notification_events')
+  const update = { ...create, action: 'updateTask', taskId: future.data.task.id, unlockRule: null, assigneeIds: [parent] }
+  assert.equal((await send(update)).status, 200)
+  assert.deepEqual((await db.query('select kind,member_ids from native_notification_events order by kind')).rows,
+    [{ kind: 'task_assigned', member_ids: [parent] }, { kind: 'task_available', member_ids: [parent] }],
+    'availability reflects the final assignee set, without transient assignment alerts')
+  assert.equal((await send({ action: 'deleteTask', householdId, occurrenceId, taskId: future.data.task.id })).status, 200)
+  assert.equal((await db.query('select count(*)::int n from tasks where id=$1', [future.data.task.id])).rows[0].n, 0)
+
+  await db.query('delete from native_notification_events')
+  await db.query(`create function interrupt_native_task() returns trigger language plpgsql as $$ begin raise exception 'Interrupted task creation'; end $$;
+    create trigger fail_native_task before insert on occurrence_tasks for each row execute function interrupt_native_task()`)
+  await assert.rejects(send({ ...create, title: 'Must roll back' }), /Interrupted task creation/)
+  assert.equal((await db.query("select count(*)::int n from tasks where title='Must roll back'")).rows[0].n, 0)
+  assert.equal((await db.query('select count(*)::int n from native_notification_events')).rows[0].n, 0)
 })
