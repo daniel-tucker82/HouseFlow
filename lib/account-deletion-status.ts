@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
 import type { Pool } from "pg"
-import { validAccountDeletionRecovery, type AccountDeletionRecovery, type AccountDeletionStatus } from "@/shared/mobile/account-deletion"
+import { ACCOUNT_DELETION_RECEIPT_LIFETIME_MS, validAccountDeletionRecovery, type AccountDeletionRecovery, type AccountDeletionStatus } from "@/shared/mobile/account-deletion"
 
 export class AccountDeletionStatusError extends Error {
   constructor(public status: 404 | 429) {
@@ -17,15 +17,15 @@ export async function readAccountDeletionStatus(pool: Pool, recovery: AccountDel
   if (!validAccountDeletionRecovery(recovery)) throw new AccountDeletionStatusError(404)
   const result = await pool.query<{ id: string; state: "pending" | "completed"; created_at: Date; completed_at: Date | null;
     apple_revocation_required: boolean; available_until: Date | null; allowed: boolean }>(`with matched as (
-      select id,state,created_at,completed_at,apple_revocation_required,completed_at+interval '90 days' as available_until
+      select id,state,created_at,completed_at,apple_revocation_required,completed_at+($3::bigint*interval '1 millisecond') as available_until
       from account_deletion_requests where id=$1::uuid and recovery_key_hash=$2
-        and (state='pending' or completed_at>clock_timestamp()-interval '90 days')
+        and (state='pending' or completed_at>clock_timestamp()-($3::bigint*interval '1 millisecond'))
     ), allowed as (
       insert into application_rate_limits(bucket_key,window_start,requests)
         select 'deletion-status:'||id::text,date_trunc('minute',now()),1 from matched
       on conflict(bucket_key,window_start) do update set requests=application_rate_limits.requests+1 where application_rate_limits.requests<30
       returning requests
-    ) select matched.*,exists(select 1 from allowed) as allowed from matched`, [recovery.requestId, accountDeletionRecoveryHash(recovery.secret)])
+    ) select matched.*,exists(select 1 from allowed) as allowed from matched`, [recovery.requestId, accountDeletionRecoveryHash(recovery.secret),ACCOUNT_DELETION_RECEIPT_LIFETIME_MS])
   const row = result.rows[0]
   if (!row) throw new AccountDeletionStatusError(404)
   if (!row.allowed) throw new AccountDeletionStatusError(429)

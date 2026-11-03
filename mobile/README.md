@@ -1380,8 +1380,9 @@ and [`SecureStore`](https://docs.expo.dev/versions/v58.0.0/sdk/securestore/)
 with `WHEN_UNLOCKED_THIS_DEVICE_ONLY`. The installed SDK 58 Android and iOS
 network implementations were also inspected for cookie and redirect handling.
 
-These are recovery foundations; the confirmation/status screens, submission,
-local data/SDK cleanup and automatic orchestration still need wiring.
+These are recovery foundations; the confirmation/status screens,
+local data/SDK cleanup and automatic orchestration still need wiring. The
+submission transport and disabled HTTP boundary are described below.
 No destructive public acceptance endpoint or cron worker is enabled by this
 change. Apple and native billing provider verification remain outstanding.
 
@@ -1508,3 +1509,64 @@ no skips/cancellations, including real PostgreSQL race/trigger checks and SQLite
 interruption checks. Root/mobile lint, TypeScript and the production build passed. Native confirmation
 and recovery screens still need integration; the destructive acceptance endpoint
 and deletion worker remain disabled.
+
+### Submit the confirmed deletion request
+
+`POST /api/mobile/account-deletion` now accepts the exact saved intent only when
+the server rollout setting `ACCOUNT_DELETION_SUBMISSION_ENABLED` is exactly
+`true`. It is off by default and has not been enabled in a running environment.
+Keep it off until the native confirmation/reverification screens, account-local
+cleanup, provider safeguards and durable worker are integrated and verified.
+This gate controls new submission calls; the independent status and withdrawal
+endpoints remain usable while submission is disabled.
+
+The handler requires Clerk's authenticated account/session, a bearer token,
+matching native identity headers, the installation secret and the original
+request ID/recovery key. It checks `auth.has({ reverification: 'strict' })` on
+the server and returns Clerk's recognizable reverification hint when needed.
+Neither a request body nor a client flag can assert recent authentication.
+The body is bounded to 64 KiB and five seconds; verified submission attempts
+have a separate ten-per-minute quota which does not reject identical replay
+merely because acceptance has already closed the account.
+
+Before looking up selected successors in Clerk, the handler validates that
+they are eligible parents in the reviewed households. The provider lookup must
+return every selected identity, with no banned, locked or substituted account.
+Its eight-second timeout has no late continuation into acceptance. The server
+then repeats permissions, kiosk restrictions, review and ownership checks under
+the existing account/household transaction locks. Original request IDs, keys
+and confirmed choices cannot change on replay. The handler does not call any
+provider deletion API or run cleanup work in the request.
+
+Responses contain authenticated scope and the minimal status receipt: HTTP 202
+for accepted/pending work or 200 for a completed replay. Acceptance is never
+described as completed cleanup. A lost COMMIT acknowledgement returns a generic
+retry/status message; it does not roll back an already committed decision.
+
+`nativeAccountDeletionSubmissionApi()` uses the explicit SDK 58 `expo/fetch`
+transport. Call it only with the result of
+`AccountDeletionDrafts.requestForSubmission`, after both durable stores have
+committed. Obtain fresh credentials on each call, including the retry after
+Clerk reverification; never rewrite the saved account/session/device/intent.
+The transport binds origin and scope, rejects redirected or malformed receipts,
+omits cookies, keeps keys in headers, and makes no automatic destructive retry.
+Persist a valid receipt with `AccountDeletionDrafts.rememberStatus` before any
+account-cache cleanup. Errors, a disabled rollout or cancellation of verification
+must retain the submitted attempt until its outcome or withdrawal is confirmed.
+
+Verification uses real isolated PostgreSQL with verified-auth/provider doubles,
+the native transport core against the actual route handler, lost database commit
+acknowledgement, superseded reviews, invalid successors, kiosk/revocation guards,
+quota exhaustion, bounded uploads and transport interruption. This does not
+establish native OS execution, a real Clerk reverification flow, or release readiness.
+
+All 463 general regression checks passed with no skips/cancellations. Final
+review also made receipt expiry a shared 90-day elapsed duration, independent of
+the database timezone/DST. All 35 focused submission/status/recovery checks
+passed on that final change, including completed replay after real data erasure
+and a Sydney DST boundary. Root/mobile lint and TypeScript and the production
+build passed. The local production-server recovery test also passed with stale
+sign-in credentials and erased account data; its evidence is
+`C:/Users/danie/AppData/Local/Temp/cyntch-deletion-status-2e54b466-a4f8-4c24-ac51-671d70572887.json`.
+No production migration, provider mutation or deployment was performed for this
+submission boundary.

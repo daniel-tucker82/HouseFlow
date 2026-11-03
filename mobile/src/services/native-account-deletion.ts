@@ -5,6 +5,7 @@ import { AccountDeletionVault } from "../storage/account-deletion-vault"
 import { AccountDeletionStatusApi } from "./account-deletion-status"
 import { AccountDeletionDrafts } from "./account-deletion-drafts"
 import { AccountDeletionWithdrawalApi } from "./account-deletion-withdrawal"
+import { AccountDeletionSubmissionApi } from "./account-deletion-submission"
 import type { AccountDeletionStore } from "../storage/account-deletion-store"
 
 const options = { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }
@@ -24,4 +25,8 @@ export function nativeAccountDeletionDrafts(journal: AccountDeletionStore) {
 
 export function nativeAccountDeletionWithdrawalApi() {
   return new AccountDeletionWithdrawalApi(process.env.EXPO_PUBLIC_API_URL ?? "https://www.cyntch.com",(url,init) => expoFetch(url,init),__DEV__)
+}
+
+export function nativeAccountDeletionSubmissionApi() {
+  return new AccountDeletionSubmissionApi(process.env.EXPO_PUBLIC_API_URL ?? "https://www.cyntch.com",(url,init) => expoFetch(url,init),__DEV__)
 }

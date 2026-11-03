@@ -2,6 +2,8 @@ import type { MemberRole } from "./contracts"
 import { notificationUuid, notificationSessionId } from "./notification-settings"
 
 export interface AccountDeletionRecovery { requestId: string; secret: string }
+/** Elapsed time, independent of the database connection's timezone or DST. */
+export const ACCOUNT_DELETION_RECEIPT_LIFETIME_MS = 90 * 86_400_000
 export function accountDeletionOrigin(value: string, allowDevelopmentHttp = false): string {
   let url: URL
   try { url = new URL(value) } catch { throw new Error("Cyntch requires a valid server address.") }
@@ -37,6 +39,15 @@ export function parseAccountDeletionStatus(value: unknown, requestId: string): A
 }
 
 export interface AccountDeletionScope { accountId: string; sessionId: string; deviceId: string }
+export interface AccountDeletionAcceptance extends AccountDeletionScope { status: AccountDeletionStatus }
+export function parseAccountDeletionAcceptance(value: unknown, expected: AccountDeletionScope & { requestId: string }): AccountDeletionAcceptance {
+  const row = value as Partial<AccountDeletionAcceptance> | null
+  if (!row || typeof row !== "object" || Array.isArray(row) || row.accountId !== expected.accountId || row.sessionId !== expected.sessionId || row.deviceId !== expected.deviceId ||
+    !/^user_[A-Za-z0-9_-]{1,200}$/.test(expected.accountId) || !notificationSessionId.test(expected.sessionId) || !notificationUuid.test(expected.deviceId)) {
+    throw new Error("The deletion reply does not match this account and device. Check its saved status.")
+  }
+  return { accountId: expected.accountId, sessionId: expected.sessionId, deviceId: expected.deviceId, status: parseAccountDeletionStatus(row.status,expected.requestId) }
+}
 export type AccountDeletionWithdrawalResult = AccountDeletionScope & { requestId: string } & (
   | { outcome: "withdrawn"; withdrawnAt: string }
   | { outcome: "accepted"; withdrawnAt: null }

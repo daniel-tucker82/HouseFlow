@@ -81,7 +81,7 @@ test('deletion intent requires explicit choices and cannot nominate a child or u
 test('deletion review API is bound to the current session, installation and kiosk restrictions',{skip:!connectionString},async t=>{
  const f=await fixture(t)
  const ok=await f.route.GET(f.request({},'?accountId=user_other&householdId='+f.previous))
- assert.equal(ok.status,200);assert.equal(ok.headers.get('cache-control'),'no-store');assert.equal((await ok.json()).accountId,f.scope.accountId)
+ assert.equal(ok.status,200);assert.equal(ok.headers.get('cache-control'),'private, no-store');assert.equal(ok.headers.get('referrer-policy'),'no-referrer');assert.equal((await ok.json()).accountId,f.scope.accountId)
  assert.equal((await f.route.GET(f.request({'X-Task-Save-User':'user_other'}))).status,403)
  assert.equal((await f.route.GET(f.request({'X-Cyntch-Session':'sess_other'}))).status,403)
  assert.equal((await f.route.GET(f.request({'X-Cyntch-Device':'invalid'}))).status,400)
