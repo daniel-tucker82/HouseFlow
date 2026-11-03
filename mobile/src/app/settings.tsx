@@ -19,14 +19,18 @@ export default function SettingsScreen() {
       <Switch accessibilityLabel="Keep the display awake while Cyntch is open" value={keepAwake} onValueChange={value => void setKeepAwake(value).catch(report)} trackColor={{ true: colors.primary }} />
     </View></Card>
     <Card><Copy tone="heading">Saved changes</Copy><Copy tone="muted">{state.pending.length ? `${state.pending.length} changes are saved on this device and waiting to sync.` : "All saved changes have synced."}</Copy>
-      {rejected.map(change => <View key={change.id} style={{ gap: 12, paddingTop: 12, borderTopWidth: 1, borderColor: colors.border }}>
+      {rejected.map(change => {
+        const unavailable = !state.households.some(household => household.id === change.householdId)
+        return <View key={change.id} style={{ gap: 12, paddingTop: 12, borderTopWidth: 1, borderColor: colors.border }}>
         <Copy>{state.board?.tasks.find(task => task.id === change.taskId)?.title ?? "Task update"}</Copy>
         <Copy style={{ color: colors.danger }}>{change.error}</Copy>
-        <Action label="Try syncing again" onPress={() => void controller.retry(change).catch(report)} />
-        <Action secondary disabled={!state.online} label="Use the household’s current version" onPress={() => Alert.alert("Discard this saved change?", "The task will return to the household’s current version. Other saved changes will be kept.", [
+        {!unavailable ? <Action label="Try syncing again" onPress={() => void controller.retry(change).catch(report)} /> : null}
+        <Action secondary disabled={!unavailable && !state.online} label={unavailable ? "Discard unavailable change" : "Use the household’s current version"} onPress={() => Alert.alert("Discard this saved change?", unavailable
+          ? "You no longer have access to this household. This unsynced change will be removed from this device."
+          : "The task will return to the household’s current version. Other saved changes will be kept.", [
           { text: "Cancel", style: "cancel" }, { text: "Discard change", style: "destructive", onPress: () => void controller.discard(change).catch(report) },
         ])} />
-      </View>)}
+      </View>})}
     </Card>
     <Action secondary label="Sign out" onPress={() => Alert.alert("Sign out of Cyntch?", state.pending.length
       ? "Your unsynced changes will stay on this device. Sign back into this account to sync them." : "You can sign back in at any time.", [

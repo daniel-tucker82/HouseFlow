@@ -8,19 +8,21 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 
-function load(relative) {
-  const filename = path.resolve(__dirname, '..', relative)
-  const { outputFiles } = buildSync({ entryPoints: [filename], bundle: true, platform: 'node', format: 'cjs', write: false })
+function load(files) {
+  const filename = path.resolve(__dirname, 'native-test-entry.cjs')
+  // One module graph preserves class identity (including transport errors) across the services.
+  const contents = files.map(relative => `export * from ${JSON.stringify(path.resolve(__dirname, '..', relative))};`).join('\n')
+  const { outputFiles } = buildSync({ stdin: { contents, resolveDir: __dirname }, bundle: true, platform: 'node', format: 'cjs', write: false })
   const loadedModule = new Module(filename)
   loadedModule.paths = require.resolve.paths('esbuild')
   loadedModule._compile(outputFiles[0].text, filename)
   return loadedModule.exports
 }
-const { LocalStore } = load('mobile/src/storage/local-store.ts')
-const { SyncEngine, TransportError } = load('mobile/src/storage/sync-engine.ts')
-const { BoardController, nextSyncDelay } = load('mobile/src/services/board-controller.ts')
-const { estimateClockOffset, compareCompletionVersions } = load('shared/mobile/sync-policy.ts')
-const { notificationCatalog, defaultNotificationPreferences, shouldPushNotification, inQuietHours } = load('shared/mobile/notification-catalog.ts')
+const { LocalStore, SyncEngine, TransportError, BoardController, nextSyncDelay, estimateClockOffset, compareCompletionVersions,
+  notificationCatalog, defaultNotificationPreferences, shouldPushNotification, inQuietHours } = load([
+  'mobile/src/storage/local-store.ts', 'mobile/src/storage/sync-engine.ts', 'mobile/src/services/board-controller.ts',
+  'shared/mobile/sync-policy.ts', 'shared/mobile/notification-catalog.ts',
+])
 
 class SqliteAdapter {
   constructor(filename) { this.database = new DatabaseSync(filename); this.tail = Promise.resolve(); this.failOnBoardWrite = false }
@@ -225,6 +227,73 @@ test('O08 account switch during a network request retains the previous account o
   } }, () => {}, () => 1_000)
   await engine.flush()
   assert.equal((await f.store.pending('parent')).length, 1)
+})
+
+test('A01 confirmed household removal clears private cache, retains rejected intent, and survives restart', async t => {
+  const f = await fixture(t)
+  await f.store.cacheBoard('another-account', snapshot())
+  await f.store.enqueueCompletion(change())
+  await f.store.reconcileHouseholds('parent', [])
+  const store = await f.reopen()
+  assert.equal(await store.getBoard('parent', 'h1'), null)
+  assert.ok(await store.getBoard('another-account', 'h1'), 'account isolation')
+  assert.equal((await store.pending('parent'))[0].state, 'rejected')
+  await assert.rejects(store.retryRejected('parent', 'op-1'), /Access/)
+  await assert.rejects(store.cacheBoard('parent', snapshot()), /Access/, 'late refresh cannot restore revoked data')
+  await store.acknowledge('parent', { operationId: 'op-1', outcome: 'applied', occurrenceTaskStatuses: [] })
+  assert.equal(await store.getBoard('parent', 'h1'), null, 'late acknowledgement cannot restore revoked data')
+})
+
+test('A02 rejected changes can be discarded without network only after confirmed loss of household access', async t => {
+  const f = await fixture(t)
+  await f.store.enqueueCompletion(change())
+  await f.store.acknowledge('parent', { operationId: 'op-1', outcome: 'rejected', error: 'Task removed', occurrenceTaskStatuses: [] })
+  await assert.rejects(f.store.discardRejected('parent', 'op-1', null), /matching household/)
+  await assert.rejects(f.store.discardRejected('parent', 'op-1', { ...snapshot(), household: { ...snapshot().household, id: 'another-household' } }), /matching household/)
+  assert.equal((await f.store.pending('parent')).length, 1)
+  await f.store.reconcileHouseholds('parent', [])
+  await f.store.discardRejected('parent', 'op-1', null)
+  assert.equal((await f.store.pending('parent')).length, 0)
+  assert.equal(await f.store.getBoard('parent', 'h1'), null)
+})
+
+test('A03 a removed selected household falls back to authenticated memberships without retaining its board', async t => {
+  const f = await fixture(t)
+  const next = { ...snapshot(), household: { ...snapshot().household, id: 'h2', name: 'Other family' }, tasks: [] }
+  const requests = []
+  const controller = new BoardController(f.store, 'parent', 'device-1', {
+    bootstrap: async householdId => {
+      requests.push(householdId)
+      if (householdId === 'h1') throw new TransportError('Access removed', 403)
+      return { accountId: 'parent', households: [next.household], board: next }
+    },
+  }, () => 'unused')
+  t.after(() => controller.stop())
+  await controller.start()
+  const refreshed = new Promise(resolve => {
+    const unsubscribe = controller.subscribe(() => {
+      if (controller.getSnapshot().board?.household.id === 'h2') { unsubscribe(); resolve() }
+    })
+  })
+  controller.setConnectivity(true)
+  await refreshed
+  assert.deepEqual(requests, ['h1', undefined])
+  assert.equal(await f.store.getBoard('parent', 'h1'), null)
+})
+
+test('A04 membership refresh updates roles without losing task edits, and explicitly restored access can cache again', async t => {
+  const f = await fixture(t)
+  await f.store.enqueueCompletion(change())
+  await f.store.reconcileHouseholds('parent', [{ ...snapshot().household, role: 'member' }])
+  assert.equal((await f.store.getBoard('parent', 'h1')).household.role, 'member')
+  assert.equal((await f.store.getBoard('parent', 'h1')).tasks[0].status, 'completed')
+  await f.store.reconcileHouseholds('parent', [])
+  await f.store.reconcileHouseholds('parent', [snapshot().household])
+  await f.store.cacheBoard('parent', snapshot())
+  assert.ok(await f.store.getBoard('parent', 'h1'))
+  assert.equal((await f.store.pending('parent'))[0].state, 'rejected', 'restored access requires explicit retry')
+  await f.store.retryRejected('parent', 'op-1')
+  assert.equal((await f.store.pending('parent'))[0].state, 'pending')
 })
 
 test('C01 C02 clock offsets handle fast/slow clocks and reject a jump during measurement', () => {

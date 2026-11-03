@@ -1,4 +1,4 @@
-import type { BoardSnapshot, CompletionChange, CompletionResult } from "../../../shared/mobile/contracts"
+import type { BoardSnapshot, CompletionChange, CompletionResult, HouseholdSummary } from "../../../shared/mobile/contracts"
 import { retryDelayMs } from "../../../shared/mobile/sync-policy"
 
 export type SqlValue = string | number | null
@@ -66,7 +66,11 @@ export class LocalStore {
         account_id TEXT NOT NULL, setting_key TEXT NOT NULL, data TEXT NOT NULL,
         PRIMARY KEY(account_id, setting_key)
       );
-      PRAGMA user_version = 1;
+      CREATE TABLE IF NOT EXISTS revoked_households (
+        account_id TEXT NOT NULL, household_id TEXT NOT NULL,
+        PRIMARY KEY(account_id, household_id)
+      );
+      PRAGMA user_version = 2;
     `)
   }
 
@@ -95,12 +99,43 @@ export class LocalStore {
   async cacheBoard(accountId: string, snapshot: BoardSnapshot) {
     let merged = snapshot
     await this.database.withExclusiveTransactionAsync(async transaction => {
+      if (await this.isHouseholdRevoked(accountId, snapshot.household.id, transaction)) {
+        throw new Error("Access to this household has been removed.")
+      }
       const pending = (await this.pending(accountId, transaction)).filter(change => change.householdId === snapshot.household.id)
       // A refresh cannot erase an edit created while the request was in flight.
       merged = overlayChanges(snapshot, pending)
       await this.writeBoard(transaction, accountId, merged)
     })
     return merged
+  }
+
+  /** Only a successful, authenticated membership response can invalidate an offline cache. */
+  async reconcileHouseholds(accountId: string, households: HouseholdSummary[]) {
+    await this.database.withExclusiveTransactionAsync(async transaction => {
+      const allowed = new Map(households.map(household => [household.id, household]))
+      const known = await transaction.getAllAsync<{ household_id: string }>(`
+        SELECT household_id FROM board_snapshots WHERE account_id = ?
+        UNION SELECT household_id FROM pending_completions WHERE account_id = ?`, accountId, accountId)
+      for (const household of households) {
+        await transaction.runAsync("DELETE FROM revoked_households WHERE account_id = ? AND household_id = ?", accountId, household.id)
+        const cached = await this.getBoard(accountId, household.id, transaction)
+        // Role changes also take effect locally, including when task edits are still pending.
+        if (cached) await this.writeBoard(transaction, accountId, { ...cached, household })
+      }
+      for (const { household_id: householdId } of known) {
+        if (allowed.has(householdId)) continue
+        await transaction.runAsync("INSERT OR IGNORE INTO revoked_households(account_id, household_id) VALUES (?, ?)", accountId, householdId)
+        await transaction.runAsync("DELETE FROM board_snapshots WHERE account_id = ? AND household_id = ?", accountId, householdId)
+        // Keep the user's unsent intent for explicit review; never keep sending it after revocation.
+        await transaction.runAsync(`UPDATE pending_completions SET state = 'rejected', error = ?
+          WHERE account_id = ? AND household_id = ?`, "Access to this household has been removed. This saved change cannot sync.", accountId, householdId)
+      }
+    })
+  }
+
+  async isHouseholdRevoked(accountId: string, householdId: string, connection: SqlConnection = this.database) {
+    return Boolean(await connection.getFirstAsync("SELECT household_id FROM revoked_households WHERE account_id = ? AND household_id = ?", accountId, householdId))
   }
 
   async enqueueCompletion(input: Omit<CompletionChange, "sequence" | "correctedTimeMs" | "attempts" | "nextAttemptMs" | "state" | "error">) {
@@ -171,12 +206,24 @@ export class LocalStore {
   }
 
   async retryRejected(accountId: string, id: string) {
-    await this.database.runAsync("UPDATE pending_completions SET state = 'pending', error = NULL, next_attempt_ms = 0 WHERE account_id = ? AND id = ?", accountId, id)
+    await this.database.withExclusiveTransactionAsync(async transaction => {
+      const change = await transaction.getFirstAsync<PendingRow>("SELECT * FROM pending_completions WHERE account_id = ? AND id = ?", accountId, id)
+      if (!change) return
+      if (await this.isHouseholdRevoked(accountId, change.household_id, transaction)) throw new Error("Access to this household has been removed.")
+      await transaction.runAsync("UPDATE pending_completions SET state = 'pending', error = NULL, next_attempt_ms = 0 WHERE account_id = ? AND id = ?", accountId, id)
+    })
   }
 
-  async discardRejected(accountId: string, id: string, freshBoard: BoardSnapshot) {
+  async discardRejected(accountId: string, id: string, freshBoard: BoardSnapshot | null) {
     await this.database.withExclusiveTransactionAsync(async transaction => {
+      const change = await transaction.getFirstAsync<PendingRow>("SELECT * FROM pending_completions WHERE account_id = ? AND id = ? AND state = 'rejected'", accountId, id)
+      if (!change) return
+      const revoked = await this.isHouseholdRevoked(accountId, change.household_id, transaction)
+      if (!revoked && (!freshBoard || change.household_id !== freshBoard.household.id)) {
+        throw new Error("Refresh the matching household before discarding this change.")
+      }
       await transaction.runAsync("DELETE FROM pending_completions WHERE account_id = ? AND id = ? AND state = 'rejected'", accountId, id)
+      if (revoked || !freshBoard) return
       const pending = (await this.pending(accountId, transaction)).filter(change => change.householdId === freshBoard.household.id)
       await this.writeBoard(transaction, accountId, overlayChanges(freshBoard, pending))
     })

@@ -1,6 +1,6 @@
 import type { BoardSnapshot, BoardTask, CompletionChange, HouseholdSummary } from "../../../shared/mobile/contracts"
 import type { LocalStore } from "../storage/local-store"
-import { SyncEngine, type SyncTransport } from "../storage/sync-engine"
+import { SyncEngine, TransportError, type SyncTransport } from "../storage/sync-engine"
 import type { BootstrapResult } from "./api"
 
 interface BoardApi extends SyncTransport { bootstrap(householdId?: string): Promise<BootstrapResult> }
@@ -104,13 +104,24 @@ export class BoardController {
     const mutationAtStart = this.mutationRevision
     this.update({ refreshing: true })
     try {
-      const response = await this.api.bootstrap(this.selected)
+      let response: BootstrapResult
+      try { response = await this.api.bootstrap(this.selected) }
+      catch (error) {
+        // The selected household may have been removed while this device was offline.
+        // Fetch the authoritative membership list before clearing any cached information.
+        if (!(error instanceof TransportError) || error.status !== 403 || !this.selected) throw error
+        response = await this.api.bootstrap()
+      }
+      if (this.stopped || revision !== this.refreshRevision) return
+      await this.store.reconcileHouseholds(this.accountId, response.households)
       if (this.stopped || revision !== this.refreshRevision) return
       this.update({ households: response.households })
       // An older server read must not overwrite a completion acknowledged while it was in flight.
-      if (mutationAtStart !== this.mutationRevision) return
+      const sameHousehold = response.board?.household.id === this.selected
       this.selected = response.board?.household.id
-      if (response.board) await this.store.cacheBoard(this.accountId, response.board)
+      if (response.board && (!sameHousehold || mutationAtStart === this.mutationRevision)) {
+        await this.store.cacheBoard(this.accountId, response.board)
+      }
       await this.readLocal()
       this.update({ error: null })
     } catch (error) { if (revision === this.refreshRevision) this.fail(error) }
@@ -146,10 +157,11 @@ export class BoardController {
   }
 
   async discard(change: CompletionChange) {
-    const result = await this.api.bootstrap(change.householdId)
-    if (!result.board) throw new Error("Connect to refresh this household before discarding the change.")
+    const revoked = await this.store.isHouseholdRevoked(this.accountId, change.householdId)
+    const result = revoked ? null : await this.api.bootstrap(change.householdId)
+    if (!revoked && !result?.board) throw new Error("Connect to refresh this household before discarding the change.")
     this.mutationRevision++
-    await this.store.discardRejected(this.accountId, change.id, result.board)
+    await this.store.discardRejected(this.accountId, change.id, result?.board ?? null)
     await this.readLocal()
     this.wake()
   }
