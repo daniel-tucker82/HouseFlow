@@ -43,6 +43,7 @@ function setup(options = {}) {
     },
     '@/lib/time-rules': { parseUnlockRule: () => null, parseExpiryRule: () => null, resolveUnlockAt: () => null, resolveExpiryAt: () => null },
     '@/lib/task-edit-version': versionModule.exports,
+    '@/lib/completion-operations': { CompletionOperationError: class CompletionOperationError extends Error {} },
   }
   const filename = path.resolve(__dirname, '../app/api/leader/flow/route.ts')
   const loaded = new Module(filename, module)

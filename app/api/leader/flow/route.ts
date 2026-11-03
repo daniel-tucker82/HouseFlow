@@ -42,6 +42,7 @@ import {
 import { dispatchPushForNotificationIds } from "@/lib/push"
 import { PlannerSaveError, savePlannerTask } from "@/lib/save-planner-task"
 import { claimTaskEditVersion, validTaskEditVersion } from "@/lib/task-edit-version"
+import { CompletionOperationError, parseCompletionOperation, findCompletionReceipt, claimCompletionVersion, recordCompletionReceipt } from "@/lib/completion-operations"
 
 type QueryClient = {
   query: (...args: unknown[]) => Promise<{ rows: unknown[]; rowCount?: number | null }>
@@ -991,6 +992,7 @@ export async function POST(request: Request) {
     return response
   } catch (error) {
     if (error instanceof EntitlementError) return NextResponse.json({ error: error.message }, { status: error.status })
+    if (error instanceof CompletionOperationError) return NextResponse.json({ error: error.message }, { status: error.status })
     throw error
   } finally {
     try {
@@ -2016,6 +2018,8 @@ async function handleFlowPost(request: Request, context?: {
     if (!occurrenceId || !taskId) {
       return NextResponse.json({ error: "occurrenceId and taskId are required" }, { status: 400 })
     }
+    if (typeof body.completed !== "boolean") return NextResponse.json({ error: "completed must be a boolean" }, { status: 400 })
+    const operation = parseCompletionOperation(body, userId)
 
     const client = await db.connect()
     const deferredUnlockNotifications: Array<{
@@ -2033,10 +2037,23 @@ async function handleFlowPost(request: Request, context?: {
     try {
       await client.query("BEGIN")
 
+      await client.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [`completion:${userId}:${operation.version.operationId}`])
+      const receipt = await findCompletionReceipt(client, userId, operation)
+      if (receipt) {
+        await client.query("COMMIT")
+        return NextResponse.json({ ok: true, ...receipt })
+      }
+      await client.query("select id from routine_occurrences where id = $1::uuid and household_id = $2::uuid for update", [occurrenceId, householdId])
+
+      // Evaluate current prerequisites and time rules before accepting an offline edit.
+      await recomputeOccurrenceStatuses(client, occurrenceId)
+
       const check = await client.query<{
         assignee_ids: string[]
+        task_status: "locked" | "unlocked" | "completed"
+        occurrence_status: "active" | "completed" | "cancelled"
       }>(
-        `select coalesce(
+        `select ot.status as task_status, ro.status as occurrence_status, coalesce(
             array_agg(ta.user_id) filter (where ta.user_id is not null),
             '{}'::text[]
           ) as assignee_ids
@@ -2047,7 +2064,7 @@ async function handleFlowPost(request: Request, context?: {
          where ot.occurrence_id = $1::uuid
            and ot.task_id = $2::uuid
            and ro.household_id = $3
-         group by ot.occurrence_id, ot.task_id`,
+         group by ot.occurrence_id, ot.task_id, ot.status, ro.status`,
         [occurrenceId, taskId, householdId],
       )
       if ((check.rowCount ?? 0) === 0) {
@@ -2066,6 +2083,21 @@ async function handleFlowPost(request: Request, context?: {
       if (!canToggle) {
         await client.query("ROLLBACK")
         return NextResponse.json({ error: "Task cannot be edited in this view." }, { status: 403 })
+      }
+
+      if (check.rows[0].occurrence_status === "cancelled" || (completed && check.rows[0].task_status === "locked")) {
+        await client.query("ROLLBACK")
+        return NextResponse.json({ error: check.rows[0].occurrence_status === "cancelled"
+          ? "This routine has been cancelled." : "This task is not startable yet." }, { status: 409 })
+      }
+
+      if (!(await claimCompletionVersion(client, occurrenceId, taskId, operation))) {
+        const statuses = await client.query<{ task_id: string; status: "locked" | "unlocked" | "completed" }>(
+          "select task_id, status from occurrence_tasks where occurrence_id = $1::uuid", [occurrenceId])
+        const result = { operationId: operation.version.operationId, outcome: "superseded" as const, occurrenceTaskStatuses: statuses.rows }
+        await recordCompletionReceipt(client, userId, householdId, operation, result)
+        await client.query("COMMIT")
+        return NextResponse.json({ ok: true, ...result })
       }
 
       const beforeLockedStatuses = await client.query<{ task_id: string }>(
@@ -2169,6 +2201,9 @@ async function handleFlowPost(request: Request, context?: {
           and not exists (select 1 from occurrence_tasks where occurrence_id = $1::uuid and status <> 'completed')
           then 'completed'::occurrence_status else 'active'::occurrence_status end,
         updated_at = now() where id = $1::uuid and household_id = $2::uuid`, [occurrenceId, householdId])
+      await recordCompletionReceipt(client, userId, householdId, operation, {
+        operationId: operation.version.operationId, outcome: "applied", occurrenceTaskStatuses: afterStatuses.rows,
+      })
       await client.query("COMMIT")
       if (deferredUnlockNotifications.length > 0) {
         void (async () => {
@@ -2196,6 +2231,8 @@ async function handleFlowPost(request: Request, context?: {
       }
       return NextResponse.json({
         ok: true,
+        operationId: operation.version.operationId,
+        outcome: "applied",
         occurrenceTaskStatuses: afterStatuses.rows.map((row) => ({
           task_id: row.task_id,
           status: row.status,

@@ -50,3 +50,12 @@ next-env.d.ts
 # Generated worker and local demo output
 /public/worker-*.js
 /demos/**/.preview/
+
+# Native app dependencies and local build output
+/mobile/node_modules/
+/mobile/.expo/
+/mobile/dist/
+/mobile/android/
+/mobile/ios/
+/mobile/.env*
+!/mobile/.env.example

@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "Cyntch",
+    "slug": "cyntch",
+    "version": "1.0.0",
+    "platforms": ["ios", "android"],
+    "orientation": "default",
+    "icon": "./assets/images/icon.png",
+    "scheme": "cyntch",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.cyntch.app"
+    },
+    "android": {
+      "package": "com.cyntch.app",
+      "predictiveBackGestureEnabled": true
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#f7f8f5",
+          "image": "./assets/images/icon.png",
+          "imageWidth": 96
+        }
+      ],
+      "@clerk/expo",
+      "expo-secure-store",
+      "expo-sqlite",
+      "expo-background-task",
+      "@clerk/expo-native-components"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}
