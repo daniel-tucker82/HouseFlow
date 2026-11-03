@@ -55,7 +55,9 @@ export default function BoardScreen() {
   const members = board?.members ?? []
   const memberId = members.some(member => member.id === selectedMember) ? selectedMember : null
   const tasks = (board?.tasks ?? []).filter(task => !memberId || task.assignee_ids.includes(memberId))
+  const taskOrder = { unlocked: 0, locked: 1, completed: 2 }
   const visible = tasks.filter(task => showCompleted || task.status !== "completed")
+    .sort((a, b) => taskOrder[a.status] - taskOrder[b.status])
   const completed = tasks.filter(task => task.status === "completed").length
   const rejected = state.pending.filter(change => change.state === "rejected")
   const pending = new Set(state.pending.map(change => `${change.occurrenceId}:${change.taskId}`))
