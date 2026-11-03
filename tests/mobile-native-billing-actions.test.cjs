@@ -306,6 +306,33 @@ test('native billing purchase admission, account isolation and web checkout reco
     f.stripe.checkout.sessions.list = async () => ({ data: [], has_more: false })
     await f.lib.beginNativeBillingPurchase(scope, action)
   })
+  await t.test('a failed purchase check settles both providers before allowing an immediate retry', async () => {
+    const scope = await f.household(), action = f.action()
+    await f.db.query("insert into household_billing(household_id,stripe_customer_id) values($1,$2)", [scope.householdId, `cus_${scope.householdId}`])
+    let release, reachedNative, reachedStripe, settled = false
+    const gate = new Promise(resolve => { release = resolve })
+    const nativeReached = new Promise(resolve => { reachedNative = resolve })
+    const stripeReached = new Promise(resolve => { reachedStripe = resolve })
+    f.setProvider(async () => { reachedNative(); await gate; return Response.json({ object: 'list', items: [] }) })
+    const previousList = f.stripe.subscriptions.list
+    f.stripe.subscriptions.list = async () => { reachedStripe(); throw new Error('Stripe unavailable during admission') }
+    const work = f.lib.beginNativeBillingPurchase(scope, action)
+    const observed = work.then(() => { settled = true }, () => { settled = true })
+    try {
+      await Promise.all([nativeReached, stripeReached]); await new Promise(resolve => setImmediate(resolve))
+      assert.equal(settled, false, 'Provider failure must not leave verification writes running after the response')
+      await f.lib.withHouseholdWrite(scope.householdId, scope.accountId, async client => { await client.query('select 1') })
+      release(); await assert.rejects(work, /Stripe unavailable during admission/); await observed
+      f.stripe.subscriptions.list = previousList
+      const retried = await f.lib.beginNativeBillingPurchase(scope, action)
+      assert.equal(retried.operationId, action.operationId)
+      assert.equal((await f.attempts(scope))[0].state, 'submitted')
+    } finally {
+      release(); await observed
+      f.stripe.subscriptions.list = previousList
+      f.setProvider(async () => Response.json({ object: 'list', items: [] }))
+    }
+  })
   await t.test('a lost Stripe create response reuses durable expiry, integration label and idempotency key', async () => {
     const scope = await f.household(), creates = []
     f.stripe.customers.create = async () => ({ id: `cus_${scope.householdId}` })

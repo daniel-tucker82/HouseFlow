@@ -16,7 +16,7 @@ export interface IdentifiedBillingStore {
 export interface BillingSdk {
   store: NativeBillingStore | null
   run<T>(setup: NativeBillingSetup, check: () => void, work: (store: IdentifiedBillingStore) => Promise<T>): Promise<T>
-  manage(check: () => void): Promise<void>
+  manage(store: NativeBillingStore, check: () => void): Promise<void>
   openWebCancellation(url: string, check: () => void): Promise<void>
 }
 

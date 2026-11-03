@@ -4,7 +4,6 @@ import { ActivityIndicator, Alert, View, useWindowDimensions } from "react-nativ
 import { Action, Card, Copy, styles, usePalette } from "./ui"
 import { useBilling, useRuntime } from "../providers/runtime"
 import { hasBillingConflict } from "../services/billing-controller"
-import { nativeBillingSdk } from "../services/billing-native"
 import type { NativeBillingSource } from "../../../shared/mobile/billing"
 
 const providers = { app_store: "Apple App Store", play_store: "Google Play", stripe: "Cyntch website" }
@@ -22,7 +21,7 @@ export function BillingSettingsCard() {
   const status = state.status, busy = Boolean(state.busy) || state.loading, disabled = busy || !state.online || syncPaused
   const eligible = status?.canManage && status.purchasesAvailable && !hasBillingConflict(status) && !state.operation
   const sources = status?.sources.filter(source => source.givesAccess || source.pendingPayment || !["expired", "not_returned", "canceled", "incomplete_expired"].includes(source.status)) ?? []
-  const canManageStore = sources.some(source => source.provider === nativeBillingSdk.store)
+  const stores = [...new Set(sources.flatMap(source => source.provider === "stripe" ? [] : [source.provider]))]
   const run = (work: Promise<unknown>) => { void work.catch(() => undefined) } // Error is retained in the card, including after navigation.
   return <Card>
     <Copy tone="heading">Household plan</Copy>
@@ -37,7 +36,6 @@ export function BillingSettingsCard() {
       {status.duplicateSubscriptions ? <View accessibilityRole="alert"><Copy style={{ color: colors.warning }}>More than one subscription is providing Premium. Review them with their billing providers to avoid paying twice.</Copy></View> : null}
       {sources.map((source,index) => <View key={`${source.provider}:${index}`} style={{ borderTopWidth: 1, borderColor: colors.border, paddingTop: 12, gap: 4 }}>
         <Copy tone="label">{providers[source.provider]}</Copy><Copy tone="muted">{sourceDescription(source)}</Copy>
-        {source.provider !== nativeBillingSdk.store && source.provider !== "stripe" ? <Copy tone="muted">Manage this subscription through the {providers[source.provider]} using the account that purchased it.</Copy> : null}
         {source.provider === "stripe" && source.renewal !== "will_not_renew" && !["canceled","incomplete_expired","none"].includes(source.status) ? <>
           <Copy tone="muted">You can stop automatic renewal. Any remaining paid access continues until the end of your paid period.</Copy>
           <Action disabled={disabled} secondary label="Cancel website subscription" onPress={() => run(billing.cancelWebRenewal())} />
@@ -62,7 +60,8 @@ export function BillingSettingsCard() {
       </View>}
       {state.offers.length ? <Copy tone="muted">Payment is charged to your store account. Your subscription renews automatically until cancelled in your store settings. Review the price and renewal terms in the purchase sheet.</Copy> : null}
     </> : status?.canManage && status.tier === "free" && !status.purchasesAvailable ? <Copy tone="muted">Store subscriptions are not available yet.</Copy> : null}
-    {status?.canManage && canManageStore ? <Action disabled={disabled} secondary label={`Manage in ${nativeBillingSdk.store === "app_store" ? "App Store" : "Google Play"}`} onPress={() => run(billing.manage())} /> : null}
+    {status?.canManage && stores.length ? <Copy tone="muted">Manage your existing subscription using the Apple or Google account that originally purchased it.</Copy> : null}
+    {status?.canManage ? stores.map(store => <Action key={store} disabled={disabled} secondary label={`Manage ${store === "app_store" ? "Apple" : "Google Play"} subscription`} onPress={() => run(billing.manage(store))} />) : null}
     {status?.canManage && status.purchasesAvailable ? <>
       <Action disabled={disabled} secondary label="Restore purchases" onPress={() => Alert.alert("Restore purchases for this household?", "Use the same store account that originally subscribed for this household. Purchases belonging to another household will stay with that household.", [
         { text: "Cancel", style: "cancel" }, { text: "Restore", onPress: () => run(billing.restore()) },

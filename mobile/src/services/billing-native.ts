@@ -9,11 +9,16 @@ const queue = new BillingSdkQueue()
 let configuredKey: string | undefined
 export const nativeBillingSdk: BillingSdk = {
   store: Platform.OS === "ios" ? "app_store" : Platform.OS === "android" ? "play_store" : null,
-  async manage(check) {
+  async manage(store, check) {
     check()
     if (!nativeBillingSdk.store) throw new Error("Use the Android or iOS app to manage store subscriptions.")
+    if (store !== "app_store" && store !== "play_store") throw new Error("Choose the store that bills this subscription.")
     // Management must remain reachable without SDK keys or current offerings.
-    await Linking.openURL(nativeBillingSdk.store === "app_store" ? "https://apps.apple.com/account/subscriptions" : "https://play.google.com/store/account/subscriptions")
+    // Apple's web subscription page also supports parents using Android.
+    const url = store === "play_store" ? "https://play.google.com/store/account/subscriptions"
+      : Platform.OS === "ios" ? "https://apps.apple.com/account/subscriptions" : "https://account.apple.com/account/manage/section/subscriptions"
+    try { await Linking.openURL(url) }
+    catch { throw new Error(`Unable to open ${store === "app_store" ? "Apple" : "Google Play"} subscription management. Please try again or use that store’s subscription settings.`) }
   },
   async openWebCancellation(url, check) {
     check()

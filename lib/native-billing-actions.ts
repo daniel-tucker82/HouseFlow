@@ -131,7 +131,11 @@ export async function beginNativeBillingPurchase(scope: NativeBillingScope, acti
   })
   // The SDK must identify this customer before begin. A provider failure, even
   // a missing customer, fails closed; no client receipt can bypass verification.
-  await Promise.all([verifyNativeBillingAccount(db, account.id, config), assertNoStripePurchase(scope.householdId)])
+  // Native verification writes its snapshot after the provider responds. Wait
+  // for it even if Stripe fails first, so an immediate retry cannot collide with
+  // this request's unfinished transaction. The network calls remain parallel.
+  const checks = await Promise.allSettled([verifyNativeBillingAccount(db, account.id, config), assertNoStripePurchase(scope.householdId)])
+  for (const check of checks) if (check.status === "rejected") throw check.reason
   const attempt = await withHouseholdWrite(scope.householdId, scope.accountId, async (client, entitlement) => {
     owner(scope, entitlement); free(entitlement)
     await assertNoNativeSubscription(client, scope.householdId, config.environment)

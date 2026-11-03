@@ -45,9 +45,9 @@ async function fixture(t) {
     verifyBilling: async () => { calls.push('verify'); status.verificationPending=true; return structuredClone(status) },
     webBillingCancellation: async () => ({...scope,provider:'stripe',url:'https://billing.stripe.com/p/session/test_fixture'}),
   }
-  const session = { offers: async () => offers, purchase: async () => { calls.push('purchase'); return 'purchased' }, restore: async () => { calls.push('restore') }, manage: async () => { calls.push('manage') } }
+  const session = { offers: async () => offers, purchase: async () => { calls.push('purchase'); return 'purchased' }, restore: async () => { calls.push('restore') } }
   const sdk = { store: 'play_store', run: (configuration,check,work) => queue.run(check,async () => { check(); return work(session) }),
-    manage:async check=>{check();calls.push('manage')},openWebCancellation:async(url,check)=>{check();calls.push(['open',url])} }
+    manage:async(provider,check)=>{check();calls.push(['manage',provider])},openWebCancellation:async(url,check)=>{check();calls.push(['open',url])} }
   const controllers = []
   const create = (identity = scope) => {
     const controller = new BillingController(local.billing,identity,api,sdk,() => allowed,randomUUID,() => now)
@@ -254,7 +254,7 @@ test('store management does not need purchase setup or SDK identity; delayed can
   const f=await fixture(t)
   f.setStatus({purchasesAvailable:false,sources:[{provider:'play_store',status:'active',givesAccess:true}]})
   f.api.prepareBilling=async()=>assert.fail('Management must not need purchase configuration')
-  await f.controller.manage();assert.equal(f.calls.includes('manage'),true)
+  await f.controller.manage();assert.deepEqual(f.calls.find(call=>Array.isArray(call)&&call[0]==='manage'),['manage','play_store'])
   await f.controller.refresh()
   const gate=deferred(), reached=deferred()
   f.api.webBillingCancellation=async()=>{reached.resolve();await gate.promise;return{...f.scope,provider:'stripe',url:'https://billing.stripe.com/p/session/test_fixture'}}
@@ -263,12 +263,41 @@ test('store management does not need purchase setup or SDK identity; delayed can
 })
 
 test('native management links use only approved destinations without configuring RevenueCat',async()=>{
-  for(const [platform,url] of [['ios','https://apps.apple.com/account/subscriptions'],['android','https://play.google.com/store/account/subscriptions']]){
-    const f=nativeSdk(platform);await f.sdk.manage(()=>{})
+  for(const [platform,provider,url] of [
+    ['ios','app_store','https://apps.apple.com/account/subscriptions'],
+    ['ios','play_store','https://play.google.com/store/account/subscriptions'],
+    ['android','app_store','https://account.apple.com/account/manage/section/subscriptions'],
+    ['android','play_store','https://play.google.com/store/account/subscriptions']]){
+    const f=nativeSdk(platform);await f.sdk.manage(provider,()=>{})
     assert.deepEqual(f.calls,[['open',url]]);assert.equal(f.configurations,0)
-    await assert.rejects(f.sdk.manage(()=>{throw new Error('Locked')}),/Locked/)
+    await assert.rejects(f.sdk.manage(provider,()=>{throw new Error('Locked')}),/Locked/)
+    await assert.rejects(f.sdk.manage('https://evil.test',()=>{}),/Choose the store/)
     await assert.rejects(f.sdk.openWebCancellation('https://evil.test',()=>{}),/not valid/)
     await f.sdk.openWebCancellation('https://billing.stripe.com/p/session/test_fixture',()=>{})
     assert.equal(f.calls.length,2)
   }
+})
+
+test('management follows the recorded billing provider across platforms and rechecks ownership',async t=>{
+  const f=await fixture(t)
+  f.setStatus({purchasesAvailable:false,sources:[{provider:'app_store',status:'active',givesAccess:true}]})
+  f.api.prepareBilling=async()=>assert.fail('Cross-platform management must not configure purchasing')
+  await f.controller.manage('app_store')
+  assert.deepEqual(f.calls.filter(call=>Array.isArray(call)&&call[0]==='manage'),[['manage','app_store']])
+  await assert.rejects(f.controller.manage('play_store'),/no subscription you can manage/)
+  f.setStatus({canManage:false})
+  await assert.rejects(f.controller.manage('app_store'),/no subscription you can manage/)
+  assert.equal(f.calls.filter(call=>Array.isArray(call)&&call[0]==='manage').length,1)
+  assert.equal(await f.operation(),null,'Opening management must not create a purchase or grant access')
+})
+
+test('a delayed provider management request cannot open after switching households',async t=>{
+  const f=await fixture(t), gate=deferred(), reached=deferred()
+  const response={...f.status,sources:[{provider:'app_store',status:'active',givesAccess:true}]}
+  f.api.billingStatus=async()=>{reached.resolve();await gate.promise;return response}
+  const opening=f.controller.manage('app_store');await reached.promise
+  f.controller.selectHousehold(null);gate.resolve()
+  await assert.rejects(opening,/interrupted/)
+  assert.equal(f.calls.some(call=>Array.isArray(call)&&call[0]==='manage'),false)
+  assert.equal(f.controller.getSnapshot().status,null)
 })

@@ -223,12 +223,12 @@ export class BillingController {
       })
     })
   }
-  async manage() {
+  async manage(provider: NativeBillingStore | null = this.sdk.store) {
     return this.action("manage",async (householdId,generation) => {
       const status = await this.api.billingStatus(householdId); this.check(generation,householdId)
       this.update({ status })
-      if (!status.canManage || !this.sdk.store || !status.sources.some(source => source.provider === this.sdk.store)) throw new Error("This household has no subscription in this device’s store.")
-      await this.sdk.manage(() => this.check(generation,householdId))
+      if (!status.canManage || !provider || !status.sources.some(source => source.provider === provider)) throw new Error("This household has no subscription you can manage in that store.")
+      await this.sdk.manage(provider,() => this.check(generation,householdId))
     })
   }
   async cancelWebRenewal() {

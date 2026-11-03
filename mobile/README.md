@@ -695,18 +695,27 @@ enable billing or make purchases. Physical-device and iOS checks remain required
 
 This is not yet the complete subscription release: store accounts/catalogs and
 real store sandbox lifecycle verification remain outstanding, as do policy/support
-links and actionable management for other-platform subscriptions.
-Those store sources currently show provider instructions. Web reservations also still
+links and real account verification of management on both platforms. Web reservations also still
 need a polished change/cancel recovery flow. Keep the production billing gate off
 until the complete purchase and management flows have been verified.
 
 ## Existing subscription management
 
-Owners can open the current device's subscription centre even when native
-purchases are disabled or store offerings/SDK keys are unavailable. Management
+Owners can open the recorded billing provider's subscription centre even when
+purchase offerings or SDK keys are unavailable. Management
 rechecks household ownership and the recorded provider before opening the fixed
 Apple or Google management URL. It does not configure a purchasing identity or
 start a purchase. Account, household and kiosk changes fence delayed actions.
+Native source history still requires the native integration gate to be enabled;
+that gate controls entitlement reads as well as purchase integration. Website
+cancellation also works while the native integration gate is off.
+On iOS, Apple subscriptions open the native account subscription URL; on Android,
+they open Apple's documented web subscription page. Google subscriptions use
+Google Play's subscription centre on either platform. These actions are shown
+only for existing recorded providers, with one button per provider and a reminder
+to use the original purchasing account. They do not promote another purchase
+method. Platform review must still assess the resulting provider pages and
+territory rules before release.
 
 An existing website subscription has a **Cancel website subscription** action.
 The backend creates a short-lived Stripe cancellation session after checking the
@@ -758,7 +767,28 @@ public login were disabled. Live Stripe settings and subscriptions were untouche
 
 References: [Stripe portal deep links](https://docs.stripe.com/customer-management/portal-deep-links),
 [Google subscription cancellation requirements](https://support.google.com/googleplay/android-developer/answer/12154973),
-and [Google payment-policy guidance](https://support.google.com/googleplay/android-developer/answer/10281818).
+[Google payment-policy guidance](https://support.google.com/googleplay/android-developer/answer/10281818),
+[Apple cancellation guidance](https://support.apple.com/en-us/118428), and
+[Google subscription management](https://support.google.com/googleplay/answer/7018481).
+
+Cross-platform management verification: 19 native billing client tests include
+all four device/provider combinations, absent providers, changed ownership and
+household switches during delayed status reads. Android emulator inspection with
+temporary, in-memory billing-source fixtures confirmed both management buttons
+in portrait and landscape. The fixture was removed and the actual server-backed
+Free plan restored. These are layout and boundary checks, not proof of an Apple
+or Google authenticated cancellation or iOS device handoff.
+
+Purchase admission waits for both parallel provider checks to settle before
+returning an error. Native verification can write a snapshot even when the
+Stripe check fails; returning early left that write running and could make an
+immediate retry collide with the household transaction. A deterministic test
+holds the native response while Stripe fails, confirms other household writes
+remain available, and retries the same durable reservation after both settle.
+After this fix, all 252 general regression checks passed, including 40 focused
+billing checks. The 19 isolated web-billing checks also passed. Root/mobile lint
+and typecheck and Android/iOS JavaScript exports passed. No purchase catalogue,
+live billing configuration or pricing/tax setting changed.
 
 Verification on 2026-11-04: 241 general checks (including 15 native billing client
 checks) and 19 isolated web billing checks passed. Root/mobile lint and typecheck,
