@@ -6,6 +6,7 @@ import { kioskSessionKey, readKioskForSession } from "@/lib/native-kiosk-store"
 import { verifyInstallation } from "@/lib/native-notification-settings"
 import { notificationUuid, notificationSessionId } from "@/shared/mobile/notification-settings"
 import type { AccountDeletionScope } from "@/shared/mobile/account-deletion"
+import { accountDeletionIssuer } from "@/lib/account-deletion-identity"
 
 export interface AccountDeletionReceipt {
   accountId: string; requestId: string; state: "pending" | "completed"; acceptedAt: string; completedAt: string | null
@@ -20,6 +21,7 @@ export interface AccountDeletionWork {
     scans: { testClock: string | null; cursor: string | null; complete: boolean }[]
   }
   retiredNativeAccounts: { id: string; projectId: string; environment: "production" | "sandbox"; requestedAt?: string; completed?: boolean }[]
+  identity: { issuer: string; instanceId?: string; environment?: "development" | "production"; completed?: boolean }
   orphanProfileIds: string[]
   householdIds: string[]
   deviceIds: string[]
@@ -36,9 +38,11 @@ const busy = () => new AccountDeletionError("Another account or household change
  * Do not wrap this in the normal shared account-admission lock. This function
  * takes its own exclusive account lock and shared kiosk lock in that order. */
 export async function acceptAccountDeletion(pool: Pool, scope: AccountDeletionScope, secret: string, raw: unknown,
-  recentlyVerified: boolean, verifySuccessors: (accountIds: string[]) => Promise<void>): Promise<AccountDeletionReceipt> {
+  recentlyVerified: boolean, verifySuccessors: (accountIds: string[]) => Promise<void>, verifiedSessionIssuer: string): Promise<AccountDeletionReceipt> {
   if (!/^user_[A-Za-z0-9_-]{1,200}$/.test(scope.accountId) || !notificationSessionId.test(scope.sessionId) || !notificationUuid.test(scope.deviceId)) throw new AccountDeletionError("Sign in again before deleting your account.",401)
   if (!recentlyVerified) throw new AccountDeletionError("Verify your sign-in again before deleting your account.",403,"account_reverification_required")
+  const issuer=accountDeletionIssuer(verifiedSessionIssuer)
+  if (!issuer) throw new AccountDeletionError("Sign in again before deleting your account.",401)
   const intent=parseAccountDeletionIntent(raw), fingerprint=createHash("sha256").update(JSON.stringify(intent)).digest("hex")
   // A provider lookup has no authority by itself. Membership and role are
   // checked again under the household locks after this network work finishes.
@@ -92,7 +96,7 @@ export async function acceptAccountDeletion(pool: Pool, scope: AccountDeletionSc
       union select device_id from native_kiosk_cancellations where user_id=$1 union select device_id from native_notification_revocations where account_id=$1
       union select device_id from native_notification_operations where user_id=$1 union select device_id from native_notification_history_entries where user_id=$1
       union select device_id from native_notification_history_markers where user_id=$1`,[scope.accountId,scope.deviceId])).rows.map(row=>row.id)
-    const work:AccountDeletionWork={householdIds:households.map(row=>row.id),deviceIds,
+    const work:AccountDeletionWork={householdIds:households.map(row=>row.id),deviceIds,identity:{issuer},
       stripeHouseholds:intent.ownership.map(({householdId,action})=>({householdId,action})),
       stripeDiscovery:{complete:false,livemode:null,clocksComplete:false,clockCursor:null,scans:[{testClock:null,cursor:null,complete:false}]},
       stripe:stripeRows.map(row=>({householdId:row.household_id,customerId:row.stripe_customer_id,subscriptionId:row.stripe_subscription_id,

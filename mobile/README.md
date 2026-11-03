@@ -1001,13 +1001,13 @@ when its budget is spent. Only after all phases succeed does it clear raw
 account/provider identifiers, retaining the opaque account hash and outcome to
 prevent resurrection.
 
-**Native billing/identity cleanup adapters and scheduler wiring are not
-implemented.** The PostgreSQL and Stripe adapters are described below. The
-coordinator's phase tests substitute provider effects; the separate Stripe
-integration check uses new test-mode customers only. No live identity or live
-billing customer has been erased. Do not expose
-acceptance until those adapters, status recovery, disclosures and confirmation
-flows are implemented and verified. Shared authored content, notification
+**Public deletion acceptance and scheduler wiring are not enabled.** Internal
+PostgreSQL, Stripe, native billing and Clerk adapters are described below.
+Provider integration tests use newly created Stripe test-mode customers and
+Clerk development accounts only. No existing user account or live billing
+customer has been erased. Do not expose acceptance until Apple token revocation,
+restore protection, status recovery, disclosures and confirmation flows are
+implemented and verified. Shared authored content, notification
 snapshots, orphan profiles, store subscription handling, out-of-band identity
 deletion and local queues must all be covered by the completed workflow.
 
@@ -1211,8 +1211,8 @@ explain this and provide the existing store management links.
 Local subscription bindings remain unchanged. Before enabling account deletion,
 still verify restore protection across provider erasure/recreation, prevent
 the old SDK identity from recreating data, and implement follow-up erasure for
-late provider events. Identity deletion, the confirmation/status endpoints,
-native/web UI and local data purge are also unfinished. No public deletion
+late provider events. Linked Apple identity revocation, the confirmation/status
+endpoints, native/web UI and local data purge are also unfinished. No public deletion
 action or scheduled worker is enabled by this adapter.
 
 Provider-double tests use isolated real PostgreSQL schemas and cover asynchronous
@@ -1226,3 +1226,51 @@ skips or cancellations. After adding an HTTP abort check, all 16 focused native
 deletion checks passed. Root lint, the final changed-file lint check, standalone
 TypeScript checks and the production build also passed. Test schemas were
 isolated; no RevenueCat requests or production database changes were made.
+
+### Clerk identity erasure
+
+`acceptAccountDeletion()` now requires the issuer from Clerk's verified session
+claims as a separate server argument. Never take it from a request payload.
+The issuer is saved with the durable work so cleanup can verify the provider
+after sign-in sessions cease to exist. No new SQL migration is needed.
+
+`deleteAccountIdentity()` runs only after the other three phases have completed.
+It verifies the Clerk instance and its domains against that saved issuer, then
+pins the instance ID and development/production environment. A retry may use a
+rotated key or changed domain only if the instance still matches. A foreign
+tenant's 404 cannot be mistaken for successful erasure.
+
+The adapter calls the versioned REST API directly to enforce an eight-second
+request limit within its invocation budget. It validates the selected user and
+DELETE acknowledgement, then confirms absence with GET. A lost response or
+worker interruption can resume without deleting another account. Only the
+coordinator clears the account/work identifiers after all phases succeed.
+No profile, OAuth token, provider error message or API credential is persisted.
+
+Linked Apple identities currently stop this phase before DELETE: upstream token
+revocation and its durable interrupted recovery remain to be implemented. Clerk
+deletion alone is not treated as proof of Apple revocation. The observed local
+development instance enables Google sign-in; that does not prove production
+or future Apple configuration. Self-deletion through Clerk's own profile UI and
+out-of-band provider deletion must also be handled in the completed flow.
+
+Ten PostgreSQL/provider-double checks cover issuer validation, tenant isolation,
+lost responses, identity mismatch, phase ordering, stale leases, durable waits,
+HTTP timeouts and the Apple guard. `tests/integration/account-deletion-clerk.cjs`
+also passed against the configured Clerk development instance. It creates a
+uniquely marked test account, verifies the actual DELETE response, discards that
+response deliberately, confirms GET/404 recovery and durable completion, then
+verifies cleanup of its own fixture. It refuses live keys or a production
+instance and uses only the isolated localhost test database.
+
+Run that integration check explicitly with `CYNTCH_CLERK_DELETION_TEST=true`,
+`CYNTCH_TEST_DATABASE_URL=postgresql://cyntch_test@localhost:55439/cyntch_mobile_test`
+and `node --test tests/integration/account-deletion-clerk.cjs`. Credentials load
+from protected local configuration; the temporary evidence file contains only
+test identifiers and verification outcomes. The latest evidence file is
+`cyntch-delete-d16bf6c3-e1cf-48c4-8fa6-0fdbd098c881.json` in the OS temporary directory.
+
+Verification on 2026-11-04: all 383 general regression checks passed without
+skips or cancellations; root lint, standalone TypeScript checks and the
+production build passed. No native modules, public deletion action or cron
+worker were enabled by this change.

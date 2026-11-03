@@ -2,7 +2,7 @@
 const assert=require('node:assert/strict'),{randomUUID,createHash}=require('node:crypto'),fs=require('node:fs'),path=require('node:path'),Module=require('node:module')
 const {Pool}=require('pg'),{buildSync}=require('esbuild'),root=path.resolve(__dirname,'../..')
 exports.connectionString=process.env.CYNTCH_TEST_DATABASE_URL
-exports.fixture=async function fixture(t){
+exports.fixture=async function fixture(t,overrides={}){
  const connectionString=exports.connectionString,url=new URL(connectionString)
  assert.ok(['localhost','127.0.0.1','[::1]'].includes(url.hostname)&&url.pathname==='/cyntch_mobile_test')
  const admin=new Pool({connectionString}),schema=`deletion_${randomUUID().replaceAll('-','')}`;await admin.query(`create schema ${schema}`)
@@ -14,7 +14,8 @@ exports.fixture=async function fixture(t){
  }
  for(const file of fs.readdirSync(path.join(root,'database')).filter(file=>file.endsWith('.sql')).sort())await db.query(fs.readFileSync(path.join(root,'database',file),'utf8'))
  await db.query(fs.readFileSync(path.join(root,'database/0034_account_deletion_requests.sql'),'utf8'))
- const owner='user_delete_'+randomUUID(),successor='user_successor_'+randomUUID(),other='user_other_'+randomUUID(),child='local_member_'+randomUUID(),sharedChild='local_member_'+randomUUID()
+ const owner=overrides.owner??'user_delete_'+randomUUID(),successor='user_successor_'+randomUUID(),other='user_other_'+randomUUID(),child='local_member_'+randomUUID(),sharedChild='local_member_'+randomUUID()
+ assert.match(owner,/^user_[A-Za-z0-9_-]{1,200}$/)
  for(const [id,name]of[[owner,'Deleting parent'],[successor,'Other parent'],[other,'Unrelated parent'],[child,'Local child'],[sharedChild,'Shared profile']])await db.query('insert into users(id,full_name,email) values($1,$2,$3)',[id,name,id.startsWith('user_')?'fixture@private.test':null])
  const transfer=randomUUID(),deleting=randomUUID(),shared=randomUUID(),device=randomUUID(),otherDevice=randomUUID()
  const scope={accountId:owner,sessionId:'sess_'+randomUUID(),deviceId:device},secret='a'.repeat(64)
@@ -36,6 +37,6 @@ exports.fixture=async function fixture(t){
  const lib=load(['lib/account-deletion-requests.ts','lib/account-deletion-processing.ts','lib/account-deletion-data.ts','lib/account-deletion-review.ts','lib/account-access.ts','lib/native-kiosk-guard.ts','lib/native-kiosk-store.ts','lib/user-sync.ts','lib/usage-controls.ts','lib/planner-creation.ts','lib/completion-operations.ts','lib/native-notification-settings.ts','shared/mobile/kiosk.ts'])
  const read=()=>lib.readAccountDeletionReview(scope,secret)
  const intent=async()=>({operationId:randomUUID(),revision:(await read()).revision,ownership:[{householdId:transfer,action:'transfer',successorId:successor},{householdId:deleting,action:'delete'}],confirmAccountDeletion:true,acknowledgeSubscriptions:true})
- const accept=(action,options={})=>lib.acceptAccountDeletion(db,options.scope??scope,options.secret??secret,action,options.verified??true,options.verify??(async ids=>assert.deepEqual(ids,[successor])))
+ const accept=(action,options={})=>lib.acceptAccountDeletion(db,options.scope??scope,options.secret??secret,action,options.verified??true,options.verify??(async ids=>assert.deepEqual(ids,[successor])),options.issuer??'https://fixture.clerk.accounts.dev')
  return {db,lib,load,scope,secret,owner,successor,other,child,sharedChild,transfer,deleting,shared,native,otherDevice,read,intent,accept,identity}
 }

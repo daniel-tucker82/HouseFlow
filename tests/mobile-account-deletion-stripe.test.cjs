@@ -163,7 +163,7 @@ test('deletion after an interrupted checkout captures and closes its committed c
  assert.equal(result.status,503)
  const scope={...f.scope,accountId:f.other,deviceId:f.otherDevice},review=await f.lib.readAccountDeletionReview(scope,f.secret)
  const intent={operationId:randomUUID(),revision:review.revision,ownership:[{householdId:f.shared,action:'delete'}],confirmAccountDeletion:true,acknowledgeSubscriptions:true}
- await f.lib.acceptAccountDeletion(f.db,scope,f.secret,intent,true,async()=>{})
+ await f.lib.acceptAccountDeletion(f.db,scope,f.secret,intent,true,async()=>{},'https://fixture.clerk.accounts.dev')
  const leaseId=randomUUID();await f.db.query("update account_deletion_requests set lease_id=$2,lease_until=now()+interval '60 seconds' where id=$1",[intent.operationId,leaseId])
  const work=(await f.db.query('select work from account_deletion_requests where id=$1',[intent.operationId])).rows[0].work
  assert.deepEqual(work.stripe.map(item=>item.customerId),[customer.id])
@@ -265,7 +265,7 @@ test('an account with no owned households completes Stripe cleanup without provi
  const f=await fixture(t),accountId='user_empty_'+randomUUID(),scope={...f.scope,accountId,deviceId:randomUUID()}
  await f.db.query('insert into users(id) values($1)',[accountId])
  const review=await f.lib.readAccountDeletionReview(scope,f.secret),intent={operationId:randomUUID(),revision:review.revision,ownership:[],confirmAccountDeletion:true,acknowledgeSubscriptions:true}
- await f.lib.acceptAccountDeletion(f.db,scope,f.secret,intent,true,async()=>{})
+ await f.lib.acceptAccountDeletion(f.db,scope,f.secret,intent,true,async()=>{},'https://fixture.clerk.accounts.dev')
  const leaseId=randomUUID();await f.db.query("update account_deletion_requests set lease_id=$2,lease_until=now()+interval '60 seconds' where id=$1",[intent.operationId,leaseId])
  const work=(await f.db.query('select work from account_deletion_requests where id=$1',[intent.operationId])).rows[0].work
  const job={id:intent.operationId,accountId,leaseId,work};await f.lib.deleteAccountData(f.db,job)
