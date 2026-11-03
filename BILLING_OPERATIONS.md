@@ -1,6 +1,15 @@
 # Cyntch freemium operations
 
-Status: implementation and preview verification in progress. Production additive migration and permanent owner grant are applied; application production deployment and subscription enforcement are still pending.
+Status: released to https://www.cyntch.com on 2026-11-03. Application revision b2295302b726ae190075a597f78edc3cc14361fa, production deployment dpl_Beg7714frUP7H5ruNEabSLgCzdfc. FREEMIUM_ENFORCEMENT_ENABLED=true. The live custom-domain alias was verified against this deployment.
+
+## Final release verification
+
+- Production owner billing page shows Permanent Premium access with no subscription required, after enforcement was enabled. Actual entitlement code against production resolves 2 owner households and 6 free households. All 160 existing tasks and 5 templates remain intact.
+- Original automated suite: 25 passed. Real Stripe sandbox suite: 8 passed. Targeted lint and production build passed. Deployed browser/API verification covered sign-in, household creation, free limits, hosted test payment, signed provider webhooks, Premium unlock and portal cancellation. The fixed cancellation label was reverified on preview.
+- Public production home and sign-in return 200, production Clerk credentials are active, and an unsigned webhook returns 400. No runtime errors were found in the final 15-minute scan. No live payment was made; a real live payment/webhook lifecycle is not claimed as tested.
+- Temporary TEST webhook is disabled; its automation bypass was revoked and verified blocked (302). Hosted-checkout test subscription was canceled after checks. Test credentials remain isolated from production. Owner data was not used for payment tests.
+- Rollback targets: staged unrestricted production dpl_G1XqpoJn1hV8usWXf8oKvQPC9EYo (same application code, enforcement=false), or a prior verified release. Preserve additive billing tables and event history.
+- Source is committed on codex/freemium-subscriptions in C:/dev/HouseFlow-freemium. Root workspace edits were preserved. Do not deploy older master without incorporating this release branch.
 
 ## Plans and safeguards
 
@@ -38,14 +47,14 @@ Verified live catalog in the user-selected Aspyre account, under Aspyre Pty Ltd 
 - Annual: price_1UXZJYAJcWjR3ecTHfb4oXwN — AUD $49.99 (4999 cents).
 - No trial. No charges were created during catalog setup.
 
-Verified live configuration on 2026-11-03 (application not yet released):
+Verified live configuration on 2026-11-03:
 
 - Restricted runtime key saved as sensitive production STRIPE_SECRET_KEY in Vercel. Read-only SDK checks passed for prices, customers, subscriptions, invoices, invoice payments, charges, disputes, Checkout Sessions and portal configuration.
-- Webhook we_1UXZt8AJcWjR3ecT3np8Rt7c is active for exactly the 14 handled events at https://www.cyntch.com/api/billing/webhook, using snapshot API version 2026-10-28.endive. Its signing secret is saved as sensitive production STRIPE_WEBHOOK_SECRET. Production delivery is not yet verified; the application endpoint still awaits deployment.
+- Webhook we_1UXZt8AJcWjR3ecT3np8Rt7c is active for exactly the 14 handled events at https://www.cyntch.com/api/billing/webhook, using snapshot API version 2026-10-28.endive. Its signing secret is saved as sensitive production STRIPE_WEBHOOK_SECRET. The endpoint is deployed and rejects unsigned requests. Provider-signed delivery was verified in test mode, without a live charge.
 - Default portal bpc_1UXZvCAJcWjR3ecTk12fkbrf enables invoice history, payment-method updates and cancellation at period end. Subscription/product/quantity changes and public login links are disabled.
 - Both live price IDs are saved in production environment variables. No secrets are stored in this repository; temporary credential transfer files were removed.
 - The Stripe connector now correctly exposes Aspyre acct_1U4XwUAJcWjR3ecT in live mode. Earlier OAuth/account-selection problems are resolved for live configuration.
-- Latest preview revision f32de5af441014d46a7388c9b05539675e7922bf is READY. Authenticated preview verification, provider-to-preview webhook delivery and production application deployment remain outstanding.
+- Final verified preview was b229530 at dpl_4zKq6D4qjZsAFKCxNWb96mxuUuEA, followed by the production rollout above. The branch alias can change during redeployments; use immutable deployment URLs when diagnosing earlier checks.
 
 Test configuration uses the same Aspyre account's isolated test mode: product prod_VYhfrMFyhX2nD5, monthly price_1UXaGbAJcWjR3ecTDUAt0h8Z, yearly price_1UXaGbAJcWjR3ecTXJIcElhm, and default portal bpc_1UXaGcAJcWjR3ecTE8q7DQks. The restricted test key and price IDs are scoped only to the codex/freemium-subscriptions Vercel preview branch. The opt-in tests/billing-stripe-sandbox.test.cjs passed all seven reported tests against real Stripe test-mode APIs and an isolated local PostgreSQL database: paid access, cancellation, reactivation, unpaid and declined payments, hosted Checkout and portal sessions. Test subscriptions were canceled after execution. No live charges were made.
 
@@ -85,7 +94,9 @@ household_usage_daily records tier, API/job request counts, processing milliseco
 
 Read-only production baseline on 2026-11-03: 8 households, 5 templates, 160 task records, 13 runs, 1 active run. These counts do not validate prior dollar estimates. Reconcile provider invoices, actual egress/database storage, active household counts and payment fees before publishing per-household cost claims.
 
-Run scripts/billing-usage-report.cjs with an explicitly supplied POSTGRES_URL and optional USAGE_REPORT_DAYS (1–366, default 30) for aggregate workload, retained records and billing health. This read-only report was verified against the isolated preview database. Provider spending alerts still need configuration/verification. The existing Vercel cron runs daily on the current configuration; active web clients also check recurrence. Do not silently upgrade infrastructure to obtain more frequent cron.
+Run scripts/billing-usage-report.cjs with an explicitly supplied POSTGRES_URL and optional USAGE_REPORT_DAYS (1–366, default 30) for aggregate workload, retained records and billing health. The read-only report was verified on preview and production. Production reported zero pending webhooks, stale billing accounts or waitlisted accounts immediately after release. Initial operations include rollout checks; they are not a representative per-customer cost sample. The existing Vercel cron runs daily; active web clients also check recurrence. Do not silently upgrade infrastructure to obtain more frequent cron.
+
+Vercel's existing team budget is US$200 per billing cycle in on-demand metered charges, with alerts at 50%, 75% and 100%. The user explicitly approved enabling automatic pausing for all projects in Daniel's projects; the final Dashboard row shows Pause On. This can interrupt other projects and paying customers at the threshold. It is not a cap on base fees, other providers or total business expenditure. Current team usage showed $2.94 of $20 included credit and $0 on-demand spend; it cannot be attributed entirely to Cyntch. Railway and Clerk costs were not independently reconciled in this release. Per-household dollar estimates remain unverified.
 
 ## Native release follow-up
 
