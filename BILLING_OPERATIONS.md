@@ -1,6 +1,6 @@
 # Cyntch freemium operations
 
-Status: implementation and preview verification in progress. This document is not evidence of production deployment.
+Status: implementation and preview verification in progress. Production additive migration and permanent owner grant are applied; application production deployment and subscription enforcement are still pending.
 
 ## Plans and safeguards
 
@@ -34,8 +34,8 @@ Use separate Stripe sandbox/test credentials and products for preview. Never use
 Verified live catalog in the user-selected Aspyre account, under Aspyre Pty Ltd (acct_1U4XwUAJcWjR3ecT):
 
 - Product: prod_VYge51YKosH7b8 — Cyntch Premium.
-- Monthly: price_1UXZHAAJcWjR3ecTIh1sDRNh — AUD 599.
-- Annual: price_1UXZJYAJcWjR3ecTHfb4oXwN — AUD 4999.
+- Monthly: price_1UXZHAAJcWjR3ecTIh1sDRNh — AUD $5.99 (599 cents).
+- Annual: price_1UXZJYAJcWjR3ecTHfb4oXwN — AUD $49.99 (4999 cents).
 - No trial. No charges were created during catalog setup.
 
 Verified live configuration on 2026-11-03 (application not yet released):
@@ -45,7 +45,13 @@ Verified live configuration on 2026-11-03 (application not yet released):
 - Default portal bpc_1UXZvCAJcWjR3ecTk12fkbrf enables invoice history, payment-method updates and cancellation at period end. Subscription/product/quantity changes and public login links are disabled.
 - Both live price IDs are saved in production environment variables. No secrets are stored in this repository; temporary credential transfer files were removed.
 - The Stripe connector now correctly exposes Aspyre acct_1U4XwUAJcWjR3ecT in live mode. Earlier OAuth/account-selection problems are resolved for live configuration.
-- Latest preview revision d4e762c1fe90ef01b14c9fe2e47a0c3d4eaaa957 is READY. Sandbox financial tests, authenticated preview verification, production owner grant, migration and production deployment remain outstanding.
+- Latest preview revision f32de5af441014d46a7388c9b05539675e7922bf is READY. Authenticated preview verification, provider-to-preview webhook delivery and production application deployment remain outstanding.
+
+Test configuration uses the same Aspyre account's isolated test mode: product prod_VYhfrMFyhX2nD5, monthly price_1UXaGbAJcWjR3ecTDUAt0h8Z, yearly price_1UXaGbAJcWjR3ecTXJIcElhm, and default portal bpc_1UXaGcAJcWjR3ecTE8q7DQks. The restricted test key and price IDs are scoped only to the codex/freemium-subscriptions Vercel preview branch. The opt-in tests/billing-stripe-sandbox.test.cjs passed all seven reported tests against real Stripe test-mode APIs and an isolated local PostgreSQL database: paid access, cancellation, reactivation, unpaid and declined payments, hosted Checkout and portal sessions. Test subscriptions were canceled after execution. No live charges were made.
+
+Production migration checkpoint (2026-11-03): backup C:/Users/danie/.codex/backups/cyntch-pre-freemium-1793684589761.dump was restored into isolated local PostgreSQL and verified at 8 households, 160 tasks and 5 templates. Migration 0016 and owner grant committed in one transaction. Clerk's Cyntch production dashboard verified daniel@nexusaspyre.com for stable identity user_3D6gQipThknOd6XvpbBF3Lc5soH. A read-only execution of the actual entitlement code with enforcement enabled confirmed owner access for both owned households without a subscription. Production Vercel FREEMIUM_ENFORCEMENT_ENABLED remains false; no restrictions have been released.
+
+Preview isolation checkpoint: inherited production Clerk credentials rejected the preview host. The existing Cyntch development instance now has an approved named test key, stored only for the preview branch and ignored local tests. These credentials require a new deployment before verification. An approved temporary Vercel automation bypass permits Stripe TEST webhook delivery; revoke it after verification. Test endpoint we_1UXafgAJcWjR3ecT7fAnKUk0 subscribes to the same 14 events, with its signing secret scoped to the preview branch. The bypass reached the endpoint before signing-secret deployment (503 as expected). Provider delivery and authenticated preview checks remain outstanding. No deployment protection was disabled; earlier temporary share links were revoked.
 
 Aspyre's owner corrected the business status: **not GST registered**. Automatic GST collection is not enabled. Revisit tax settings when registration or sales jurisdictions change; absence of Australian GST registration is not a conclusion about other jurisdictions.
 
@@ -85,4 +91,4 @@ Google permits consumption-only apps under its [Payments policy](https://support
 
 Security checks: the existing Next.js 16.2.4 and Zod versions had applicable advisories. Release branch upgrades Next.js/eslint-config-next to 16.4.4 and Zod to 4.6.6. Remaining dependency findings include native Capacitor and transitive tools; native releases require a separate security review. No forced major dependency downgrade was applied.
 
-Account selection note: an earlier unused catalog was created in Aspyre Pty Ltd account acct_1S5hWjAeXJvRlwAS. The user subsequently selected Aspyre acct_1U4XwUAJcWjR3ecT in Chrome; the catalog above belongs to that selected account. Do not mix account credentials or price IDs. No payments or subscriptions were created in either account.
+Account selection note: an earlier unused catalog was created in Aspyre Pty Ltd account acct_1S5hWjAeXJvRlwAS. The user subsequently selected Aspyre acct_1U4XwUAJcWjR3ecT in Chrome; the catalog above belongs to that selected account. Do not mix account credentials or price IDs. No live payments or subscriptions were created in either account; isolated test-mode subscriptions were created and canceled for verification.
