@@ -46,6 +46,7 @@ import {
 } from "@/lib/recurrence"
 import { cn } from "@/lib/utils"
 import { isRenderableUserProfilePhotoUrl } from "@/lib/clerk-profile-image-url"
+import { TOKEN_COLOR_OPTIONS, buildMemberTokenColorMap, memberColorFor } from "@/lib/member-tokens"
 import { saveHideCompletedTasksPreference } from "@/lib/actions/leader-dashboard"
 
 type Member = {
@@ -70,25 +71,6 @@ type HouseholdInvite = {
   created_at: string
 }
 type OccurrenceTaskStatus = { task_id: string; status: string }
-
-const TOKEN_COLOR_OPTIONS = [
-  { id: "rose", className: "bg-rose-200 text-rose-900" },
-  { id: "amber", className: "bg-amber-200 text-amber-900" },
-  { id: "lime", className: "bg-lime-200 text-lime-900" },
-  { id: "emerald", className: "bg-emerald-200 text-emerald-900" },
-  { id: "teal", className: "bg-teal-200 text-teal-900" },
-  { id: "cyan", className: "bg-cyan-200 text-cyan-900" },
-  { id: "sky", className: "bg-sky-200 text-sky-900" },
-  { id: "blue", className: "bg-blue-200 text-blue-900" },
-  { id: "indigo", className: "bg-indigo-200 text-indigo-900" },
-  { id: "violet", className: "bg-violet-200 text-violet-900" },
-  { id: "fuchsia", className: "bg-fuchsia-200 text-fuchsia-900" },
-  { id: "pink", className: "bg-pink-200 text-pink-900" },
-  { id: "orange", className: "bg-orange-200 text-orange-900" },
-  { id: "red", className: "bg-red-200 text-red-900" },
-  { id: "slate", className: "bg-slate-200 text-slate-900" },
-  { id: "zinc", className: "bg-zinc-200 text-zinc-900" },
-] as const
 
 const GUIDE_SPAN = 100_000
 
@@ -322,40 +304,6 @@ function toTimeInputValue(value: unknown): string {
     return `${hh}:${mm}`
   }
   return ""
-}
-
-function memberColorFor(seed: string) {
-  const palette = TOKEN_COLOR_OPTIONS.map((c) => c.className)
-  const sum = seed.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0)
-  return palette[sum % palette.length]
-}
-
-function buildMemberTokenColorMap(members: Member[]) {
-  const palette = TOKEN_COLOR_OPTIONS.map((c) => c.className)
-  const classById = new Map(TOKEN_COLOR_OPTIONS.map((c) => [c.id, c.className]))
-
-  const map = new Map<string, string>()
-  const used = new Set<string>()
-
-  members.forEach((member) => {
-    if (!member.token_color) return
-    const cls = classById.get(member.token_color as (typeof TOKEN_COLOR_OPTIONS)[number]["id"])
-    if (!cls) return
-    map.set(member.id, cls)
-    used.add(cls)
-  })
-
-  let nextIdx = 0
-  members.forEach((member) => {
-    if (map.has(member.id)) return
-    while (nextIdx < palette.length && used.has(palette[nextIdx])) nextIdx += 1
-    const chosen =
-      nextIdx < palette.length ? palette[nextIdx] : palette[map.size % palette.length]
-    map.set(member.id, chosen)
-    used.add(chosen)
-    nextIdx += 1
-  })
-  return map
 }
 
 function memberInitials(name: string) {
@@ -639,7 +587,8 @@ function DayDividerNode({ data }: NodeProps<Node<DayDividerData>>) {
 
 const nodeTypes = { taskNode: TaskNode, dayDivider: DayDividerNode }
 
-type Props = {
+export type LeaderFlowEditorProps = {
+  onListView?: (routineId: string | null) => void
   households: Household[]
   /** Clerk user id; used for household owner checks in the UI. */
   currentUserId: string
@@ -976,7 +925,8 @@ export function LeaderFlowEditor({
   occurrenceTaskStatuses,
   taskAssignees,
   templateTaskAssignees,
-}: Props) {
+  onListView,
+}: LeaderFlowEditorProps) {
   const router = useRouter()
   const [, startTransition] = useTransition()
   const [localRoutines, setLocalRoutines] = useState<Routine[]>(routines)
@@ -3832,6 +3782,7 @@ export function LeaderFlowEditor({
           {selectedRoutineId && !selectedOccurrenceId && <span className="hidden rounded-full border bg-card px-2.5 py-1 text-[10px] font-medium text-muted-foreground sm:block">Routine template</span>}
         </div>
         <div className="flex items-center gap-2">
+          {onListView && <Button type="button" variant="outline" className="h-10 gap-2 bg-card px-3" onClick={async () => { await flushTaskSettingsIfDirtyRef.current(); if (taskSettingsDirtyVersionRef.current > taskSettingsSavedVersionRef.current) return; onListView(selectedRoutineId) }}><ListTree className="size-4" />Routine builder</Button>}
           <Button ref={householdPanelToggleRef} type="button" variant="outline" className="h-10 gap-2 bg-card px-3" aria-label="Household settings" aria-expanded={isHouseholdPanelOpen} onClick={() => setIsHouseholdPanelOpen(previous => !previous)}><Users className="size-4" /><span className="hidden sm:inline">Household</span></Button>
           <Button type="button" onClick={createTask} disabled={!selectedRoutineId && !selectedOccurrenceId} className="h-10 gap-2 px-4" title={!selectedRoutineId && !selectedOccurrenceId ? "Choose a routine or board to add a task" : "Add a task or reward"}><Plus className="size-4" />Add task</Button>
         </div>

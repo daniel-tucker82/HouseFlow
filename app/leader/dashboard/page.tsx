@@ -4,7 +4,7 @@ import { SubmitButton } from "@/components/submit-button"
 import { redirect } from "next/navigation"
 import { cookies } from "next/headers"
 import { db } from "@/lib/db"
-import { LeaderFlowEditor } from "@/components/leader/flow-editor"
+import { LeaderWorkspace } from "@/components/leader/leader-workspace"
 import {
   getCurrentUserOrRedirect,
   getHouseholdRoutines,
@@ -226,7 +226,8 @@ export default async function LeaderDashboard({ searchParams }: LeaderDashboardP
 
   return (
     <div className="flex min-h-0 flex-1 flex-col px-3 pb-3 pt-2 md:px-5 md:pb-5">
-      <LeaderFlowEditor
+      <LeaderWorkspace
+        preferredView={params.view === "list" || params.view === "canvas" ? params.view : undefined}
         households={leaderMemberships.map((membership) => membership.household)}
         currentUserId={user.id}
         initialHideCompletedTasks={hideCompletedTasks}

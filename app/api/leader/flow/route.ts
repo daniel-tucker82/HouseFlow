@@ -35,6 +35,7 @@ import {
   createUnlockNotifications,
 } from "@/lib/notifications"
 import { dispatchPushForNotificationIds } from "@/lib/push"
+import { PlannerSaveError, savePlannerTask } from "@/lib/save-planner-task"
 
 type QueryClient = {
   query: (...args: unknown[]) => Promise<{ rows: unknown[]; rowCount?: number | null }>
@@ -2109,6 +2110,19 @@ export async function POST(request: Request) {
       throw err
     } finally {
       client.release()
+    }
+  }
+
+  if ((action === "createTask" || action === "updateTask") && Object.hasOwn(body, "prerequisiteIds")) {
+    try {
+      const task = await savePlannerTask(householdId, userId, { ...body, isNew: action === "createTask" })
+      return NextResponse.json({ task })
+    } catch (error) {
+      if (error instanceof PlannerSaveError) {
+        return NextResponse.json({ error: error.message }, { status: error.status })
+      }
+      console.error("[planner] Task save failed", error)
+      return NextResponse.json({ error: "The task could not be saved. Your changes are still in the editor." }, { status: 500 })
     }
   }
 
