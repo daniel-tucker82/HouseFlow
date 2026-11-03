@@ -11,6 +11,7 @@ export interface SavedAccountDeletion extends AccountDeletionRecovery {
   origin: string
   accountId: string
   submitted: boolean
+  intentHash: string | null
   status: AccountDeletionStatus | null
 }
 const key = "cyntch.account-deletion-recovery"
@@ -28,16 +29,17 @@ function parse(raw: string | null): SavedAccountDeletion | null {
     const row = JSON.parse(raw) as SavedAccountDeletion
     if (!validAccountDeletionRecovery(row) || row.format !== 1 || typeof row.origin !== "string" || accountDeletionOrigin(row.origin, true) !== row.origin ||
       typeof row.accountId !== "string" || !/^user_[A-Za-z0-9_-]{1,200}$/.test(row.accountId) || typeof row.submitted !== "boolean" ||
-      (row.status !== null && !row.submitted)) throw unavailable()
+      (row.status !== null && !row.submitted) || (row.intentHash != null && (typeof row.intentHash !== "string" || !/^[a-f0-9]{64}$/.test(row.intentHash)))) throw unavailable()
     return { format: 1, origin: row.origin, accountId: row.accountId, requestId: row.requestId, secret: row.secret, submitted: row.submitted,
-      status: row.status === null ? null : parseAccountDeletionStatus(row.status, row.requestId) }
+      intentHash: row.intentHash ?? null, status: row.status === null ? null : parseAccountDeletionStatus(row.status, row.requestId) }
   } catch { throw unavailable() }
 }
 
 /** Kept outside account caches and sign-out cleanup. Save before the destructive
  * request, then markSubmitted before sending any bytes. A 404/network failure
  * never clears this record: neither proves that submission was not accepted.
- * The acceptance caller must also retain its original intent for safe replay.
+ * The original intent is bound here by hash before submission and retained in
+ * the separate SQLite journal; household decisions do not belong in keychain.
  * One unresolved deletion per installation prevents replacing a lost receipt.
  */
 export class AccountDeletionVault {
@@ -55,7 +57,7 @@ export class AccountDeletionVault {
         return prior
       }
       const record: SavedAccountDeletion = { format: 1, origin: canonical, accountId, requestId,
-        secret: await this.randomSecret(), submitted: false, status: null }
+        secret: await this.randomSecret(), submitted: false, intentHash: null, status: null }
       const serialized = JSON.stringify(record)
       parse(serialized)
       await this.storage.set(key, serialized)
@@ -68,9 +70,21 @@ export class AccountDeletionVault {
     if (!current || current.requestId !== expected.requestId || current.secret !== expected.secret) throw unavailable()
     return current
   }
-  markSubmitted(expected: AccountDeletionRecovery) {
+  bindIntent(expected: AccountDeletionRecovery, intentHash: string) {
     return serial(async () => {
       const record = await this.require(expected)
+      if (typeof intentHash !== "string" || !/^[a-f0-9]{64}$/.test(intentHash) || record.submitted || (record.intentHash !== null && record.intentHash !== intentHash)) throw unavailable()
+      if (record.intentHash === null) {
+        record.intentHash = intentHash
+        await this.storage.set(key, JSON.stringify(record))
+      }
+      return record
+    })
+  }
+  markSubmitted(expected: AccountDeletionRecovery, intentHash: string) {
+    return serial(async () => {
+      const record = await this.require(expected)
+      if (typeof intentHash !== "string" || !/^[a-f0-9]{64}$/.test(intentHash) || record.intentHash !== intentHash) throw unavailable()
       if (!record.submitted) {
         record.submitted = true
         await this.storage.set(key, JSON.stringify(record))

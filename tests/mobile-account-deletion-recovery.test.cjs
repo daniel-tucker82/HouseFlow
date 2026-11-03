@@ -5,6 +5,8 @@ const loaded=new Module(__filename,module)
 loaded._compile(buildSync({stdin:{contents:['mobile/src/storage/account-deletion-vault.ts','mobile/src/services/account-deletion-status.ts','shared/mobile/account-deletion.ts'].map(file=>`export * from ${JSON.stringify(path.join(root,file))}`).join(';'),resolveDir:root},bundle:true,platform:'node',format:'cjs',write:false}).outputFiles[0].text,__filename)
 const {AccountDeletionVault,AccountDeletionStatusApi,parseAccountDeletionStatus,validAccountDeletionRecovery,accountDeletionOrigin}=loaded.exports
 const origin='https://www.cyntch.test',endpoint=origin+'/api/mobile/account-deletion/status',key='cyntch.account-deletion-recovery'
+const intentHash='c'.repeat(64)
+const submit=async(vault,saved)=>{await vault.bindIntent(saved,intentHash);return vault.markSubmitted(saved,intentHash)}
 const pending=id=>({requestId:id,state:'pending',acceptedAt:'2026-11-04T01:00:00.000Z',completedAt:null,availableUntil:null,appleRevocationRequired:false})
 const completed=id=>({...pending(id),state:'completed',completedAt:'2026-11-04T01:00:15.000Z',availableUntil:'2027-02-02T01:00:15.000Z'})
 function fixture(){
@@ -34,26 +36,29 @@ test('failed secure persistence prevents submission and a lost write acknowledge
  await assert.rejects(f.prepare(),/Lost write acknowledgement/)
  const saved=JSON.parse(f.saved.get(key));f.restart();f.control.afterWrite=false
  assert.deepEqual(await f.prepare(),saved);assert.equal(f.control.randomCalls,2)
- f.control.failWrite=true;await assert.rejects(f.vault.markSubmitted(saved),/Storage is locked/)
+ await f.vault.bindIntent(saved,intentHash)
+ f.control.failWrite=true;await assert.rejects(f.vault.markSubmitted(saved,intentHash),/Storage is locked/)
  assert.equal((await f.vault.read()).submitted,false)
- f.control.failWrite=false;f.control.afterWrite=true;await assert.rejects(f.vault.markSubmitted(saved),/Lost write acknowledgement/)
+ f.control.failWrite=false;f.control.afterWrite=true;await assert.rejects(f.vault.markSubmitted(saved,intentHash),/Lost write acknowledgement/)
  f.restart();f.control.afterWrite=false;assert.equal((await f.vault.read()).submitted,true)
  await assert.rejects(f.vault.discardPrepared(saved),/submitted deletion/)
 })
 
 test('prepared cancellation cannot erase a concurrently submitted request or remove another recovery key',async()=>{
  const f=fixture(),saved=await f.prepare()
- await assert.rejects(f.vault.markSubmitted({...saved,secret:'0'.repeat(64)}),/unavailable/)
- const submitted=f.vault.markSubmitted(saved),discarded=assert.rejects(f.vault.discardPrepared(saved),/submitted deletion/)
+ await assert.rejects(f.vault.markSubmitted({...saved,secret:'0'.repeat(64)},intentHash),/unavailable/)
+ await assert.rejects(f.vault.markSubmitted(saved,intentHash),/unavailable/,'Unbound intent cannot submit')
+ await f.vault.bindIntent(saved,intentHash)
+ const submitted=f.vault.markSubmitted(saved,intentHash),discarded=assert.rejects(f.vault.discardPrepared(saved),/submitted deletion/)
  await submitted;await discarded;assert.equal((await f.vault.read()).submitted,true)
  const g=fixture(),prepared=await g.prepare();await g.vault.discardPrepared(prepared);assert.equal(await g.vault.read(),null)
- await assert.rejects(g.vault.markSubmitted(prepared),/unavailable/)
+ await assert.rejects(g.vault.markSubmitted(prepared,intentHash),/unavailable/)
 })
 
 test('confirmed status persists after restart and cannot regress or lose manual Apple instructions',async()=>{
  const f=fixture(),saved=await f.prepare()
  await assert.rejects(f.vault.rememberStatus(saved,pending(f.id)),/unavailable/)
- await f.vault.markSubmitted(saved)
+ await submit(f.vault,saved)
  await f.vault.rememberStatus(saved,{...pending(f.id),appleRevocationRequired:true})
  f.restart();assert.equal((await f.vault.read()).status.appleRevocationRequired,true)
  await assert.rejects(f.vault.rememberStatus(saved,pending(randomUUID())),/invalid account deletion status/)
@@ -66,7 +71,7 @@ test('confirmed status persists after restart and cannot regress or lose manual 
 })
 
 test('a failed receipt save leaves recovery intact for another authenticated read',async()=>{
- const f=fixture(),saved=await f.prepare();await f.vault.markSubmitted(saved);f.control.failWrite=true
+ const f=fixture(),saved=await f.prepare();await submit(f.vault,saved);f.control.failWrite=true
  await assert.rejects(f.vault.rememberStatus(saved,completed(f.id)),/Storage is locked/)
  f.restart();assert.equal((await f.vault.read()).status,null)
  await assert.rejects(f.vault.dismissCompleted(saved),/not been confirmed/)
@@ -94,7 +99,7 @@ test('status transport sends only the recovery headers to its bound origin witho
 })
 
 test('failed status reads keep submitted recovery intact and surface only safe retry messages',async()=>{
- const f=fixture(),saved=await f.prepare();await f.vault.markSubmitted(saved)
+ const f=fixture(),saved=await f.prepare();await submit(f.vault,saved)
  const before=await f.vault.read()
  for(const [http,code]of[[404,'unavailable'],[429,'limited'],[500,'retry'],[401,'retry'],[204,'retry']]){
   const api=new AccountDeletionStatusApi(origin,async()=>response({error:saved.secret},{status:http}))

@@ -1357,9 +1357,11 @@ invalid keys do not create counters or consume the legitimate key's allowance.
 Status replies are private/no-store. A status lookup cannot run cleanup.
 
 `AccountDeletionVault` stores one unresolved recovery record in OS secure
-storage, independently of account caches and sign-out. The acceptance flow must
-save its original intent, call `prepare`, and await `markSubmitted` **before**
-sending deletion. A lost acknowledgement then reuses the same key after restart.
+storage, independently of account caches and sign-out. Use `AccountDeletionDrafts`
+to prepare the frozen request and await `requestForSubmission` **before** sending
+deletion. It coordinates the keychain record with the SQLite intent journal; do
+not call the individual store mutation methods from a screen. A lost
+acknowledgement then reuses the same key and original request after restart.
 Only a never-submitted preparation can be discarded. A missing status response,
 offline failure or 404 never deletes the key or proves that submission failed.
 Validated receipts are persisted; late pending replies cannot overwrite a
@@ -1378,8 +1380,8 @@ and [`SecureStore`](https://docs.expo.dev/versions/v58.0.0/sdk/securestore/)
 with `WHEN_UNLOCKED_THIS_DEVICE_ONLY`. The installed SDK 58 Android and iOS
 network implementations were also inspected for cookie and redirect handling.
 
-These are recovery foundations; the confirmation/status screens, original-intent
-journal, local data/SDK cleanup and automatic orchestration still need wiring.
+These are recovery foundations; the confirmation/status screens, submission,
+local data/SDK cleanup and automatic orchestration still need wiring.
 No destructive public acceptance endpoint or cron worker is enabled by this
 change. Apple and native billing provider verification remain outstanding.
 
@@ -1408,3 +1410,47 @@ rejection of destructive HTTP methods, and removes the temporary process/schema.
 The same check also reads both receipts through the native client's transport
 logic using Node's fetch against that real server; OS networking still requires
 physical-device verification.
+
+### Preserve the confirmed deletion request on the device
+
+The local database now initializes `native_account_deletion_intent` (schema
+version 12). It stores only the canonical intent, original account/session/device
+scope, API origin, a fingerprint and a submission marker. Recovery keys and
+authentication tokens stay out of SQLite. The phone and server share the intent
+normalizer; unknown fields, display names and credentials are discarded.
+
+`AccountDeletionDrafts.prepare` saves the recovery key, writes the immutable
+intent, then binds its SHA-256 fingerprint in the OS keychain. The fingerprint
+includes the original scope, origin and recovery secret. A replaced key or
+changed SQLite decision cannot reuse that binding. Up to 100 household choices
+stay in SQLite so the secure-store record remains small. A failed preparation
+preserves the existing key and resumes the same request; it never silently
+rotates the key or substitutes a new review.
+
+After explicit confirmation, `requestForSubmission` checks the binding, records
+submission in the keychain first, then commits the SQLite marker while checking
+the active local session and kiosk restrictions. Only then does it return the
+exact saved payload for the authenticated HTTP caller. It performs no network
+requests or automatic destructive retries. The HTTP boundary must still enforce
+current identity, strict reverification, installation and household permissions.
+
+An interrupted marker write can leave the two stores at different stages; that
+keeps the request recoverable and prevents unsafe local cancellation. Explicit
+cancellation removes only a never-submitted preparation, journal first and key
+last. An accepted status is saved securely before its household decisions are
+removed from SQLite. Late or repeated callbacks cannot rebuild an accepted
+request. Legacy submitted recovery records without a bound intent can still
+read status, but cannot synthesize a new destructive request.
+
+The remaining submission UI needs an explicit recovery path for an authenticated
+request rejected before acceptance. A 404 or lost acknowledgement alone must
+never authorize discarding a submitted record or changing its original choices.
+
+Verification on 2026-11-04: all 433 general regression checks passed without
+skips or cancellations. The 27 focused draft/recovery checks also passed on the
+final implementation, including 13 new tests using real SQLite files and
+controlled keychain interruptions. Root/mobile lint and TypeScript, the Next
+production build, and separate Android/iOS Expo exports passed. These exports
+verify JavaScript/Hermes packaging, not signed store binaries or physical-device
+keychain behavior. This change adds no server migration and enables no
+destructive public endpoint or background deletion worker.

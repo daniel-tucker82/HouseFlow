@@ -3,9 +3,9 @@ import type { PoolClient } from "pg"
 import { db } from "@/lib/db"
 import { normalizeRole } from "@/lib/household-authz"
 import { verifyInstallation } from "@/lib/native-notification-settings"
-import { notificationUuid } from "@/shared/mobile/notification-settings"
+import { normalizeAccountDeletionIntent, AccountDeletionIntentError } from "@/shared/mobile/account-deletion"
 import type { AccountDeletionScope, AccountDeletionReview, AccountDeletionHousehold, AccountDeletionIntent,
-  AccountDeletionOwnershipChoice, DeletionContentCounts, DeletionBillingSource } from "@/shared/mobile/account-deletion"
+  DeletionContentCounts, DeletionBillingSource } from "@/shared/mobile/account-deletion"
 
 export class AccountDeletionError extends Error {
   constructor(message: string, public status = 400, public code = "account_deletion_invalid") { super(message) }
@@ -100,20 +100,11 @@ export async function readAccountDeletionReview(scope: AccountDeletionScope, sec
 }
 
 export function parseAccountDeletionIntent(value: unknown): AccountDeletionIntent {
-  const row = value as Partial<AccountDeletionIntent> | null
-  if (!row || typeof row.operationId !== "string" || !notificationUuid.test(row.operationId) || typeof row.revision !== "string" ||
-    !/^[a-f0-9]{64}$/.test(row.revision) || row.confirmAccountDeletion !== true || row.acknowledgeSubscriptions !== true || !Array.isArray(row.ownership) || row.ownership.length > 100) {
-    throw new AccountDeletionError("Review and confirm the account and subscription consequences first.")
+  try { return normalizeAccountDeletionIntent(value) }
+  catch (error) {
+    if (error instanceof AccountDeletionIntentError) throw new AccountDeletionError(error.message)
+    throw error
   }
-  const seen = new Set<string>()
-  const ownership: AccountDeletionOwnershipChoice[] = row.ownership.map((choice): AccountDeletionOwnershipChoice => {
-    if (!choice || typeof choice.householdId !== "string" || !notificationUuid.test(choice.householdId) || seen.has(choice.householdId.toLowerCase())) throw new AccountDeletionError("Choose what happens to each household once.")
-    const householdId = choice.householdId.toLowerCase(); seen.add(householdId)
-    if (choice.action === "delete") return { householdId,action:"delete" }
-    if (choice.action === "transfer" && typeof choice.successorId === "string" && /^user_[A-Za-z0-9_-]{1,200}$/.test(choice.successorId)) return { householdId,action:"transfer",successorId:choice.successorId }
-    throw new AccountDeletionError("Choose a parent to take over this household, or choose household deletion.")
-  }).sort((left,right) => left.householdId.localeCompare(right.householdId))
-  return { operationId:row.operationId.toLowerCase(),revision:row.revision,ownership,confirmAccountDeletion:true,acknowledgeSubscriptions:true }
 }
 
 export function validateAccountDeletionIntent(review: AccountDeletionReview, intent: AccountDeletionIntent) {

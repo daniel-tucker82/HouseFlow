@@ -1,5 +1,5 @@
 import type { MemberRole } from "./contracts"
-import { notificationUuid } from "./notification-settings"
+import { notificationUuid, notificationSessionId } from "./notification-settings"
 
 export interface AccountDeletionRecovery { requestId: string; secret: string }
 export function accountDeletionOrigin(value: string, allowDevelopmentHttp = false): string {
@@ -80,4 +80,38 @@ export interface AccountDeletionIntent {
   ownership: AccountDeletionOwnershipChoice[]
   confirmAccountDeletion: true
   acknowledgeSubscriptions: true
+}
+
+export class AccountDeletionIntentError extends Error {}
+/** Same canonical request on phone and server; only explicitly supported fields
+ * survive. This validates shape, not ownership, current sign-in or consent. */
+export function normalizeAccountDeletionIntent(value: unknown): AccountDeletionIntent {
+  const row = value as Partial<AccountDeletionIntent> | null
+  if (!row || typeof row !== "object" || Array.isArray(row) || typeof row.operationId !== "string" || !notificationUuid.test(row.operationId) || typeof row.revision !== "string" ||
+    !/^[a-f0-9]{64}$/.test(row.revision) || row.confirmAccountDeletion !== true || row.acknowledgeSubscriptions !== true || !Array.isArray(row.ownership) || row.ownership.length > 100) {
+    throw new AccountDeletionIntentError("Review and confirm the account and subscription consequences first.")
+  }
+  const seen = new Set<string>()
+  const ownership: AccountDeletionOwnershipChoice[] = row.ownership.map((choice): AccountDeletionOwnershipChoice => {
+    if (!choice || typeof choice !== "object" || Array.isArray(choice) || typeof choice.householdId !== "string" || !notificationUuid.test(choice.householdId) || seen.has(choice.householdId.toLowerCase())) throw new AccountDeletionIntentError("Choose what happens to each household once.")
+    const householdId = choice.householdId.toLowerCase(); seen.add(householdId)
+    if (choice.action === "delete") return { householdId, action: "delete" }
+    if (choice.action === "transfer" && typeof choice.successorId === "string" && /^user_[A-Za-z0-9_-]{1,200}$/.test(choice.successorId)) return { householdId, action: "transfer", successorId: choice.successorId }
+    throw new AccountDeletionIntentError("Choose a parent to take over this household, or choose household deletion.")
+  }).sort((left, right) => left.householdId.localeCompare(right.householdId))
+  return { operationId: row.operationId.toLowerCase(), revision: row.revision, ownership, confirmAccountDeletion: true, acknowledgeSubscriptions: true }
+}
+
+export interface AccountDeletionSubmission extends AccountDeletionScope {
+  origin: string
+  intent: AccountDeletionIntent
+}
+export function normalizeAccountDeletionSubmission(value: unknown, allowDevelopmentHttp = false): AccountDeletionSubmission {
+  const row = value as Partial<AccountDeletionSubmission> | null
+  if (!row || typeof row !== "object" || Array.isArray(row) || typeof row.accountId !== "string" || !/^user_[A-Za-z0-9_-]{1,200}$/.test(row.accountId) ||
+    typeof row.sessionId !== "string" || !notificationSessionId.test(row.sessionId) || typeof row.deviceId !== "string" || !notificationUuid.test(row.deviceId) || typeof row.origin !== "string") {
+    throw new AccountDeletionIntentError("Your sign-in or device changed. Review account deletion again.")
+  }
+  return { accountId: row.accountId, sessionId: row.sessionId, deviceId: row.deviceId.toLowerCase(), origin: accountDeletionOrigin(row.origin, allowDevelopmentHttp),
+    intent: normalizeAccountDeletionIntent(row.intent) }
 }
