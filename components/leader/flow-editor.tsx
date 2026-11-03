@@ -48,6 +48,7 @@ import {
   serializeRoutineRecurrenceRules,
 } from "@/lib/recurrence"
 import { cn } from "@/lib/utils"
+import { householdWallClock } from "@/lib/time-rules"
 import { isRenderableUserProfilePhotoUrl } from "@/lib/clerk-profile-image-url"
 import { TOKEN_COLOR_OPTIONS, buildMemberTokenColorMap, memberColorFor } from "@/lib/member-tokens"
 import { useTaskSaves, useTaskSaveStatus } from "@/components/task-save-provider"
@@ -761,24 +762,21 @@ const WEEKDAY_OPTIONS: Array<{ value: Weekday; label: string }> = [
 const MONTHLY_NTH_OPTIONS: MonthlyNth[] = ["1st", "2nd", "3rd", "4th", "last"]
 const YEARLY_NTH_OPTIONS = ["last", ...Array.from({ length: 52 }, (_, index) => `${index + 1}th`)] as const
 
-function formatRecurrencePreview(value: Date | null) {
+function formatRecurrencePreview(value: Date | null, timeZone: string) {
   if (!value) return "Next recurrence: unavailable"
   return `Next recurrence: ${value.toLocaleString("en-AU", {
+    timeZone,
     year: "numeric",
     month: "short",
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-  })}`
+  })} (${timeZone})`
 }
 
-function todayDateInputValue() {
-  const now = new Date()
-  const y = String(now.getFullYear())
-  const m = String(now.getMonth() + 1).padStart(2, "0")
-  const d = String(now.getDate()).padStart(2, "0")
-  return `${y}-${m}-${d}`
+function todayDateInputValue(timeZone: string) {
+  return householdWallClock(new Date(), timeZone).toISOString().slice(0, 10)
 }
 
 /** Default task card size (matches TaskNode) when React Flow has not measured yet. */
@@ -1042,6 +1040,7 @@ export function LeaderFlowEditor({
     setLocalHouseholds(households)
   }
   const memberTokenColorMap = useMemo(() => buildMemberTokenColorMap(localMembers), [localMembers])
+  const householdTimeZone = localHouseholds.find(household => household.id === selectedHouseholdId)?.timezone ?? "UTC"
   const selectedHouseholdLeaderId = useMemo(
     () => localHouseholds.find((household) => household.id === selectedHouseholdId)?.leader_id ?? "",
     [localHouseholds, selectedHouseholdId],
@@ -4162,7 +4161,7 @@ export function LeaderFlowEditor({
                             const interval = Number(event.target.value) || 1
                             updateRecurrenceRuleField(rule, {
                               interval: Math.max(1, interval),
-                              startDate: interval > 1 ? (rule.startDate ?? todayDateInputValue()) : rule.startDate,
+                              startDate: interval > 1 ? (rule.startDate ?? todayDateInputValue(householdTimeZone)) : rule.startDate,
                             })
                           }}
                           className="w-full rounded border border-input bg-background px-2 py-1.5"
@@ -4173,7 +4172,7 @@ export function LeaderFlowEditor({
                           <span>Start date</span>
                           <input
                             type="date"
-                            value={rule.startDate ?? todayDateInputValue()}
+                            value={rule.startDate ?? todayDateInputValue(householdTimeZone)}
                             onChange={(event) => updateRecurrenceRuleField(rule, { startDate: event.target.value })}
                             className="w-full rounded border border-input bg-background px-2 py-1.5"
                           />
@@ -4402,7 +4401,7 @@ export function LeaderFlowEditor({
                         />
                       </div>
                       <p className="rounded border border-border/70 bg-muted/20 px-2 py-1.5 text-[11px] text-muted-foreground">
-                        {formatRecurrencePreview(nextRecurrenceDate(rule))}
+                        {formatRecurrencePreview(nextRecurrenceDate(rule, new Date(), householdTimeZone), householdTimeZone)}
                       </p>
                       <div className="flex justify-end">
                         <Button

@@ -77,7 +77,7 @@ function zonedDateTimeToUtc(params: {
   return candidates.filter(candidate => candidate.wall > naiveUtcMs).sort((a, b) => a.wall - b.wall)[0]?.instant ?? candidates[0].instant
 }
 
-function convertUtcWallClockToTimeZoneInstant(wallClockUtc: Date, timeZone: string): Date {
+export function convertUtcWallClockToTimeZoneInstant(wallClockUtc: Date, timeZone: string): Date {
   if (!timeZone || timeZone.toUpperCase() === "UTC") return wallClockUtc
   return zonedDateTimeToUtc({
     year: wallClockUtc.getUTCFullYear(),
@@ -132,7 +132,7 @@ function addDays(base: Date, days: number) {
   return next
 }
 
-function householdWallClock(instant: Date, timeZone: string) {
+export function householdWallClock(instant: Date, timeZone: string) {
   const parts = getZonedDateTimeParts(instant, timeZone)
   return new Date(Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute))
 }

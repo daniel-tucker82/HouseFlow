@@ -17,6 +17,7 @@ import {
   type UnlockCombiner,
 } from "@/lib/time-rules"
 import {
+  anchorRecurrenceRule,
   createDefaultRecurrenceRule,
   latestRecurrenceAtOrBefore,
   normalizeRecurrenceRule,
@@ -91,7 +92,7 @@ function toFixedRuleFromInstant(
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-    hour12: false,
+    hourCycle: "h23",
   }).formatToParts(instant)
   const pick = (type: Intl.DateTimeFormatPartTypes) =>
     parts.find((part) => part.type === type)?.value ?? ""
@@ -315,14 +316,16 @@ async function materializeDueRecurrences(
     [householdId,generationLimits.items,generationLimits.templates],
   )
   const now = new Date()
+  const householdTimeZone = await getHouseholdTimeZone(client, householdId)
 
   for (const routine of routines.rows) {
-    const rules = parseRoutineRecurrenceRules(routine.recurrence_rule)
-    let rulesChanged = false
+    const storedRules = parseRoutineRecurrenceRules(routine.recurrence_rule)
+    const rules = storedRules.map(rule => anchorRecurrenceRule(rule, now, householdTimeZone))
+    let rulesChanged = rules.some((rule, index) => rule !== storedRules[index])
     const nextRules = [...rules]
     for (let i = 0; i < rules.length; i += 1) {
       const rule = rules[i]
-      const dueAt = latestRecurrenceAtOrBefore(rule, now)
+      const dueAt = latestRecurrenceAtOrBefore(rule, now, householdTimeZone)
       if (!dueAt) continue
       const dueIso = dueAt.toISOString()
       if (rule.lastGeneratedAt) {
@@ -403,7 +406,6 @@ async function materializeDueRecurrences(
       )
       const templates = templatesRes.rows
       const idMap = new Map<string, string>()
-      const householdTimeZone = await getHouseholdTimeZone(client, householdId)
       const generationAt = dueAt
 
       for (const t of templates) {
@@ -640,7 +642,10 @@ export async function GET(request: Request) {
     const pushNotificationIds: string[] = []
     try {
       await client.query("BEGIN")
-      pushNotificationIds.push(...(await materializeDueRecurrences(client, householdId, userId)))
+      // Catch-up generation must share the scheduler/write lock. Otherwise an
+      // editor can read rules, race this watermark update, then overwrite it.
+      const lock = await client.query("select pg_try_advisory_xact_lock(hashtextextended($1, 0)) as acquired", [householdId])
+      if (lock.rows[0].acquired) pushNotificationIds.push(...(await materializeDueRecurrences(client, householdId, userId)))
       await recordHouseholdActivity(client,householdId)
       await client.query("COMMIT")
     } catch (error) {
@@ -1740,7 +1745,7 @@ async function handleFlowPost(request: Request, context?: {
     }
     const nextRules = [
       ...parseRoutineRecurrenceRules(existing.rows[0]?.recurrence_rule),
-      createDefaultRecurrenceRule(),
+      createDefaultRecurrenceRule(await getHouseholdTimeZone(db, householdId)),
     ]
     const result = await db.query(
       `update routines
@@ -1774,7 +1779,7 @@ async function handleFlowPost(request: Request, context?: {
     const rules = parseRoutineRecurrenceRules(existing.rows[0]?.recurrence_rule)
     const rulePatch = body?.rule ?? {}
     const nextRules = rules.map((rule) =>
-      rule.id === recurrenceRuleId ? normalizeRecurrenceRule({ ...rule, ...rulePatch, id: recurrenceRuleId }) : rule,
+      rule.id === recurrenceRuleId ? normalizeRecurrenceRule({ ...rule, ...rulePatch, id: recurrenceRuleId, lastGeneratedAt: rule.lastGeneratedAt }) : rule,
     )
     const result = await db.query(
       `update routines

@@ -9,6 +9,7 @@ import { automaticGenerationAllowance, occurrenceAutomationAllowed, TASK_AUTOMAT
 import { ensureRoutineSchemaColumns } from "@/lib/schema-ensure"
 import { parseExpiryRule, parseUnlockRule, resolveExpiryAt, resolveUnlockAt, type UnlockCombiner } from "@/lib/time-rules"
 import {
+  anchorRecurrenceRule,
   latestRecurrenceAtOrBefore,
   parseRoutineRecurrenceRules,
   recurrenceRuleSummary,
@@ -55,7 +56,7 @@ function toFixedRuleFromInstant(
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-    hour12: false,
+    hourCycle: "h23",
   }).formatToParts(instant)
   const pick = (type: Intl.DateTimeFormatPartTypes) =>
     parts.find((part) => part.type === type)?.value ?? ""
@@ -291,14 +292,16 @@ async function materializeDueRecurrences(
     [householdId,generationLimits.items,generationLimits.templates],
   )
   const now = new Date()
+  const householdTimeZone = await getHouseholdTimeZone(client, householdId)
 
   for (const routine of routines.rows) {
-    const rules = parseRoutineRecurrenceRules(routine.recurrence_rule)
-    let rulesChanged = false
+    const storedRules = parseRoutineRecurrenceRules(routine.recurrence_rule)
+    const rules = storedRules.map(rule => anchorRecurrenceRule(rule, now, householdTimeZone))
+    let rulesChanged = rules.some((rule, index) => rule !== storedRules[index])
     const nextRules = [...rules]
     for (let i = 0; i < rules.length; i += 1) {
       const rule = rules[i]
-      const dueAt = latestRecurrenceAtOrBefore(rule, now)
+      const dueAt = latestRecurrenceAtOrBefore(rule, now, householdTimeZone)
       if (!dueAt) continue
       const dueIso = dueAt.toISOString()
       if (rule.lastGeneratedAt) {
@@ -377,7 +380,6 @@ async function materializeDueRecurrences(
       )
       const templates = templatesRes.rows
       const idMap = new Map<string, string>()
-      const householdTimeZone = await getHouseholdTimeZone(client, householdId)
       const generationAt = dueAt
 
       for (const t of templates) {

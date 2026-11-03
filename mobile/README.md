@@ -77,6 +77,16 @@ times as well. Template rules resolve against each new run, not the edit time.
 Timezone conversion chooses the first occurrence of repeated clock times and
 moves missing times forward by the daylight-saving gap.
 
+Recurrence generation now uses the household timezone in both the background
+scheduler and web catch-up path. Interval dates are stable; legacy schedules with
+no start date acquire one from their last generated household date, or today if
+they have never generated. Monthly ordinal weekdays are counted correctly, and
+monthly/yearly dates missing in a shorter month use its last day (including
+February 29 in non-leap years). Previews use the same household timezone.
+Generation and editor writes share the household lock, and schedule edits cannot
+replace server-owned generation watermarks. This does not yet provide the native
+recurrence editor or prove the production scheduler's throughput/delivery window.
+
 Recurrence editing, full run management/history, kiosk protection,
 push delivery and store billing are still under development. Rename/delete
 actions currently require a connection; extending interruption recovery to those
@@ -128,6 +138,14 @@ and one receipt. Today refreshed automatically. Automated SQLite/PostgreSQL
 tests additionally cover lost replies, duplicate local submissions, mutation
 barriers, replay at capacity, removed-run tombstones and transaction rollback
 including automatic completion of older runs.
+
+`tests/recurrence-calendar.test.cjs` covers all recurrence frequencies, interval
+phases, UTC date boundaries, full/half-hour DST, calendar limits and independence
+from the host timezone. `tests/recurrence-scheduler-db.test.cjs` invokes both real
+generation implementations against PostgreSQL, checking copied task timing,
+concurrent retries, rollback, capacity gating and stable legacy anchors. These
+tests use isolated schemas and mocked notification delivery; they do not verify
+production scheduling or mobile push delivery.
 
 Changing Android system font size while the development app is running produced
 an Expo Router multiple-linking-handlers warning; a clean launch did not. This

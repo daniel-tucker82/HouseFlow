@@ -1,3 +1,6 @@
+import { isCalendarDate, isClockTime } from "../shared/scheduling"
+import { convertUtcWallClockToTimeZoneInstant, householdWallClock } from "./time-rules"
+
 export type RecurrenceFrequency = "daily" | "weekly" | "monthly" | "yearly"
 export type Weekday = "sunday" | "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday"
 export type MonthlyMode = "specific_date" | "nth"
@@ -32,13 +35,14 @@ const WEEKDAY_VALUES: Weekday[] = [
 ]
 const MONTHLY_NTH_VALUES: MonthlyNth[] = ["1st", "2nd", "3rd", "4th", "last"]
 
-export function createDefaultRecurrenceRule(): RecurrenceRule {
+export function createDefaultRecurrenceRule(timeZone = "UTC", now = new Date()): RecurrenceRule {
   return {
     id: crypto.randomUUID(),
     frequency: "weekly",
     interval: 1,
     weekday: "monday",
     time: "09:00",
+    startDate: householdWallClock(now, timeZone).toISOString().slice(0, 10),
   }
 }
 
@@ -50,12 +54,12 @@ function coercePositiveInt(value: unknown, fallback = 1) {
 
 function coerceTime(value: unknown) {
   const text = String(value ?? "").trim()
-  return /^\d{2}:\d{2}$/.test(text) ? text : "09:00"
+  return isClockTime(text) ? text : "09:00"
 }
 
 function coerceDate(value: unknown) {
   const text = String(value ?? "").trim()
-  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : undefined
+  return isCalendarDate(text) ? text : undefined
 }
 
 function coerceIsoDateTime(value: unknown) {
@@ -145,191 +149,92 @@ export function recurrenceRuleSummary(rule: RecurrenceRule): string {
   return `Every ${rule.interval} year(s) on ${rule.month ?? 1}/${rule.day ?? 1} at ${rule.time}`
 }
 
-function parseDateAndTime(dateText: string, timeText: string) {
-  const [year, month, day] = dateText.split("-").map(Number)
-  const [hour, minute] = timeText.split(":").map(Number)
-  if (![year, month, day, hour, minute].every(Number.isFinite)) return null
-  const dt = new Date(year, month - 1, day, hour, minute, 0, 0)
-  return Number.isNaN(dt.getTime()) ? null : dt
+/** Give legacy rules a stable calendar anchor without inventing historical runs.
+ * A previous generated slot preserves its interval phase; otherwise begin today.
+ * Persist the returned rule in the same transaction as scheduler watermarks.
+ */
+export function anchorRecurrenceRule(rule: RecurrenceRule, now: Date, timeZone: string): RecurrenceRule {
+  if (isCalendarDate(rule.startDate)) return rule
+  const generated = rule.lastGeneratedAt ? new Date(rule.lastGeneratedAt) : null
+  const reference = generated && Number.isFinite(generated.getTime()) ? generated : now
+  return { ...rule, startDate: householdWallClock(reference, timeZone).toISOString().slice(0, 10) }
 }
 
-function weekdayToIndex(weekday: Weekday): number {
-  return WEEKDAY_VALUES.indexOf(weekday)
+function calendarDate(year: number, month: number, day: number, hour = 0, minute = 0) {
+  const result = new Date(0)
+  result.setUTCFullYear(year, month, day)
+  result.setUTCHours(hour, minute, 0, 0)
+  return result
+}
+function monthIndex(date: Date) { return date.getUTCFullYear() * 12 + date.getUTCMonth() }
+function addDays(date: Date, days: number) {
+  const result = new Date(date); result.setUTCDate(result.getUTCDate() + days); return result
+}
+function nthWeekday(first: Date, last: Date, weekday: Weekday, nth: string) {
+  const wanted = WEEKDAY_VALUES.indexOf(weekday)
+  if (nth === "last") return addDays(last, -((last.getUTCDay() - wanted + 7) % 7))
+  const ordinal = Number.parseInt(nth, 10) // accepts 1st, 2nd, 3rd, 4th and yearly 1th..52th
+  return addDays(first, (wanted - first.getUTCDay() + 7) % 7 + (ordinal - 1) * 7)
+}
+function monthlySlot(rule: RecurrenceRule, month: number, hour: number, minute: number) {
+  const year = Math.floor(month / 12), inYear = month % 12
+  const last = calendarDate(year, inYear + 1, 0, hour, minute)
+  if (rule.monthlyMode === "nth") return nthWeekday(calendarDate(year, inYear, 1, hour, minute), last, rule.weekday ?? "monday", String(rule.nth ?? "1st"))
+  return calendarDate(year, inYear, Math.min(rule.dayOfMonth ?? 1, last.getUTCDate()), hour, minute)
+}
+function yearlySlot(rule: RecurrenceRule, year: number, hour: number, minute: number) {
+  if (rule.yearlyMode === "nth") return nthWeekday(calendarDate(year, 0, 1, hour, minute), calendarDate(year, 11, 31, hour, minute), rule.weekday ?? "monday", String(rule.nth ?? "1th"))
+  const month = (rule.month ?? 1) - 1
+  // Match monthly rules: dates absent in a shorter month use its final day.
+  return calendarDate(year, month, Math.min(rule.day ?? 1, calendarDate(year, month + 1, 0).getUTCDate()), hour, minute)
 }
 
-function nthToIndex(nth: string): number {
-  if (nth === "last") return -1
-  const parsed = Number(nth.replace("th", ""))
-  return Number.isFinite(parsed) ? parsed : 1
+/** Calendar slots use UTC fields only as wall-clock coordinates, then resolve
+ * once in the household zone. Compare actual instants, including DST gaps/folds.
+ * Jump directly to the current interval; never loop over years of missed runs.
+ */
+function recurrenceWindow(rule: RecurrenceRule, now: Date, timeZone: string) {
+  const empty = { previous: null as Date | null, next: null as Date | null }
+  if (!Number.isFinite(now.getTime()) || !isClockTime(rule.time) || !Number.isSafeInteger(rule.interval) || rule.interval < 1 ||
+    (rule.startDate !== undefined && !isCalendarDate(rule.startDate))) return empty
+  const anchored = anchorRecurrenceRule(rule, now, timeZone)
+  const anchor = new Date(anchored.startDate + "T" + rule.time + ":00Z")
+  const wallNow = householdWallClock(now, timeZone), interval = rule.interval
+  const hour = anchor.getUTCHours(), minute = anchor.getUTCMinutes()
+  let approximate: number, slot: (index: number) => Date
+  if (rule.frequency === "daily" || rule.frequency === "weekly") {
+    const first = rule.frequency === "weekly"
+      ? addDays(anchor, (WEEKDAY_VALUES.indexOf(rule.weekday ?? "monday") - anchor.getUTCDay() + 7) % 7) : anchor
+    const days = interval * (rule.frequency === "weekly" ? 7 : 1)
+    approximate = Math.floor((wallNow.getTime() - first.getTime()) / (86400000 * days))
+    slot = index => addDays(first, index * days)
+  } else if (rule.frequency === "monthly") {
+    const baseMonth = monthIndex(anchor)
+    approximate = Math.floor((monthIndex(wallNow) - baseMonth) / interval)
+    slot = index => monthlySlot(rule, baseMonth + index * interval, hour, minute)
+  } else if (rule.frequency === "yearly") {
+    const baseYear = anchor.getUTCFullYear()
+    approximate = Math.floor((wallNow.getUTCFullYear() - baseYear) / interval)
+    slot = index => yearlySlot(rule, baseYear + index * interval, hour, minute)
+  } else return empty
+
+  approximate = Math.max(0, approximate)
+  const result = { ...empty }
+  // Adjacent slots cover month boundaries and even a skipped calendar day.
+  for (let index = Math.max(0, approximate - 2); index <= approximate + 2; index++) {
+    const wall = slot(index)
+    if (!Number.isFinite(wall.getTime()) || wall < anchor || wall.getUTCFullYear() > 9999) continue
+    const instant = convertUtcWallClockToTimeZoneInstant(wall, timeZone)
+    if (instant <= now && (!result.previous || instant > result.previous)) result.previous = instant
+    if (instant > now && (!result.next || instant < result.next)) result.next = instant
+  }
+  return result
 }
 
-function monthIndex(year: number, monthZeroBased: number) {
-  return year * 12 + monthZeroBased
+export function nextRecurrenceDate(rule: RecurrenceRule, now = new Date(), timeZone = "UTC"): Date | null {
+  return recurrenceWindow(rule, now, timeZone).next
 }
 
-function startOfWeek(date: Date) {
-  const d = new Date(date)
-  d.setHours(0, 0, 0, 0)
-  d.setDate(d.getDate() - d.getDay())
-  return d
-}
-
-function monthlyOccurrenceForMonth(rule: RecurrenceRule, year: number, month: number, hour: number, minute: number): Date {
-  if ((rule.monthlyMode ?? "specific_date") === "nth") {
-    const weekday = weekdayToIndex(rule.weekday ?? "monday")
-    const nth = nthToIndex(String(rule.nth ?? "1st"))
-    if (nth === -1) {
-      const d = new Date(year, month + 1, 0, hour, minute, 0, 0)
-      while (d.getDay() !== weekday) d.setDate(d.getDate() - 1)
-      return d
-    }
-    const d = new Date(year, month, 1, hour, minute, 0, 0)
-    while (d.getDay() !== weekday) d.setDate(d.getDate() + 1)
-    d.setDate(d.getDate() + (nth - 1) * 7)
-    return d
-  }
-  const day = Math.max(1, rule.dayOfMonth ?? 1)
-  const lastDay = new Date(year, month + 1, 0).getDate()
-  return new Date(year, month, Math.min(day, lastDay), hour, minute, 0, 0)
-}
-
-function yearlyOccurrenceForYear(rule: RecurrenceRule, year: number, hour: number, minute: number): Date {
-  if ((rule.yearlyMode ?? "specific_date") === "nth") {
-    const weekday = weekdayToIndex(rule.weekday ?? "monday")
-    const nth = nthToIndex(String(rule.nth ?? "1th"))
-    if (nth === -1) {
-      const d = new Date(year, 11, 31, hour, minute, 0, 0)
-      while (d.getDay() !== weekday) d.setDate(d.getDate() - 1)
-      return d
-    }
-    const d = new Date(year, 0, 1, hour, minute, 0, 0)
-    while (d.getDay() !== weekday) d.setDate(d.getDate() + 1)
-    d.setDate(d.getDate() + (nth - 1) * 7)
-    return d
-  }
-  return new Date(year, (rule.month ?? 1) - 1, rule.day ?? 1, hour, minute, 0, 0)
-}
-
-export function nextRecurrenceDate(rule: RecurrenceRule, now = new Date()): Date | null {
-  const anchorDate = rule.startDate ?? now.toISOString().slice(0, 10)
-  const anchor = parseDateAndTime(anchorDate, rule.time)
-  if (!anchor) return null
-  const interval = Math.max(1, rule.interval)
-
-  if (rule.frequency === "daily") {
-    const dayMs = 24 * 60 * 60 * 1000
-    let candidate = new Date(anchor)
-    if (candidate <= now) {
-      const elapsedDays = Math.floor((now.getTime() - anchor.getTime()) / dayMs)
-      const jumps = Math.floor(elapsedDays / interval) + 1
-      candidate = new Date(anchor)
-      candidate.setDate(candidate.getDate() + jumps * interval)
-    }
-    while (candidate <= now) candidate.setDate(candidate.getDate() + interval)
-    return candidate
-  }
-
-  if (rule.frequency === "weekly") {
-    const weekday = weekdayToIndex(rule.weekday ?? "monday")
-    const first = new Date(anchor)
-    while (first.getDay() !== weekday) first.setDate(first.getDate() + 1)
-    const candidate = new Date(first)
-    if (candidate <= now) {
-      const weeksDiff = Math.floor(
-        (startOfWeek(now).getTime() - startOfWeek(first).getTime()) / (7 * 24 * 60 * 60 * 1000),
-      )
-      const jumps = Math.floor(Math.max(0, weeksDiff) / interval)
-      candidate.setDate(candidate.getDate() + jumps * interval * 7)
-      while (candidate <= now) candidate.setDate(candidate.getDate() + interval * 7)
-    }
-    return candidate
-  }
-
-  if (rule.frequency === "monthly") {
-    const baseMonth = monthIndex(anchor.getFullYear(), anchor.getMonth())
-    let candidateMonth = Math.max(baseMonth, monthIndex(now.getFullYear(), now.getMonth()))
-    const rem = (candidateMonth - baseMonth) % interval
-    if (rem !== 0) candidateMonth += interval - rem
-
-    let candidate = monthlyOccurrenceForMonth(
-      rule,
-      Math.floor(candidateMonth / 12),
-      candidateMonth % 12,
-      anchor.getHours(),
-      anchor.getMinutes(),
-    )
-    if (candidate < anchor || candidate <= now) {
-      candidateMonth += interval
-      candidate = monthlyOccurrenceForMonth(
-        rule,
-        Math.floor(candidateMonth / 12),
-        candidateMonth % 12,
-        anchor.getHours(),
-        anchor.getMinutes(),
-      )
-      while (candidate <= now) {
-        candidateMonth += interval
-        candidate = monthlyOccurrenceForMonth(
-          rule,
-          Math.floor(candidateMonth / 12),
-          candidateMonth % 12,
-          anchor.getHours(),
-          anchor.getMinutes(),
-        )
-      }
-    }
-    return candidate
-  }
-
-  const baseYear = anchor.getFullYear()
-  let year = Math.max(baseYear, now.getFullYear())
-  const sinceBase = year - baseYear
-  const rem = sinceBase % interval
-  if (rem !== 0) year += interval - rem
-
-  let candidate = yearlyOccurrenceForYear(rule, year, anchor.getHours(), anchor.getMinutes())
-  if (candidate <= now) {
-    year += interval
-    candidate = yearlyOccurrenceForYear(rule, year, anchor.getHours(), anchor.getMinutes())
-  }
-  return candidate
-}
-
-export function latestRecurrenceAtOrBefore(rule: RecurrenceRule, now = new Date()): Date | null {
-  const next = nextRecurrenceDate(rule, now)
-  if (!next) return null
-  const anchorDate = rule.startDate ?? now.toISOString().slice(0, 10)
-  const anchor = parseDateAndTime(anchorDate, rule.time)
-  if (!anchor) return null
-  const interval = Math.max(1, rule.interval)
-
-  if (rule.frequency === "daily") {
-    const prev = new Date(next)
-    prev.setDate(prev.getDate() - interval)
-    return prev >= anchor ? prev : null
-  }
-
-  if (rule.frequency === "weekly") {
-    const prev = new Date(next)
-    prev.setDate(prev.getDate() - interval * 7)
-    return prev >= anchor ? prev : null
-  }
-
-  if (rule.frequency === "monthly") {
-    const candidateMonth = monthIndex(next.getFullYear(), next.getMonth()) - interval
-    if (candidateMonth < monthIndex(anchor.getFullYear(), anchor.getMonth())) return null
-    const prev = monthlyOccurrenceForMonth(
-      rule,
-      Math.floor(candidateMonth / 12),
-      candidateMonth % 12,
-      anchor.getHours(),
-      anchor.getMinutes(),
-    )
-    return prev >= anchor ? prev : null
-  }
-
-  const prevYear = next.getFullYear() - interval
-  if (prevYear < anchor.getFullYear()) return null
-  const prev = yearlyOccurrenceForYear(rule, prevYear, anchor.getHours(), anchor.getMinutes())
-  return prev >= anchor ? prev : null
+export function latestRecurrenceAtOrBefore(rule: RecurrenceRule, now = new Date(), timeZone = "UTC"): Date | null {
+  return recurrenceWindow(rule, now, timeZone).previous
 }

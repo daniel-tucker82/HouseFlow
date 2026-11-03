@@ -5,7 +5,7 @@ const { randomUUID } = require('node:crypto')
 const { readFileSync } = require('node:fs')
 const path = require('node:path')
 const Module = require('node:module')
-const { transformSync } = require('esbuild')
+const { buildSync, transformSync } = require('esbuild')
 const { Pool } = require('pg')
 const url = process.env.CYNTCH_TEST_DATABASE_URL
 
@@ -69,6 +69,9 @@ test('planner creation routes recover lost replies at capacity, reject altered r
   }
   mocks['@/shared/scheduling'] = load('shared/scheduling.ts')
   for (const name of ['planner-creation', 'routine-planner', 'task-edit-version', 'save-planner-task', 'time-rules']) mocks[`@/lib/${name}`] = load(`lib/${name}.ts`)
+  const recurrenceFile = path.resolve(__dirname, '../lib/recurrence.ts'), recurrence = new Module(recurrenceFile, module)
+  recurrence._compile(buildSync({ entryPoints: [recurrenceFile], bundle: true, platform: 'node', format: 'cjs', write: false }).outputFiles[0].text, recurrenceFile)
+  mocks['@/lib/recurrence'] = recurrence.exports
   const route = load('app/api/leader/flow/route.ts')
   async function send(body) {
     return route.POST(new Request('http://localhost/api/leader/flow', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Task-Save-User': userId, Cookie: `houseflow_kiosk_session=${householdId}:token` }, body: JSON.stringify({ ...body, householdId }) }))
@@ -89,6 +92,15 @@ test('planner creation routes recover lost replies at capacity, reject altered r
   member = true; userId = 'other'
   assert.equal((await send(routineBody)).status, 402, 'another account cannot use the parent receipt')
   userId = 'parent'; denied = false
+
+  const scheduled = await (await send({ action: 'addRecurrenceRule', routineId })).json()
+  assert.match(scheduled.rules[0].startDate, /^\d{4}-\d{2}-\d{2}$/, 'new web schedules also receive a stable anchor')
+  const scheduledRule = { ...scheduled.rules[0], lastGeneratedAt: '2026-10-01T22:00:00.000Z' }
+  await db.query('update routines set recurrence_rule=$1 where id=$2', [JSON.stringify([scheduledRule]), routineId])
+  const rescheduled = await (await send({ action: 'updateRecurrenceRule', routineId, recurrenceRuleId: scheduledRule.id,
+    rule: { time: '10:00', lastGeneratedAt: '2030-01-01T00:00:00.000Z' } })).json()
+  assert.equal(rescheduled.rules[0].lastGeneratedAt, scheduledRule.lastGeneratedAt, 'client edits cannot overwrite a scheduler watermark')
+  assert.equal(rescheduled.rules[0].time, '10:00')
 
   const timing = { unlockRule: { kind: 'after_generation_days', days: 1, time: '08:30' },
     expiryRule: { kind: 'after_unlock', amount: 2, unit: 'hours' }, unlockCombiner: 'and' }
