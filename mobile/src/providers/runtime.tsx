@@ -9,6 +9,7 @@ import { BoardController } from "../services/board-controller"
 import { PlannerController } from "../services/planner-controller"
 import { RunsController } from "../services/runs-controller"
 import { NotificationController } from "../services/notification-controller"
+import { NotificationHistoryController } from "../services/notification-history-controller"
 import { createNotificationDevice } from "../services/notification-device"
 import { BillingController } from "../services/billing-controller"
 import { nativeBillingSdk } from "../services/billing-native"
@@ -18,7 +19,7 @@ import { getDeviceId, getInstallationSecret, openLocalStore } from "../storage/n
 import type { LocalStore } from "../storage/local-store"
 import { Action, Copy, Loading, styles } from "../components/ui"
 
-interface Runtime { controller: BoardController; planner: PlannerController; runs: RunsController; notifications: NotificationController; billing: BillingController; api: MobileApi; store: LocalStore; keepAwake: boolean; syncPaused: boolean; setKeepAwake: (enabled: boolean) => Promise<void> }
+interface Runtime { controller: BoardController; planner: PlannerController; runs: RunsController; notifications: NotificationController; history: NotificationHistoryController; billing: BillingController; api: MobileApi; store: LocalStore; keepAwake: boolean; syncPaused: boolean; setKeepAwake: (enabled: boolean) => Promise<void> }
 const RuntimeContext = createContext<Runtime | null>(null)
 
 export function RuntimeProvider({ children, accountId, sessionId, restricted = false, canSync = true }: PropsWithChildren<{ accountId: string; sessionId: string; restricted?: boolean; canSync?: boolean }>) {
@@ -44,6 +45,8 @@ export function RuntimeProvider({ children, accountId, sessionId, restricted = f
     let runs: RunsController | undefined
     let notifications: NotificationController | undefined
     let billing: BillingController | undefined
+    let history: NotificationHistoryController | undefined
+    let notificationSubscription: (() => void) | undefined
     let boardSubscription: (() => void) | undefined
     let network: ReturnType<typeof Network.addNetworkStateListener> | undefined
     let app: ReturnType<typeof AppState.addEventListener> | undefined
@@ -66,25 +69,38 @@ export function RuntimeProvider({ children, accountId, sessionId, restricted = f
         const protection = kiosk.getSnapshot()
         return matchesIdentity() && !restricted && canSync && protection.ready && !protection.changing && !protection.record && controller?.getSelectedHouseholdId() === householdId
       }, randomUUID)
+      history = new NotificationHistoryController(store.notificationHistory, { accountId, sessionId, deviceId }, api, householdId => {
+        const protection = kiosk.getSnapshot()
+        return matchesIdentity() && !restricted && canSync && protection.ready && !protection.changing && !protection.record && controller?.getSelectedHouseholdId() === householdId
+      }, randomUUID, async () => {
+        await controller?.refresh()
+        const board = controller?.getSnapshot()
+        if (!board?.online || board.error || board.refreshing) throw new Error("Connect to refresh this household before opening the notification.")
+      })
+      notificationSubscription = notifications.subscribe(() => {
+        const state = notifications?.getSnapshot()
+        if (state) history?.observe(state.household, state.preferences, state.pending.some(row => row.scope === "device" || row.scope === state.household?.id))
+      })
       boardSubscription = controller.subscribe(() => { if (controller && !restricted) { void planner?.selectHousehold(controller.getSnapshot().board?.household ?? null); runs?.observe(controller.getSnapshot()); billing?.selectHousehold(controller.getSnapshot().board?.household ?? null); if (canSync) notifications?.observe(controller.getSnapshot()) } })
       const connected = (state: Network.NetworkState) => {
         const online = canSync && state.isConnected === true && state.isInternetReachable !== false
-        controller?.setConnectivity(online); planner?.setConnectivity(!restricted && online); notifications?.setConnectivity(!restricted && online); billing?.setConnectivity(!restricted && online)
+        controller?.setConnectivity(online); planner?.setConnectivity(!restricted && online); notifications?.setConnectivity(!restricted && online); billing?.setConnectivity(!restricted && online); history?.setConnectivity(!restricted && online)
       }
       network = Network.addNetworkStateListener(connected)
-      app = AppState.addEventListener("change", state => { setActive(state === "active"); controller?.setActive(state === "active"); planner?.setActive(!restricted && state === "active"); runs?.setActive(!restricted && state === "active"); notifications?.setActive(!restricted && canSync && state === "active"); billing?.setActive(!restricted && canSync && state === "active") })
+      app = AppState.addEventListener("change", state => { setActive(state === "active"); controller?.setActive(state === "active"); planner?.setActive(!restricted && state === "active"); runs?.setActive(!restricted && state === "active"); notifications?.setActive(!restricted && canSync && state === "active"); billing?.setActive(!restricted && canSync && state === "active"); history?.setActive(!restricted && canSync && state === "active") })
       setAwake(displaySetting === true)
-      setRuntime({ controller, planner, runs, notifications, billing, api, store })
+      setRuntime({ controller, planner, runs, notifications, billing, history, api, store })
       controller.setActive(AppState.currentState === "active")
       planner.setActive(!restricted && AppState.currentState === "active")
       runs.setActive(!restricted && AppState.currentState === "active")
       notifications.setActive(!restricted && canSync && AppState.currentState === "active")
       billing.setActive(!restricted && canSync && AppState.currentState === "active")
+      history.setActive(!restricted && canSync && AppState.currentState === "active")
       await controller.start()
       if (!restricted && canSync) await notifications.start()
       connected(await Network.getNetworkStateAsync())
     })().catch(cause => { if (!cancelled) setError(cause instanceof Error ? cause.message : "Unable to open your saved household") })
-    return () => { cancelled = true; network?.remove(); app?.remove(); boardSubscription?.(); controller?.stop(); planner?.stop(); runs?.stop(); notifications?.stop(); billing?.stop() }
+    return () => { cancelled = true; network?.remove(); app?.remove(); boardSubscription?.(); notificationSubscription?.(); controller?.stop(); planner?.stop(); runs?.stop(); notifications?.stop(); billing?.stop(); history?.stop() }
   }, [accountId, sessionId, attempt, restricted, canSync, kiosk, isSessionActive])
 
   useEffect(() => {
@@ -128,4 +144,8 @@ export function useNotifications() {
 export function useBilling() {
   const { billing } = useRuntime()
   return useSyncExternalStore(billing.subscribe, billing.getSnapshot, billing.getSnapshot)
+}
+export function useNotificationHistory() {
+  const { history } = useRuntime()
+  return useSyncExternalStore(history.subscribe, history.getSnapshot, history.getSnapshot)
 }

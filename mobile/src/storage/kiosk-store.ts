@@ -64,7 +64,7 @@ export class KioskStore {
       await this.save(tx, { kiosk, intent: "lock", activationPending: true, attempts: 0, nextAttemptMs: 0, error: null, blocked: false, recoverySignOutSessionId: null })
       await tx.runAsync("DELETE FROM board_snapshots WHERE account_id<>? OR household_id<>?", kiosk.accountId, kiosk.householdId)
       await tx.runAsync("UPDATE board_snapshots SET data=? WHERE account_id=? AND household_id=?", JSON.stringify({ format: 3, server: restricted, board: restricted }), kiosk.accountId, kiosk.householdId)
-      for (const table of ["planner_snapshots", "run_snapshots", "run_pages", "native_notification_settings", "notification_taps"]) await tx.runAsync(`DELETE FROM ${table}`)
+      for (const table of ["planner_snapshots", "run_snapshots", "run_pages", "native_notification_settings", "notification_taps", "notification_history_cache"]) await tx.runAsync(`DELETE FROM ${table}`)
       await tx.runAsync("UPDATE planner_access SET allowed=0")
       await tx.runAsync("UPDATE notification_native_cleanup SET generation=generation+1 WHERE id=1")
       await tx.runAsync("INSERT INTO device_settings VALUES(?,?,?) ON CONFLICT(account_id,setting_key) DO UPDATE SET data=excluded.data", kiosk.accountId, "selected-household", JSON.stringify(kiosk.householdId))

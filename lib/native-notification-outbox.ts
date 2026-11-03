@@ -4,6 +4,7 @@ import { normalizeRole } from "@/lib/household-authz"
 import { defaultNotificationPreferences, notificationCatalog, shouldPushNotification, type DeviceNotificationPreferences, type MobileNotificationKind } from "@/shared/mobile/notification-catalog"
 import { notificationMemberSelection, type NativeNotificationPayload } from "@/shared/mobile/notification-payload"
 import { notificationUuid, parseNotificationPreferences, restrictNotificationPreferences } from "@/shared/mobile/notification-settings"
+import { notificationHistoryBodies as genericBody } from "@/shared/mobile/notification-history"
 
 interface NativeEvent {
   id: string; household_id: string; kind: MobileNotificationKind; member_ids: string[];
@@ -73,19 +74,6 @@ function eligible(event: NativeEvent, recipient: Recipient, now: Date) {
     const members = event.member_ids.filter(id => recipient.member_ids.includes(id))
     return shouldPushNotification({ kind: event.kind, memberIds: members, userId: recipient.user_id, role, preferences, now }) ? preferences : null
   } catch { return null } // Invalid stored settings fail closed, without leaking their content.
-}
-
-const genericBody: Record<MobileNotificationKind, string> = {
-  task_available: "A task is ready to start.", task_completed: "A task was marked complete.",
-  task_reopened: "A task was marked incomplete.", task_assigned: "A task was assigned.",
-  task_completed_automatically: "A task was completed by its expiry rule.",
-  reward_available: "A reward is available.", reward_completed: "A reward was marked complete.",
-  routine_generated: "A recurring routine was created.", routine_started: "A routine was started.",
-  routine_completed: "A routine was completed through its tasks.",
-  routine_superseded: "An older routine was completed because a newer copy was created.",
-  routine_reopened: "A routine has incomplete tasks again.",
-  member_joined: "A member joined your household.", member_added: "A profile was added to your household.",
-  member_left: "A member left or was removed from your household.",
 }
 
 function messageFor(id: string, event: NativeEvent, recipient: Recipient, preferences: DeviceNotificationPreferences, now: Date): NativePushMessage {

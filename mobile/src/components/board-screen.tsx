@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from "react"
 import { Alert, FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
-import { Check, ChevronDown, Gift, LockKeyhole, RefreshCw, Users, WifiOff } from "lucide-react-native"
+import { Bell, Check, ChevronDown, Gift, LockKeyhole, RefreshCw, Users, WifiOff } from "lucide-react-native"
+import { router } from "expo-router"
 import type { BoardTask, HouseholdMember } from "../../../shared/mobile/contracts"
 import type { NativeKioskSession } from "../../../shared/mobile/kiosk"
 import { useBoard, useRuntime } from "../providers/runtime"
@@ -73,6 +74,7 @@ export default function BoardScreen({ kiosk, onParentAccess, notice }: { kiosk?:
           <Copy tone="heading" style={{ flexShrink: 1 }}>{board?.household.name ?? "Your household"}</Copy><ChevronDown size={18} color={colors.muted} />
         </Pressable>}
       </View>
+      {!kiosk ? <Pressable accessibilityRole="button" accessibilityLabel="Notification history" onPress={() => router.navigate("/notifications")} style={boardStyles.iconButton}><Bell color={colors.primary} size={22} /></Pressable> : null}
       {kiosk && onParentAccess ? <Action secondary label="Parent access" onPress={onParentAccess} /> : <Pressable accessibilityRole="button" accessibilityLabel="Refresh tasks" onPress={() => void controller.refresh()} style={boardStyles.iconButton}><RefreshCw color={colors.primary} size={22} /></Pressable>}
     </View>
     {notice}

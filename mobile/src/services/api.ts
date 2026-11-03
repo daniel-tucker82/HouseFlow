@@ -3,6 +3,7 @@ import { TransportError, type SyncTransport } from "../storage/sync-engine"
 import type { PlannerEdit, PlannerSnapshot } from "../../../shared/mobile/planner"
 import type { RunPage, RunSnapshot, RunView } from "../../../shared/mobile/runs"
 import type { NativeNotificationDevice, NotificationSettingsOperation, NotificationSettingsSnapshot } from "../../../shared/mobile/notification-settings"
+import type { NotificationHistoryAction, NotificationHistoryPage, NotificationHistoryScope, NotificationHistorySource } from "../../../shared/mobile/notification-history"
 import { parseNativeKioskSession, type NativeKioskOperation, type NativeKioskResult } from "../../../shared/mobile/kiosk"
 import { isWebBillingCancellationUrl, type NativeBillingAction, type NativeBillingScope, type NativeBillingSetup, type NativeBillingStatus, type NativeBillingStore, type WebBillingCancellation } from "../../../shared/mobile/billing"
 
@@ -112,6 +113,16 @@ export class MobileApi implements SyncTransport {
   private async notificationHeaders() {
     if (!this.installationSecret || !this.sessionId) throw new Error("This device's secure registration is not available.")
     return { "X-Cyntch-Installation": await this.installationSecret(), "X-Cyntch-Session": this.sessionId }
+  }
+  private validateNotificationHistory<T extends NotificationHistoryScope & {source:NotificationHistorySource}>(result:T,householdId:string,source:NotificationHistorySource){
+    if(result.accountId!==this.accountId||result.sessionId!==this.sessionId||result.deviceId!==this.deviceId||result.householdId!==householdId||result.source!==source)throw new Error("Notification history belongs to a different account or device. Refresh before continuing.")
+    return result
+  }
+  async notificationHistory(householdId:string,source:NotificationHistorySource,cursor?:string){
+    return this.validateNotificationHistory(await this.request<NotificationHistoryPage>(`/api/mobile/notification-history?${new URLSearchParams({householdId,source,...(cursor?{cursor}:{})})}`,undefined,await this.notificationHeaders()),householdId,source)
+  }
+  async updateNotificationHistory(action:NotificationHistoryAction){
+    return this.validateNotificationHistory(await this.request<NotificationHistoryScope & {source:NotificationHistorySource;ok:true}>("/api/mobile/notification-history",{...action},await this.notificationHeaders()),action.householdId,action.source)
   }
   async notificationSettings(householdId?: string) {
     const result = await this.request<{ device: NativeNotificationDevice; settings: NotificationSettingsSnapshot | null }>(

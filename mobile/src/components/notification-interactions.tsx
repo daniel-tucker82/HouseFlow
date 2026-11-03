@@ -6,7 +6,7 @@ import { NotificationNavigationController } from "../services/notification-navig
 import { bindNotificationEvents } from "../services/notification-events"
 
 export function NotificationInteractions({ accountId, sessionId }: { accountId: string; sessionId: string }) {
-  const { controller, runs, notifications, store } = useRuntime()
+  const { controller, runs, notifications, history, store } = useRuntime()
   const navigation = useRootNavigationState()
   useEffect(() => {
     if (!navigation?.key) return
@@ -24,7 +24,7 @@ export function NotificationInteractions({ accountId, sessionId }: { accountId: 
       session, canPresent: payload => notifications.canPresent(payload),
       canPlaySound: () => notifications.getSnapshot().permission === "granted",
       capture: payload => taps.capture(payload),
-      received: () => { clearTimeout(refreshTimer); refreshTimer = setTimeout(() => { void controller.refresh() }, 250) },
+      received: () => { clearTimeout(refreshTimer); refreshTimer = setTimeout(() => { void controller.refresh(); void history.refresh() }, 250) },
       failed: () => Alert.alert("Notification unavailable", "The notification could not be saved on this device. Please try opening it again."),
     })
     const board = controller.subscribe(() => taps.wake())
@@ -32,6 +32,6 @@ export function NotificationInteractions({ accountId, sessionId }: { accountId: 
     taps.setActive(AppState.currentState === "active")
     taps.wake()
     return () => { clearTimeout(refreshTimer); board(); app.remove(); events.stop(); taps.stop() }
-  }, [accountId, sessionId, controller, runs, notifications, store, navigation?.key])
+  }, [accountId, sessionId, controller, runs, notifications, history, store, navigation?.key])
   return null
 }

@@ -817,3 +817,62 @@ durable-job and scheduler checks plus the existing 19 isolated web-billing tests
 Root/mobile lint and typecheck and the production Next.js build passed; both new
 HTTP endpoints are included in the build. All lifecycle/provider responses in
 these tests are synthetic; PostgreSQL transactions, leases and routes are real.
+
+## Native notification history
+
+The Today bell and Settings → Notification history open a native, paginated
+history screen. Portrait uses full-width cards; landscape uses a list and detail
+pane, with a single column at large text sizes. Expo SDK 58 redirects routes
+marked `href: null`, so this route hides its tab button without marking the
+route hidden. The five existing tabs remain visible.
+
+`/api/mobile/notification-history` requires the authenticated account/session,
+installation secret and current household membership, and is denied in kiosk
+mode. Apply `database/0033_notification_history.sql` before deploying the API.
+It adds per-device read/dismiss state and bulk-action cutoffs; canonical events
+and push deliveries are preserved. Responses are uncached and include their
+account, session, device, household and selection key for client validation.
+
+App history includes all 15 native event kinds, including recurrence creation,
+both routine-completion reasons and both member-addition routes. Visibility
+follows the device's current category/member selections and current role.
+Quiet hours, the master push switch, denied OS permission and expired push
+delivery do not erase history or cause old pushes to be replayed. Website
+history is a separate source because it uses the existing account preferences;
+its read/dismiss state remains shared with the website. Legacy external URLs
+are never used for navigation.
+
+SQLite schema 11 caches loaded pages and commits each read/dismiss operation
+with its visible update in one transaction. Network requests do not hold local
+saves. Retries survive process death and lost acknowledgements, with bounded
+backoff only while work is pending. Large backwards clock changes do not strand
+that backoff. Bulk actions retain the server cutoff of the initial page, so an
+offline retry does not clear newer history. App bulk actions cover all earlier
+categories for this household/device, including currently disabled categories;
+the clear confirmation explains this. Website actions retain current-role
+filtering. Opening a target refreshes household access and uses the existing
+run detail screen, including its removed-task handling.
+
+Cache writes and presentation are fenced across household/filter changes,
+sign-out, kiosk locking and in-flight local mutations. Kiosk activation purges
+history content. Known server denial removes the cache, and the controller
+continues to hide it even if disk cleanup fails. Household removal and role
+changes reconcile the cache and outbox. Work for the selected household resumes
+while the app is active; queued history actions in another household remain
+durable until that household is selected again. Background draining across all
+households remains a release follow-up.
+
+Verification on 2026-11-04: real PostgreSQL tests cover all event categories,
+role/device isolation, equal-time pagination, bulk retry cutoffs, legacy state,
+invalid dates, API identity and kiosk rejection. Real SQLite tests cover atomic
+save failure, restart/retry, stale responses, changed selections, permission
+revocation and clock changes. On the Android emulator, a real API-backed event
+was marked read offline, retained through force-stop/relaunch, then acknowledged
+in PostgreSQL after reconnecting. Native taps opened its task, and landscape
+detail and 1.6× text layouts were inspected. This does not establish iOS native
+behavior, physical-device performance, push-provider delivery or store release.
+
+The final general regression run passed 276 checks. Root/mobile lint and
+typecheck, the Next.js production build and Android/iOS JavaScript exports also
+passed. Migration 0033 was applied to the isolated local test database only;
+production still requires its normal migration/deployment rollout.

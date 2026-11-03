@@ -38,6 +38,8 @@ function Application() {
         <Tabs.Screen name="runs" options={{ title: "Runs", tabBarIcon: ({ color, size }) => <History color={color} size={size} /> }} />
         <Tabs.Screen name="household" options={{ title: "Household", tabBarIcon: ({ color, size }) => <Users color={color} size={size} /> }} />
         <Tabs.Screen name="settings" options={{ title: "Settings", tabBarIcon: ({ color, size }) => <Settings color={color} size={size} /> }} />
+        {/* SDK 58 redirects hidden routes. Hide only the button so history remains navigable. */}
+        <Tabs.Screen name="notifications" options={{ tabBarButton: () => null, tabBarItemStyle: { display: "none" } }} />
       </Tabs>
       {!kiosk.state.record ? <NotificationInteractions accountId={userId} sessionId={sessionId} /> : null}
     </RuntimeProvider> : <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>

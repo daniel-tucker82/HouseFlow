@@ -2,7 +2,7 @@ import { UserButton } from "@clerk/expo/native-components"
 import { Alert, ScrollView, Switch, View } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { Action, Card, Copy, styles, usePalette } from "../components/ui"
-import { useBoard, useNotifications, usePlanner, useRuntime } from "../providers/runtime"
+import { useBoard, useNotificationHistory, useNotifications, usePlanner, useRuntime } from "../providers/runtime"
 import { PlannerPendingCreations } from "../components/planner-pending-creations"
 import { NotificationSettingsCard } from "../components/notification-settings"
 import { useNotificationSession } from "../providers/notification-session"
@@ -15,9 +15,10 @@ export default function SettingsScreen() {
   const state = useBoard()
   const planning = usePlanner()
   const notifications = useNotifications()
+  const history = useNotificationHistory()
   const colors = usePalette()
   const rejected = state.pending.filter(change => change.state === "rejected")
-  const savedCount = state.pending.length + planning.pending.length + planning.creations.length + notifications.pending.length
+  const savedCount = state.pending.length + planning.pending.length + planning.creations.length + notifications.pending.length + history.pending
   function report(error: unknown) { Alert.alert("Unable to update", error instanceof Error ? error.message : "Please try again.") }
   return <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1, backgroundColor: colors.background }}><ScrollView contentContainerStyle={styles.content}>
     <Copy tone="title">Settings</Copy>

@@ -4,6 +4,7 @@ import { PlannerStore } from "./planner-store"
 import { NotificationStore } from "./notification-store"
 import { NotificationSessionStore } from "./notification-session-store"
 import { NotificationInbox } from "./notification-inbox"
+import { NotificationHistoryStore } from "./notification-history-store"
 import { BillingStore } from "./billing-store"
 import { KioskStore, kioskRestriction, requireKioskParentAccess } from "./kiosk-store"
 import { restrictKioskBoard } from "../../../shared/mobile/kiosk"
@@ -84,9 +85,10 @@ export class LocalStore {
   readonly notifications: NotificationStore
   readonly notificationSessions: NotificationSessionStore
   readonly notificationInbox: NotificationInbox
+  readonly notificationHistory: NotificationHistoryStore
   readonly kiosk: KioskStore
   readonly billing: BillingStore
-  constructor(private readonly database: LocalDatabase) { this.planner = new PlannerStore(database); this.notifications = new NotificationStore(database); this.notificationSessions = new NotificationSessionStore(database); this.notificationInbox = new NotificationInbox(database); this.kiosk = new KioskStore(database); this.billing = new BillingStore(database) }
+  constructor(private readonly database: LocalDatabase) { this.planner = new PlannerStore(database); this.notifications = new NotificationStore(database); this.notificationSessions = new NotificationSessionStore(database); this.notificationInbox = new NotificationInbox(database); this.notificationHistory = new NotificationHistoryStore(database); this.kiosk = new KioskStore(database); this.billing = new BillingStore(database) }
 
   async initialize() {
     await this.database.execAsync(`
@@ -126,13 +128,14 @@ export class LocalStore {
         account_id TEXT NOT NULL, household_id TEXT NOT NULL, view TEXT NOT NULL, data TEXT NOT NULL,
         PRIMARY KEY(account_id,household_id,view)
       );
-      PRAGMA user_version = 10;
+      PRAGMA user_version = 11;
     `)
     await this.kiosk.initialize()
     await this.planner.initialize()
     await this.notifications.initialize()
     await this.notificationSessions.initialize()
     await this.notificationInbox.initialize()
+    await this.notificationHistory.initialize()
     await this.billing.initialize()
   }
 
@@ -287,6 +290,7 @@ export class LocalStore {
         return
       }
       await this.notifications.reconcile(accountId, households, transaction)
+      await this.notificationHistory.reconcile(accountId, households, transaction)
       await this.planner.reconcile(accountId, households, transaction)
       const allowed = new Map(households.map(household => [household.id, household]))
       const known = await transaction.getAllAsync<{ household_id: string }>(`
