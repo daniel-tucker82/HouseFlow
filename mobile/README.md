@@ -867,6 +867,13 @@ identified by an explicit API error code. Pending counts and retry errors cover
 the account and are visible in history and Settings. Reopening or reconnecting
 resumes delivery; no history lists are fetched merely to drain another queue.
 
+Saved individual reads and dismissals are authorized against current household
+membership and role independently of the device's category/member filters. A
+preference change before upload must not silently discard an offline action or
+make a dismissed item reappear when that category is enabled again. History
+reads still apply the current filters; removed membership and reduced roles
+still restrict which events may be changed.
+
 Verification on 2026-11-04: real PostgreSQL tests cover all event categories,
 role/device isolation, equal-time pagination, bulk retry cutoffs, legacy state,
 invalid dates, API identity and kiosk rejection. Real SQLite tests cover atomic
@@ -891,3 +898,11 @@ in two local test households, then both were acknowledged in PostgreSQL while
 Today remained open in the first household. Observed transport contained exactly
 the two writes and no history reads; the pending count returned to zero. The
 disposable second household and both fixture events were removed afterward.
+
+Preference-change regression: real PostgreSQL/API tests reproduced silent loss
+of queued reads/dismissals after category or member filters changed, then passed
+with access and display filters separated. Duplicate replay, member/supervisor
+role limits, removed members and foreign-household IDs are covered. The complete
+general suite passed 288 checks; root lint, typecheck and the production build
+passed. This follow-up changes only server authorization selection, with no
+database migration or native module change.

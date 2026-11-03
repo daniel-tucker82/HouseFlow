@@ -26,9 +26,9 @@ async function fixture(t){
  const lib=load(['lib/mobile-notification-history.ts','shared/mobile/notification-catalog.ts'],mocks),route=load(['app/api/mobile/notification-history/route.ts'],mocks)
  const read=(who=scope,source='app',cursor)=>lib.readNotificationHistory(who,secret,new URLSearchParams({source,...(cursor?{cursor}:{})}))
  const act=(action,who=scope,source='app')=>lib.updateNotificationHistory(who,secret,{householdId:who.householdId,source,...action})
- async function preferences(user='parent',device=scope.deviceId,enabled=Object.keys(lib.notificationCatalog)){
+ async function preferences(user='parent',device=scope.deviceId,enabled=Object.keys(lib.notificationCatalog),members=['child']){
   const pref=lib.defaultNotificationPreferences(user,'Australia/Sydney');pref.enabled=false;pref.quietHours={start:'00:00',end:'00:00'}
-  for(const [kind,rule]of Object.entries(pref.categories)){rule.enabled=enabled.includes(kind);rule.memberIds=lib.notificationCatalog[kind].scope==='member'?['child']:[]}
+  for(const [kind,rule]of Object.entries(pref.categories)){rule.enabled=enabled.includes(kind);rule.memberIds=lib.notificationCatalog[kind].scope==='member'?members:[]}
   await db.query(`insert into native_notification_preferences(user_id,device_id,household_id,preferences) values($1,$2,$3,$4)
     on conflict(user_id,device_id,household_id) do update set preferences=excluded.preferences`,[user,device,scope.householdId,JSON.stringify(pref)])
  }
@@ -117,5 +117,52 @@ test('notification history retains quiet/expired events, controls access and pre
     values($1,'parent',$2,$3,$4,array['child'],array['child'],$5,$5)`,[randomUUID(),f.scope.sessionId,f.scope.deviceId,f.scope.householdId,'a'.repeat(64)])
   assert.equal((await f.route.GET(f.request())).status,423)
   assert.equal((await f.route.POST(f.request({action:'read',notificationId:randomUUID()}))).status,423)
+ })
+})
+
+test('queued history changes survive preference edits without relaxing current access',{skip:!connectionString},async t=>{
+ const f=await fixture(t)
+ await t.test('disabling a category before upload preserves saved reads and dismissals when re-enabled',async()=>{
+  const readId=await f.event(),dismissId=await f.event()
+  assert.equal((await f.read()).items.length,2)
+  await f.preferences('parent',f.scope.deviceId,[])
+  assert.equal((await f.read()).items.length,0)
+  for(let attempt=0;attempt<2;attempt++){
+   assert.equal((await f.route.POST(f.request({action:'read',notificationId:readId}))).status,200)
+   assert.equal((await f.route.POST(f.request({action:'dismiss',notificationId:dismissId}))).status,200)
+  }
+  await f.preferences()
+  const page=await f.read()
+  assert.equal(page.items.find(item=>item.id===readId).read,true)
+  assert.equal(page.items.some(item=>item.id===dismissId),false)
+ })
+ await t.test('changing selected members before upload also preserves the saved actions',async()=>{
+  const readId=await f.event(),dismissId=await f.event()
+  await f.preferences('parent',f.scope.deviceId,['task_completed'],['parent'])
+  assert.equal((await f.read()).items.length,0)
+  await f.act({action:'read',notificationId:readId});await f.act({action:'dismiss',notificationId:dismissId})
+  await f.preferences()
+  const page=await f.read()
+  assert.equal(page.items.find(item=>item.id===readId).read,true)
+  assert.equal(page.items.some(item=>item.id===dismissId),false)
+ })
+ await t.test('current role, membership and household still restrict individual changes',async()=>{
+  const childId=await f.event(),ownId=await f.event('task_completed',{members:['parent']}),managementId=await f.event('member_added')
+  const other=randomUUID(),foreignId=await f.event()
+  await f.db.query("insert into households(id,name,leader_id) values($1,'Other household','parent')",[other])
+  await f.db.query('update native_notification_events set household_id=$1 where id=$2',[other,foreignId])
+  const before=Number((await f.db.query('select count(*) n from native_notification_history_entries')).rows[0].n)
+  await f.db.query("update household_members set role='member' where household_id=$1 and user_id='parent'",[f.scope.householdId])
+  await f.act({action:'dismiss',notificationId:childId});await f.act({action:'dismiss',notificationId:managementId})
+  await f.act({action:'dismiss',notificationId:foreignId})
+  assert.equal(Number((await f.db.query('select count(*) n from native_notification_history_entries')).rows[0].n),before)
+  await f.act({action:'read',notificationId:ownId})
+  assert.equal((await f.db.query('select is_read from native_notification_history_entries where event_id=$1',[ownId])).rows[0].is_read,true)
+  await f.db.query("update household_members set role='supervisor' where household_id=$1 and user_id='parent'",[f.scope.householdId])
+  await f.act({action:'dismiss',notificationId:managementId})
+  assert.equal((await f.db.query('select 1 from native_notification_history_entries where event_id=$1',[managementId])).rowCount,0)
+  await f.db.query("delete from household_members where household_id=$1 and user_id='child'",[f.scope.householdId])
+  await f.act({action:'dismiss',notificationId:childId})
+  assert.equal((await f.db.query('select 1 from native_notification_history_entries where event_id=$1',[childId])).rowCount,0)
  })
 })

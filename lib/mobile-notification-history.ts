@@ -30,7 +30,7 @@ export function parseNotificationHistoryAction(input: unknown): NotificationHist
   if ((row.action === "read" || row.action === "dismiss") && typeof row.notificationId === "string" && notificationUuid.test(row.notificationId)) return { ...common, action: row.action, notificationId: row.notificationId }
   throw new NotificationHistoryError("Choose a valid notification action.")
 }
-async function access(client: PoolClient, scope: NotificationHistoryScope, secret: string) {
+async function access(client: PoolClient, scope: NotificationHistoryScope, secret: string, mode: "view" | "update") {
   await verifyInstallation(client, scope.deviceId, secret)
   if ((await client.query("select 1 from native_notification_revocations where device_id=$1 and account_id=$2 and session_id=$3",[scope.deviceId,scope.accountId,scope.sessionId])).rowCount) throw new NotificationHistoryError("This sign-in session has ended.",403)
   const member = (await client.query<{ role: string; timezone: string }>(`select hm.role,h.timezone from household_members hm join households h on h.id=hm.household_id
@@ -38,9 +38,14 @@ async function access(client: PoolClient, scope: NotificationHistoryScope, secre
   if (!member) throw new NotificationHistoryError("Household access is no longer available.",403,"history_household_unavailable")
   const role = normalizeRole(member.role)
   const members = (await client.query<{ user_id: string }>("select user_id from household_members where household_id=$1", [scope.householdId])).rows.map(row => row.user_id)
-  const saved = (await client.query<{ preferences: unknown }>("select preferences from native_notification_preferences where user_id=$1 and device_id=$2 and household_id=$3",
-    [scope.accountId,scope.deviceId,scope.householdId])).rows[0]
-  const preferences = restrictNotificationPreferences(saved ? parseNotificationPreferences(saved.preferences) : defaultNotificationPreferences(scope.accountId,member.timezone || "UTC"),scope.accountId,role,members)
+  const saved = mode === "view" ? (await client.query<{ preferences: unknown }>("select preferences from native_notification_preferences where user_id=$1 and device_id=$2 and household_id=$3",
+    [scope.accountId,scope.deviceId,scope.householdId])).rows[0] : undefined
+  const requested = saved ? parseNotificationPreferences(saved.preferences) : defaultNotificationPreferences(scope.accountId,member.timezone || "UTC")
+  // Display choices may change before an offline read/dismiss reaches the server.
+  // Authorize that saved action against current access, independently of filters.
+  if (mode === "update") requested.categories = Object.fromEntries(Object.entries(notificationCatalog).map(([kind,category]) =>
+    [kind,{enabled:true,memberIds:category.scope === "member" ? members : []}]))
+  const preferences = restrictNotificationPreferences(requested,scope.accountId,role,members)
   // Quiet hours, OS permission and the master push switch silence alerts, not history.
   const selections = notificationHistorySelections(role, preferences)
   return { role, selections }
@@ -82,7 +87,7 @@ export async function readNotificationHistory(scope: NotificationHistoryScope, s
   const client = await db.connect()
   try {
     await client.query("begin isolation level repeatable read read only")
-    const policy = await access(client,scope,secret)
+    const policy = await access(client,scope,secret,"view")
     const key = createHash("sha256").update(JSON.stringify([scope.accountId,scope.deviceId,scope.householdId,stream,policy])).digest("hex")
     let after: NotificationHistoryPoint | null = null
     if (raw) {
@@ -104,7 +109,7 @@ export async function updateNotificationHistory(scope: NotificationHistoryScope,
   const client=await db.connect()
   try {
     await client.query("begin")
-    const policy=await access(client,scope,secret)
+    const policy=await access(client,scope,secret,"update")
     const bulk=action.action==="readAll" || action.action==="dismissAll", dismiss=action.action==="dismiss" || action.action==="dismissAll"
     if (bulk && (await client.query("select $1::timestamptz>clock_timestamp() as future",[action.through.time])).rows[0].future) throw new NotificationHistoryError("Refresh history before changing newer notifications.")
     if (action.source==="app" && bulk) {
