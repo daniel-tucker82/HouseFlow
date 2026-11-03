@@ -8,7 +8,7 @@ import { notificationUuid, parseNotificationPreferences, restrictNotificationPre
 import { notificationHistoryBodies, notificationHistorySelections, notificationHistoryFilterKey, type NotificationHistoryAction, type NotificationHistoryItem, type NotificationHistoryPage,
   type NotificationHistoryPoint, type NotificationHistoryScope, type NotificationHistorySource } from "@/shared/mobile/notification-history"
 
-export class NotificationHistoryError extends Error { constructor(message: string, public status = 400) { super(message) } }
+export class NotificationHistoryError extends Error { constructor(message: string, public status = 400, public code?: "history_household_unavailable") { super(message) } }
 const zero = "00000000-0000-0000-0000-000000000000"
 const timestamp = `to_char(clock_timestamp() at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`
 function point(value: unknown): NotificationHistoryPoint {
@@ -35,7 +35,7 @@ async function access(client: PoolClient, scope: NotificationHistoryScope, secre
   if ((await client.query("select 1 from native_notification_revocations where device_id=$1 and account_id=$2 and session_id=$3",[scope.deviceId,scope.accountId,scope.sessionId])).rowCount) throw new NotificationHistoryError("This sign-in session has ended.",403)
   const member = (await client.query<{ role: string; timezone: string }>(`select hm.role,h.timezone from household_members hm join households h on h.id=hm.household_id
     where hm.household_id=$1 and hm.user_id=$2`, [scope.householdId,scope.accountId])).rows[0]
-  if (!member) throw new NotificationHistoryError("Household access is no longer available.",403)
+  if (!member) throw new NotificationHistoryError("Household access is no longer available.",403,"history_household_unavailable")
   const role = normalizeRole(member.role)
   const members = (await client.query<{ user_id: string }>("select user_id from household_members where household_id=$1", [scope.householdId])).rows.map(row => row.user_id)
   const saved = (await client.query<{ preferences: unknown }>("select preferences from native_notification_preferences where user_id=$1 and device_id=$2 and household_id=$3",

@@ -30,15 +30,18 @@ async function fixture(t) {
   const key=source=>notificationHistoryFilterKey(household.role,notificationHistorySelections(household.role,preferences),source)
   const item=(title='Pack bag',time='2026-11-03T20:00:00.000001Z')=>({id:randomUUID(),kind:'task_available',title,body:'A task is ready to start.',createdAt:time,read:false,occurrenceId:randomUUID(),taskId:randomUUID()})
   let page={...scope,source:'app',role:'manager',filterKey:key('app'),items:[item(),item('Feed cat')],nextCursor:null,through:point,fetchedAt:point.time}
-  const calls=[],controllers=[];let allowed=true,now=1000
-  const api={notificationHistory:async(hh,source,cursor)=>{calls.push(['get',hh,source,cursor]);return {...structuredClone(page),source,filterKey:key(source)}},
-    updateNotificationHistory:async action=>{calls.push(['post',structuredClone(action)]);page=applyHistoryAction(page,action)}}
+  const calls=[],controllers=[],households=new Map([[household.id,household]]),pages=new Map();let allowed=true,now=1000,selected=household.id
+  const api={notificationHistory:async(hh,source,cursor)=>{calls.push(['get',hh,source,cursor]);return {...structuredClone(hh===household.id?page:pages.get(hh)),source,filterKey:key(source)}},
+    updateNotificationHistory:async action=>{calls.push(['post',structuredClone(action)]);if(action.householdId===household.id)page=applyHistoryAction(page,action);else pages.set(action.householdId,applyHistoryAction(pages.get(action.householdId),action))}}
   let refreshAccess=async()=>{}
-  const create=()=>{const c=new NotificationHistoryController(local.notificationHistory,scope,api,()=>allowed,randomUUID,()=>refreshAccess(),()=>now);controllers.push(c);c.observe(household,preferences,false);c.setVisible(true);c.setActive(true);return c}
+  const create=()=>{const c=new NotificationHistoryController(local.notificationHistory,scope,api,id=>allowed&&id===selected,randomUUID,()=>refreshAccess(),()=>now,id=>allowed&&households.has(id));controllers.push(c);c.observe(households.get(selected)??null,preferences,false);c.setVisible(true);c.setActive(true);return c}
   const controller=create();controller.setConnectivity(true);await controller.refresh()
   t.after(async()=>{controllers.forEach(c=>c.stop());await db.tail;db.db.close();const resolved=path.resolve(folder);assert.ok(resolved.startsWith(path.resolve(os.tmpdir())+path.sep));fs.rmSync(resolved,{recursive:true,force:true})})
   return {scope,household,preferences,api,calls,item,controller,key,create,get page(){return page},setPage:value=>{page=value},setAllowed:value=>{allowed=value},advance:()=>{now+=120000},rewind:()=>{now-=600000},
-    setRefresh:value=>{refreshAccess=value},get db(){return db},get local(){return local},pending:()=>local.notificationHistory.pending(scope.accountId,scope.householdId),
+    setRefresh:value=>{refreshAccess=value},get db(){return db},get local(){return local},pending:()=>local.notificationHistory.pending(scope.accountId,scope.householdId),allPending:()=>local.notificationHistory.pending(scope.accountId),
+    select:(target,c=controller)=>{selected=target.id;c.observe(target,preferences,false)},
+    addHousehold:async()=>{const other={...household,id:randomUUID(),name:'Other family'};households.set(other.id,other);await local.reconcileHouseholds(scope.accountId,[...households.values()]);await local.cacheBoard(scope.accountId,{household:other,members:[{id:'parent',name:'Parent'}],tasks:[],fetchedAt:point.time});const history={...page,householdId:other.id,items:[item('Other family task')]};pages.set(other.id,history);await local.notificationHistory.cache({...scope,householdId:other.id},history,key('app'));return other},
+    removeHousehold:async id=>{households.delete(id);await local.reconcileHouseholds(scope.accountId,[...households.values()])},
     reopen:async()=>{controllers.forEach(c=>c.stop());await db.tail;db.db.close();db=new Database(file);local=new LocalStore(db);await local.initialize();return create()}}
 }
 test('offline actions survive restart and only leave the outbox after acknowledgement',async t=>{
@@ -149,4 +152,93 @@ test('mobile transport rejects history and acknowledgements from a different sco
     await assert.rejects(api.notificationHistory(scope.householdId,'app'),/different account or device/)
     await assert.rejects(api.updateNotificationHistory({householdId:scope.householdId,source:'app',action:'read',notificationId:randomUUID()}),/different account or device/)
   }}finally{global.fetch=original}
+})
+
+async function queueTwoHouseholds(f) {
+  f.controller.setConnectivity(false)
+  const other=await f.addHousehold();f.select(other);await f.controller.refresh()
+  const otherId=f.controller.getSnapshot().page.items[0].id
+  await f.controller.change('dismiss',otherId)
+  f.select(f.household);await f.controller.refresh();await f.controller.change('read',f.page.items[0].id)
+  assert.equal((await f.allPending()).length,2);assert.equal(f.controller.getSnapshot().pending,2)
+  f.controller.setVisible(false);f.calls.length=0
+  return {other,otherId}
+}
+test('all households sync after restart while history is closed without opening their lists',async t=>{
+  const f=await fixture(t),{other}=await queueTwoHouseholds(f),reopened=await f.reopen()
+  reopened.setVisible(false);reopened.setConnectivity(true);await reopened.refresh()
+  assert.equal((await f.allPending()).length,0);assert.equal(reopened.getSnapshot().pending,0)
+  assert.deepEqual(f.calls.filter(c=>c[0]==='post').map(c=>c[1].householdId),[other.id,f.household.id])
+  assert.equal(f.calls.some(c=>c[0]==='get'),false);assert.equal(reopened.getSnapshot().page.householdId,f.household.id)
+})
+test('one household can retry a lost acknowledgement while another finishes syncing',async t=>{
+  const f=await fixture(t),{other}=await queueTwoHouseholds(f),original=f.api.updateNotificationHistory
+  f.api.updateNotificationHistory=async action=>{await original(action);if(action.householdId===other.id)throw new TransportError('Acknowledgement lost',503)}
+  f.controller.setConnectivity(true);await f.controller.refresh()
+  assert.deepEqual((await f.allPending()).map(o=>o.action.householdId),[other.id]);assert.match(f.controller.getSnapshot().syncError,/Acknowledgement/)
+  assert.equal(f.controller.getSnapshot().page.items[0].read,true)
+  f.api.updateNotificationHistory=original;f.advance();await f.controller.refresh()
+  assert.equal((await f.allPending()).length,0);assert.equal(f.controller.getSnapshot().syncError,null)
+  const retried=f.calls.filter(c=>c[0]==='post'&&c[1].householdId===other.id);assert.deepEqual(retried[0],retried[1])
+})
+test('household denial stops its retries and clears only its cache while other households sync',async t=>{
+  const f=await fixture(t),{other}=await queueTwoHouseholds(f),original=f.api.updateNotificationHistory
+  let denied=0;f.api.updateNotificationHistory=async action=>{if(action.householdId===other.id){denied++;throw new TransportError('Household access removed',403,'history_household_unavailable')}await original(action)}
+  f.controller.setConnectivity(true);await f.controller.refresh()
+  assert.equal((await f.allPending()).length,1);assert.equal(denied,1)
+  assert.equal(await f.local.notificationHistory.read({...f.scope,householdId:other.id},'app',f.key('app')),null)
+  assert.equal(f.controller.getSnapshot().page.householdId,f.household.id)
+  f.advance();f.controller.setVisible(true);await new Promise(resolve=>setTimeout(resolve,30))
+  assert.equal(denied,1,'A foreground history read must not resume a denied household upload')
+  await f.removeHousehold(other.id);await f.controller.refresh();assert.equal((await f.allPending()).length,0)
+})
+test('session and kiosk rejection on one household stop all uploads and hide all account history',async t=>{
+  for(const status of [401,403,423]){
+    const f=await fixture(t);await queueTwoHouseholds(f);let calls=0
+    f.api.updateNotificationHistory=async()=>{calls++;throw new TransportError('Access ended',status)}
+    f.controller.setConnectivity(true);await f.controller.refresh()
+    assert.equal(calls,1);assert.equal((await f.allPending()).length,2);assert.equal(f.controller.getSnapshot().page,null)
+    assert.equal((await f.db.getAllAsync('SELECT * FROM notification_history_cache WHERE account_id=?',f.scope.accountId)).length,0)
+    f.controller.setConnectivity(false);await f.controller.refresh();assert.equal(f.controller.getSnapshot().page,null)
+  }
+})
+test('switching the visible household during an upload does not strand the other household',async t=>{
+  const f=await fixture(t),{other}=await queueTwoHouseholds(f),original=f.api.updateNotificationHistory,wait=deferred(),entered=deferred()
+  f.api.updateNotificationHistory=async action=>{if(action.householdId===other.id){entered.resolve();await wait.promise}await original(action)}
+  f.controller.setConnectivity(true);const work=f.controller.refresh();await entered.promise
+  f.select(other);wait.resolve();await work
+  assert.equal((await f.allPending()).length,0);assert.equal(f.controller.getSnapshot().household.id,other.id)
+  assert.notEqual(f.controller.getSnapshot().page?.householdId,f.household.id)
+  assert.deepEqual(f.calls.filter(c=>c[0]==='post').map(c=>c[1].householdId),[other.id,f.household.id])
+})
+test('backgrounding, signing out or locking kiosk during a request prevents the next household upload',async t=>{
+  for(const boundary of ['background','signout','kiosk']){
+    const f=await fixture(t),{other}=await queueTwoHouseholds(f),original=f.api.updateNotificationHistory,wait=deferred(),entered=deferred()
+    f.api.updateNotificationHistory=async action=>{entered.resolve();await wait.promise;await original(action)}
+    f.controller.setConnectivity(true);const work=f.controller.refresh();await entered.promise
+    if(boundary==='background')f.controller.setActive(false);else {
+      if(boundary==='kiosk')await f.local.kiosk.begin({...f.scope,id:randomUUID(),state:'locked',visibleMemberIds:['parent'],editableMemberIds:['parent']})
+      f.setAllowed(false)
+    }
+    wait.resolve();await work
+    assert.deepEqual(f.calls.filter(c=>c[0]==='post').map(c=>c[1].householdId),[other.id]);assert.equal((await f.allPending()).length,1)
+  }
+})
+test('a role reconciliation during an upload prevents already-enumerated stale actions from sending',async t=>{
+  const f=await fixture(t);f.controller.setConnectivity(false)
+  await f.controller.change('read',f.page.items[0].id);await f.controller.change('read',f.page.items[1].id)
+  const original=f.api.updateNotificationHistory,wait=deferred(),entered=deferred()
+  f.api.updateNotificationHistory=async action=>{entered.resolve();await wait.promise;await original(action)}
+  f.controller.setConnectivity(true);const work=f.controller.refresh();await entered.promise
+  await f.local.reconcileHouseholds(f.scope.accountId,[{...f.household,role:'member'}])
+  f.select({...f.household,role:'member'});f.controller.setVisible(false);wait.resolve();await work
+  assert.equal(f.calls.filter(c=>c[0]==='post').length,1);assert.equal((await f.allPending()).length,0)
+})
+test('the account-wide queue never sends another account’s saved action',async t=>{
+  const f=await fixture(t);await queueTwoHouseholds(f)
+  const foreign={householdId:randomUUID(),source:'app',action:'read',notificationId:randomUUID()}
+  await f.db.runAsync('INSERT INTO notification_history_actions(id,account_id,household_id,data,sequence) VALUES(?,?,?,?,?)',randomUUID(),'other-account',foreign.householdId,JSON.stringify(foreign),0)
+  f.controller.setConnectivity(true);await f.controller.refresh()
+  assert.equal(f.calls.some(c=>c[0]==='post'&&c[1].notificationId===foreign.notificationId),false)
+  assert.equal((await f.local.notificationHistory.pending('other-account')).length,1);assert.equal(f.controller.getSnapshot().pending,0)
 })

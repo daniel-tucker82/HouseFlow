@@ -857,10 +857,15 @@ Cache writes and presentation are fenced across household/filter changes,
 sign-out, kiosk locking and in-flight local mutations. Kiosk activation purges
 history content. Known server denial removes the cache, and the controller
 continues to hide it even if disk cleanup fails. Household removal and role
-changes reconcile the cache and outbox. Work for the selected household resumes
-while the app is active; queued history actions in another household remain
-durable until that household is selected again. Background draining across all
-households remains a release follow-up.
+changes reconcile the cache and outbox. While the app is active, saved actions
+for every household in the signed-in account drain independently of the visible
+screen. The local session, kiosk state, membership and continued existence of
+each queued action are checked before sending. A delayed or denied household
+does not block another household. Account, installation or kiosk rejection stops
+all uploads and hides all cached account history; household-only rejection is
+identified by an explicit API error code. Pending counts and retry errors cover
+the account and are visible in history and Settings. Reopening or reconnecting
+resumes delivery; no history lists are fetched merely to drain another queue.
 
 Verification on 2026-11-04: real PostgreSQL tests cover all event categories,
 role/device isolation, equal-time pagination, bulk retry cutoffs, legacy state,
@@ -876,3 +881,13 @@ The final general regression run passed 276 checks. Root/mobile lint and
 typecheck, the Next.js production build and Android/iOS JavaScript exports also
 passed. Migration 0033 was applied to the isolated local test database only;
 production still requires its normal migration/deployment rollout.
+
+Cross-household follow-up verification: 284 general checks passed, including
+real SQLite tests for restart, lost acknowledgements, household switches during
+requests, role reconciliation, account isolation and sign-out/kiosk/background
+boundaries. Root/mobile lint and typecheck, the Next.js production build and
+Android/iOS JavaScript exports passed. On Android, read actions were saved offline
+in two local test households, then both were acknowledged in PostgreSQL while
+Today remained open in the first household. Observed transport contained exactly
+the two writes and no history reads; the pending count returned to zero. The
+disposable second household and both fixture events were removed afterward.

@@ -11,7 +11,7 @@ import { BillingSettingsCard } from "../components/billing-settings"
 
 export default function SettingsScreen() {
   const { signOut } = useNotificationSession()
-  const { controller, planner, keepAwake, setKeepAwake } = useRuntime()
+  const { controller, planner, history: historyController, keepAwake, setKeepAwake } = useRuntime()
   const state = useBoard()
   const planning = usePlanner()
   const notifications = useNotifications()
@@ -30,6 +30,8 @@ export default function SettingsScreen() {
     <KioskSettingsCard />
     <NotificationSettingsCard />
     <Card><Copy tone="heading">Saved changes</Copy><Copy tone="muted">{savedCount ? `${savedCount} ${savedCount === 1 ? "change is" : "changes are"} saved on this device and waiting to sync.` : "All saved changes have synced."}</Copy>
+      {history.syncError ? <View style={{ gap: 8 }}><Copy style={{ color: colors.warning }}>{history.syncError}</Copy>
+        <Action secondary label="Retry saved notification changes" disabled={!state.online} onPress={() => void historyController.refresh()} /></View> : null}
       {rejected.map(change => {
         const unavailable = !state.households.some(household => household.id === change.householdId)
         return <View key={change.id} style={{ gap: 12, paddingTop: 12, borderTopWidth: 1, borderColor: colors.border }}>

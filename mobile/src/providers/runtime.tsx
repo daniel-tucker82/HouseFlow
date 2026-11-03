@@ -76,6 +76,10 @@ export function RuntimeProvider({ children, accountId, sessionId, restricted = f
         await controller?.refresh()
         const board = controller?.getSnapshot()
         if (!board?.online || board.error || board.refreshing) throw new Error("Connect to refresh this household before opening the notification.")
+      }, Date.now, householdId => {
+        const protection = kiosk.getSnapshot()
+        return matchesIdentity() && !restricted && canSync && protection.ready && !protection.changing && !protection.record
+          && controller?.getSnapshot().households.some(household => household.id === householdId) === true
       })
       notificationSubscription = notifications.subscribe(() => {
         const state = notifications?.getSnapshot()

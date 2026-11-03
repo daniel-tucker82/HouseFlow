@@ -30,9 +30,17 @@ export class NotificationHistoryStore {
     const row=await this.db.getFirstAsync<{data:string}>("SELECT data FROM notification_history_cache WHERE account_id=? AND household_id=? AND source=? AND context_key=?",scope.accountId,scope.householdId,source,context)
     return row?JSON.parse(row.data) as NotificationHistoryPage:null
   }
-  async pending(accountId:string,householdId:string,tx:SqlConnection=this.db):Promise<HistoryOperation[]>{
-    return (await tx.getAllAsync<{id:string;data:string;attempts:number;next_attempt_ms:number}>("SELECT id,data,attempts,next_attempt_ms FROM notification_history_actions WHERE account_id=? AND household_id=? ORDER BY sequence,id",accountId,householdId))
+  async pending(accountId:string,householdId:string|null=null,tx:SqlConnection=this.db):Promise<HistoryOperation[]>{
+    return (await tx.getAllAsync<{id:string;data:string;attempts:number;next_attempt_ms:number}>("SELECT id,data,attempts,next_attempt_ms FROM notification_history_actions WHERE account_id=? AND (? IS NULL OR household_id=?) ORDER BY sequence,id",accountId,householdId,householdId))
       .map(row=>({id:row.id,action:JSON.parse(row.data),attempts:row.attempts,nextAttemptMs:row.next_attempt_ms}))
+  }
+  async isPending(scope:NotificationHistoryScope,id:string){
+    let pending=false
+    await this.db.withExclusiveTransactionAsync(async tx=>{
+      await this.guard(tx,scope)
+      pending=Boolean(await tx.getFirstAsync("SELECT 1 FROM notification_history_actions WHERE id=? AND account_id=? AND household_id=?",id,scope.accountId,scope.householdId))
+    })
+    return pending
   }
   async cache(scope:NotificationHistoryScope,page:NotificationHistoryPage,context:string,append=false,current:()=>boolean=()=>true){
     await this.db.withExclusiveTransactionAsync(async tx=>{
@@ -63,6 +71,7 @@ export class NotificationHistoryStore {
   }
   acknowledge(accountId:string,id:string){return this.db.runAsync("DELETE FROM notification_history_actions WHERE account_id=? AND id=?",accountId,id)}
   forgetCache(accountId:string,householdId:string){return this.db.runAsync("DELETE FROM notification_history_cache WHERE account_id=? AND household_id=?",accountId,householdId)}
+  forgetAccountCache(accountId:string){return this.db.runAsync("DELETE FROM notification_history_cache WHERE account_id=?",accountId)}
   fail(accountId:string,operation:HistoryOperation,now:number){return this.db.runAsync("UPDATE notification_history_actions SET attempts=attempts+1,next_attempt_ms=? WHERE account_id=? AND id=?",now+Math.min(60_000,2000*2**Math.min(operation.attempts,5)),accountId,operation.id)}
   async clear(accountId:string,householdId:string,tx?:SqlConnection):Promise<void>{
     if(!tx)return this.db.withExclusiveTransactionAsync(transaction=>this.clear(accountId,householdId,transaction))

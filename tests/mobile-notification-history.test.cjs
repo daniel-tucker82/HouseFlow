@@ -107,6 +107,11 @@ test('notification history retains quiet/expired events, controls access and pre
  await t.test('API rejects changed identities and kiosk routes, and marks responses no-store',async()=>{
   assert.equal((await f.route.GET(f.request(null,{'X-Cyntch-Session':'old'}))).status,403)
   const ok=await f.route.GET(f.request());assert.equal(ok.status,200);assert.equal(ok.headers.get('cache-control'),'no-store')
+  const missing=f.request({action:'read',notificationId:randomUUID(),householdId:randomUUID()})
+  const forbidden=await f.route.POST(missing);assert.equal(forbidden.status,403);assert.equal((await forbidden.json()).code,'history_household_unavailable')
+  await f.db.query('insert into native_notification_revocations(device_id,account_id,session_id) values($1,$2,$3)',[f.scope.deviceId,f.scope.accountId,f.scope.sessionId])
+  const ended=await f.route.GET(f.request());assert.equal(ended.status,403);assert.equal((await ended.json()).code,undefined,'Session failure must not be mistaken for one removed household')
+  await f.db.query('delete from native_notification_revocations where device_id=$1 and account_id=$2 and session_id=$3',[f.scope.deviceId,f.scope.accountId,f.scope.sessionId])
   assert.equal((await f.route.POST(f.request({action:'dismiss',notificationId:'bad'}))).status,400)
   await f.db.query(`insert into native_kiosk_sessions(id,user_id,session_id,device_id,household_id,visible_member_ids,editable_member_ids,exit_secret_hash,request_hash)
     values($1,'parent',$2,$3,$4,array['child'],array['child'],$5,$5)`,[randomUUID(),f.scope.sessionId,f.scope.deviceId,f.scope.householdId,'a'.repeat(64)])

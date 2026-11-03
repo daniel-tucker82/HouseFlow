@@ -21,7 +21,7 @@ async function handle(request: Request,write: boolean) {
     const scope={accountId:userId,sessionId,deviceId,householdId}
     return Response.json(action?await updateNotificationHistory(scope,secret,action):await readNotificationHistory(scope,secret,params),{headers})
   } catch(error) {
-    if (error instanceof NotificationHistoryError || error instanceof NotificationSettingsError || error instanceof EntitlementError) return Response.json({error:error.message},{status:error.status,headers})
+    if (error instanceof NotificationHistoryError || error instanceof NotificationSettingsError || error instanceof EntitlementError) return Response.json({error:error.message,...(error instanceof NotificationHistoryError && error.code ? {code:error.code} : {})},{status:error.status,headers})
     console.error("[notification-history] Request failed",{name:error instanceof Error?error.name:"UnknownError"})
     return Response.json({error:"Unable to load notification history. Please try again."},{status:503,headers})
   }

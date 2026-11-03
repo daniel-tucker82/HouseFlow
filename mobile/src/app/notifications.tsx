@@ -41,6 +41,8 @@ export default function NotificationHistoryScreen() {
     {!state.online ? <Copy tone="muted">You’re offline. {state.page ? `Showing history saved ${when(state.page.fetchedAt)}. Read and dismiss changes will sync when connected.` : "Connect to load this history for the first time."}</Copy> : null}
     {state.waitingForSettings ? <Copy tone="muted">Waiting for this device’s notification choices to sync.</Copy> : null}
     {state.pending ? <Copy tone="muted">{state.pending} {state.pending === 1 ? "change" : "changes"} saved on this device, waiting to sync.</Copy> : null}
+    {state.syncError ? <View accessibilityRole="alert" style={{ gap: 8 }}><Copy style={{ color: colors.warning }}>{state.syncError}</Copy>
+      <Action secondary label="Retry saved notification changes" disabled={!state.online || state.loading} onPress={() => void history.refresh()} /></View> : null}
     {state.error ? <View accessibilityRole="alert" style={{ gap: 8 }}><Copy style={{ color: colors.danger }}>{state.error}</Copy>
       <Action secondary label="Retry history" disabled={!state.online || state.loading} onPress={() => void history.refresh()} /></View> : null}
     {items.length ? <View style={[styles.row, { flexWrap: "wrap" }]}>
