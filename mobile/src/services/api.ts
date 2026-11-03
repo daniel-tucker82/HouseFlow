@@ -2,6 +2,7 @@ import type { BoardSnapshot, CompletionChange, CompletionResult, HouseholdSummar
 import { TransportError, type SyncTransport } from "../storage/sync-engine"
 import type { PlannerEdit, PlannerSnapshot } from "../../../shared/mobile/planner"
 import type { RunPage, RunSnapshot, RunView } from "../../../shared/mobile/runs"
+import type { NativeNotificationDevice, NotificationSettingsOperation, NotificationSettingsSnapshot } from "../../../shared/mobile/notification-settings"
 
 export interface BootstrapResult { accountId: string; households: HouseholdSummary[]; board: BoardSnapshot | null }
 
@@ -12,12 +13,13 @@ export class MobileApi implements SyncTransport {
     private readonly accountId: string,
     private readonly deviceId: string,
     private readonly token: () => Promise<string | null>,
+    private readonly installationSecret?: () => Promise<string>,
   ) {
     const url = new URL(baseUrl)
     if (url.protocol !== "https:" && !__DEV__) throw new Error("Cyntch requires a secure connection")
   }
 
-  async request<T>(path: string, body?: Record<string, unknown>): Promise<T> {
+  async request<T>(path: string, body?: Record<string, unknown>, extraHeaders?: Record<string, string>): Promise<T> {
     const token = await this.token()
     if (!token) throw new TransportError("Sign in again to sync your saved changes.", 401)
     const controller = new AbortController()
@@ -26,7 +28,7 @@ export class MobileApi implements SyncTransport {
       const response = await fetch(new URL(path, this.baseUrl).toString(), {
         method: body ? "POST" : "GET", signal: controller.signal,
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json",
-          "X-Task-Save-User": this.accountId, "X-Cyntch-Device": this.deviceId },
+          "X-Task-Save-User": this.accountId, "X-Cyntch-Device": this.deviceId, ...extraHeaders },
         ...(body ? { body: JSON.stringify(body) } : {}),
       })
       const data = await response.json().catch(() => null)
@@ -43,6 +45,23 @@ export class MobileApi implements SyncTransport {
   }
 
   async serverTime() { return (await this.request<{ serverTimeMs: number }>("/api/mobile/time")).serverTimeMs }
+
+  private async notificationHeaders() {
+    if (!this.installationSecret) throw new Error("This device's secure registration is not available.")
+    return { "X-Cyntch-Installation": await this.installationSecret() }
+  }
+  async notificationSettings(householdId?: string) {
+    const result = await this.request<{ device: NativeNotificationDevice; settings: NotificationSettingsSnapshot | null }>(
+      `/api/mobile/notifications${householdId ? `?householdId=${encodeURIComponent(householdId)}` : ""}`, undefined, await this.notificationHeaders())
+    if (result.device?.accountId !== this.accountId || result.device.deviceId !== this.deviceId || (householdId && (result.settings?.householdId !== householdId || result.settings.accountId !== this.accountId || result.settings.deviceId !== this.deviceId))) throw new Error("The notification settings did not match your account and device.")
+    return result
+  }
+  async saveNotificationSettings(operation: NotificationSettingsOperation) {
+    const result = await this.request<{ device?: NativeNotificationDevice; settings?: NotificationSettingsSnapshot; replayed: boolean }>("/api/mobile/notifications", { ...operation }, await this.notificationHeaders())
+    const saved = operation.action === "registerDevice" ? result.device : result.settings
+    if (!saved || saved.accountId !== this.accountId || saved.deviceId !== this.deviceId || (operation.action === "savePreferences" && result.settings?.householdId !== operation.householdId)) throw new Error("The notification save did not match your account and device.")
+    return saved
+  }
 
   async runs(householdId: string, view: RunView, cursor?: string): Promise<RunPage> {
     const query = new URLSearchParams({ householdId, view }); if (cursor) query.set("cursor", cursor)

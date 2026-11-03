@@ -1,6 +1,6 @@
 import * as SQLite from "expo-sqlite"
 import * as SecureStore from "expo-secure-store"
-import { randomUUID } from "expo-crypto"
+import { getRandomBytesAsync, randomUUID } from "expo-crypto"
 import { LocalStore, type LocalDatabase, type SqlConnection, type SqlValue } from "./local-store"
 
 // Expo opens a separate connection for exclusive transactions. Serialize writers so
@@ -42,4 +42,15 @@ export function getDeviceId() {
     await SecureStore.setItemAsync("cyntch.device-id", created, { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY })
     return created
   })().catch(error => { deviceId = undefined; throw error })
+}
+
+let installationSecret: Promise<string> | undefined
+export function getInstallationSecret() {
+  return installationSecret ??= (async () => {
+    const existing = await SecureStore.getItemAsync("cyntch.installation-secret")
+    if (existing) return existing
+    const created = [...await getRandomBytesAsync(32)].map(value => value.toString(16).padStart(2, "0")).join("")
+    await SecureStore.setItemAsync("cyntch.installation-secret", created, { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY })
+    return created
+  })().catch(error => { installationSecret = undefined; throw error })
 }

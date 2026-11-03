@@ -22,22 +22,22 @@ Clerk's native sign-in components require a development build, not Expo Go.
 Generated `android/` and `ios/` directories are ignored. Configure native behavior
 through `app.json` and config plugins rather than editing generated projects.
 
-On Windows with long paths disabled, a verified local emulator build uses a short
-drive mapping for the **repository**, CMake 3.31.6 from the Android SDK, and Expo's
-object-path limit. Choose an unused drive letter; the mobile app must remain in a
-subdirectory because Expo autolinking does not discover a package at a drive root.
-For example, after prebuild and with `JAVA_HOME` and `ANDROID_HOME` configured:
+On Windows with long paths disabled, the verified local emulator build uses
+CMake 3.31.6 from the Android SDK and Expo's object-path limit. Run from the
+canonical repository path: mixing a mapped drive with canonical dependency paths
+can make React Native code generation fail with a different-roots error.
+After prebuild and with `JAVA_HOME` and `ANDROID_HOME` configured:
 
 ```powershell
-subst M: C:\dev\HouseFlow-native
-Set-Location M:\mobile\android
-.\gradlew.bat :app:assembleDebug -PreactNativeArchitectures=x86_64 -Pandroid.cmakeVersion=3.31.6 -Pexpo.android.cmakeObjectPathMax=240 --max-workers=2
+Set-Location C:\dev\HouseFlow-native\mobile\android
+.\gradlew.bat :app:assembleDebug '-PreactNativeArchitectures=x86_64' '-Pandroid.cmakeVersion=3.31.6' '-Pexpo.android.cmakeObjectPathMax=240' --max-workers=2
 ```
 
 These are local build options, not changes to the generated native project or to
-cloud release builds. Keep the mapping while building; remove it with `subst M: /D`
-after the build tools are finished. If switching an existing build to a different
-path, archive its generated CMake/app build caches first so they regenerate there.
+cloud release builds. If CMake reports an existing cache from a different path,
+archive that generated cache so it can regenerate at the canonical path.
+Quote the property arguments in PowerShell; unquoted dotted property names can
+be split into separate arguments and override Gradle's Android extension.
 
 The SQLite outbox is account scoped and stores each completion and its cached
 result in one transaction. Device-clock correction occurs only for pending edits;
@@ -129,9 +129,23 @@ installation. Receipts and settings commit together. Current household membershi
 and role restrict both reads and writes. Expo tokens stay on the server and are
 not included in API responses or error diagnostics.
 
-This API is a foundation: the native permission prompt, durable settings editor,
-token lifecycle integration, event creation and push delivery/receipts are not yet
-wired into the app. Do not interpret a registered test fixture as delivered push.
+The Settings screen now includes the native permission prompt and per-device,
+per-household notification editor for all 15 event types. Member selections include
+profiles without email; current role and membership limit the choices. Quiet hours
+use an explicit timezone, and notification details are private by default. Choices
+update immediately and persist in SQLite before uploading. An immutable request
+survives interruption, newer choices wait behind it, and a rejected version conflict
+requires explicit review. Foreground/reconnect retries use persisted backoff.
+
+Permission inspection does not prompt. Android creates one channel per event type
+before asking permission; iOS provisional permission is distinguished from normal
+alerts. Token refresh failures preserve existing registrations and queued tokens.
+The installation secret is retained in SecureStore. Token rotation is observed,
+but complete sign-out cleanup, background settings sync, kiosk integration, event
+creation and push delivery/receipts remain to be implemented. An EAS project ID and
+FCM/APNs credentials must be configured before push can register and deliver.
+This build reports their absence while allowing preference editing. A registration
+or a passing JavaScript export is not evidence of delivered push.
 
 From the repository root, run `node --experimental-sqlite --test tests/mobile-*.test.cjs`.
 PostgreSQL tests additionally require `CYNTCH_TEST_DATABASE_URL` pointing to a local
@@ -218,3 +232,18 @@ an Expo Router multiple-linking-handlers warning; a clean launch did not. This
 needs investigation and release-build verification before launch. No physical
 device performance measurements, iOS native build, store release or household
 pilot has been completed.
+
+Notification settings were verified on the Android 36 emulator on 2026-11-04:
+deny and then allow the real OS permission prompt; select completed-task alerts
+for a profile without email and quiet hours while offline; force-stop/relaunch;
+confirm both choices remain; reconnect and confirm the saved choices in PostgreSQL.
+The server stayed unchanged while offline. All five amended routine/member events
+were independently enabled and persisted. Portrait and landscape scrolling and
+Done were inspected, including the settings controls at 1.6× system font size.
+The Android APK rebuilt and installed successfully with the notification plugin;
+Android and iOS JavaScript exports passed. Native build outputs are excluded from
+Metro's watcher to avoid processing generated files during rebuilds.
+A custom-sound warning was fixed by using Android's default
+channel sound. SQLite/controller tests cover lost replies, disk rollback, coalesced
+edits, stale registration receipts, review, account isolation, household removal,
+permission failures and iOS provisional status. No real remote push was delivered.

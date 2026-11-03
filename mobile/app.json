@@ -29,6 +29,7 @@
       "@clerk/expo",
       "expo-secure-store",
       "expo-sqlite",
+      ["expo-notifications", { "color": "#23685b" }],
       "expo-background-task",
       "@clerk/expo-native-components"
     ],

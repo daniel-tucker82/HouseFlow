@@ -3,17 +3,19 @@ import { UserButton } from "@clerk/expo/native-components"
 import { Alert, ScrollView, Switch, View } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { Action, Card, Copy, styles, usePalette } from "../components/ui"
-import { useBoard, usePlanner, useRuntime } from "../providers/runtime"
+import { useBoard, useNotifications, usePlanner, useRuntime } from "../providers/runtime"
 import { PlannerPendingCreations } from "../components/planner-pending-creations"
+import { NotificationSettingsCard } from "../components/notification-settings"
 
 export default function SettingsScreen() {
   const { signOut } = useAuth()
   const { controller, planner, keepAwake, setKeepAwake } = useRuntime()
   const state = useBoard()
   const planning = usePlanner()
+  const notifications = useNotifications()
   const colors = usePalette()
   const rejected = state.pending.filter(change => change.state === "rejected")
-  const savedCount = state.pending.length + planning.pending.length + planning.creations.length
+  const savedCount = state.pending.length + planning.pending.length + planning.creations.length + notifications.pending.length
   function report(error: unknown) { Alert.alert("Unable to update", error instanceof Error ? error.message : "Please try again.") }
   return <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1, backgroundColor: colors.background }}><ScrollView contentContainerStyle={styles.content}>
     <Copy tone="title">Settings</Copy>
@@ -21,7 +23,8 @@ export default function SettingsScreen() {
     <Card><Copy tone="heading">This device</Copy><View style={styles.row}><View style={{ flex: 1, gap: 4 }}><Copy>Keep the display awake</Copy><Copy tone="muted">While Cyntch is open. You can still lock the screen yourself.</Copy></View>
       <Switch accessibilityLabel="Keep the display awake while Cyntch is open" value={keepAwake} onValueChange={value => void setKeepAwake(value).catch(report)} trackColor={{ true: colors.primary }} />
     </View></Card>
-    <Card><Copy tone="heading">Saved changes</Copy><Copy tone="muted">{savedCount ? `${savedCount} changes are saved on this device and waiting to sync.` : "All saved changes have synced."}</Copy>
+    <NotificationSettingsCard />
+    <Card><Copy tone="heading">Saved changes</Copy><Copy tone="muted">{savedCount ? `${savedCount} ${savedCount === 1 ? "change is" : "changes are"} saved on this device and waiting to sync.` : "All saved changes have synced."}</Copy>
       {rejected.map(change => {
         const unavailable = !state.households.some(household => household.id === change.householdId)
         return <View key={change.id} style={{ gap: 12, paddingTop: 12, borderTopWidth: 1, borderColor: colors.border }}>

@@ -1,6 +1,7 @@
 import type { BoardSnapshot, CompletionChange, CompletionResult, HouseholdSummary } from "../../../shared/mobile/contracts"
 import { retryDelayMs } from "../../../shared/mobile/sync-policy"
 import { PlannerStore } from "./planner-store"
+import { NotificationStore } from "./notification-store"
 import { mergeRunPages, runView, summarizeRun, type RunPage, type RunSnapshot, type RunSummary, type RunView } from "../../../shared/mobile/runs"
 
 export type SqlValue = string | number | null
@@ -75,7 +76,8 @@ function acknowledged<T extends BoardSnapshot>(server: T, occurrenceId: string, 
 /** The device database is the durable outbox. Network callbacks never own it. */
 export class LocalStore {
   readonly planner: PlannerStore
-  constructor(private readonly database: LocalDatabase) { this.planner = new PlannerStore(database) }
+  readonly notifications: NotificationStore
+  constructor(private readonly database: LocalDatabase) { this.planner = new PlannerStore(database); this.notifications = new NotificationStore(database) }
 
   async initialize() {
     await this.database.execAsync(`
@@ -115,9 +117,10 @@ export class LocalStore {
         account_id TEXT NOT NULL, household_id TEXT NOT NULL, view TEXT NOT NULL, data TEXT NOT NULL,
         PRIMARY KEY(account_id,household_id,view)
       );
-      PRAGMA user_version = 5;
+      PRAGMA user_version = 6;
     `)
     await this.planner.initialize()
+    await this.notifications.initialize()
   }
 
   async getBoard(accountId: string, householdId: string, connection: SqlConnection = this.database) {
@@ -241,6 +244,7 @@ export class LocalStore {
   /** Only a successful, authenticated membership response can invalidate an offline cache. */
   async reconcileHouseholds(accountId: string, households: HouseholdSummary[]) {
     await this.database.withExclusiveTransactionAsync(async transaction => {
+      await this.notifications.reconcile(accountId, households, transaction)
       await this.planner.reconcile(accountId, households, transaction)
       const allowed = new Map(households.map(household => [household.id, household]))
       const known = await transaction.getAllAsync<{ household_id: string }>(`
