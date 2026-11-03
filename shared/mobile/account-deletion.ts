@@ -1,4 +1,40 @@
 import type { MemberRole } from "./contracts"
+import { notificationUuid } from "./notification-settings"
+
+export interface AccountDeletionRecovery { requestId: string; secret: string }
+export function accountDeletionOrigin(value: string, allowDevelopmentHttp = false): string {
+  let url: URL
+  try { url = new URL(value) } catch { throw new Error("Cyntch requires a valid server address.") }
+  const local = allowDevelopmentHttp && url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]", "10.0.2.2"].includes(url.hostname)
+  if ((url.protocol !== "https:" && !local) || url.username || url.password || url.pathname !== "/" || url.search || url.hash) {
+    throw new Error("Cyntch requires a secure server address without credentials or a path.")
+  }
+  return url.origin
+}
+/** Safe after sign-out: no account, household, provider or worker identifiers. */
+export interface AccountDeletionStatus {
+  requestId: string
+  state: "pending" | "completed"
+  acceptedAt: string
+  completedAt: string | null
+  appleRevocationRequired: boolean
+  availableUntil: string | null
+}
+export function validAccountDeletionRecovery(value: unknown): value is AccountDeletionRecovery {
+  const row = value as Partial<AccountDeletionRecovery> | null
+  return Boolean(row && typeof row === "object" && !Array.isArray(row) && typeof row.requestId === "string" && notificationUuid.test(row.requestId) &&
+    row.requestId === row.requestId.toLowerCase() && typeof row.secret === "string" && /^[a-f0-9]{64}$/.test(row.secret))
+}
+export function parseAccountDeletionStatus(value: unknown, requestId: string): AccountDeletionStatus {
+  const row = value as Partial<AccountDeletionStatus> | null
+  const date = (value: unknown): value is string => typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value
+  if (!row || typeof row !== "object" || Array.isArray(row) || !notificationUuid.test(requestId) || row.requestId !== requestId || (row.state !== "pending" && row.state !== "completed") || !date(row.acceptedAt) || typeof row.appleRevocationRequired !== "boolean" ||
+    (row.state === "pending" ? row.completedAt !== null || row.availableUntil !== null :
+      !date(row.completedAt) || !date(row.availableUntil) || Date.parse(row.completedAt) < Date.parse(row.acceptedAt) || Date.parse(row.availableUntil) <= Date.parse(row.completedAt))) {
+    throw new Error("Cyntch returned an invalid account deletion status. Please retry.")
+  }
+  return { requestId, state: row.state, acceptedAt: row.acceptedAt, completedAt: row.completedAt!, appleRevocationRequired: row.appleRevocationRequired, availableUntil: row.availableUntil! }
+}
 
 export interface AccountDeletionScope { accountId: string; sessionId: string; deviceId: string }
 export interface DeletionContentCounts { routines: number; runs: number; tasks: number }

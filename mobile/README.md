@@ -1336,3 +1336,75 @@ or cancellations. After adding pagination, cross-request ciphertext isolation,
 missing-key and vanished-user tests, all 26 Apple/identity checks passed (16
 Apple-specific). Root lint, final changed-file lint, standalone TypeScript and
 the production build passed. No public deletion endpoint or worker was enabled.
+
+### Deletion status after sign-in removal
+
+`GET /api/mobile/account-deletion/status` is a read-only recovery endpoint.
+Its exact path bypasses Clerk middleware and uses only a request UUID and a
+random 256-bit recovery key in `X-Cyntch-Deletion-Request` and
+`X-Cyntch-Deletion-Key`. Never put either in a URL, analytics or logs. Acceptance
+commits the key's domain-separated SHA-256 hash with the deletion request;
+replaying the operation with a different key fails. The raw key is never stored
+server-side. Apply `database/0038_account_deletion_status.sql` first.
+
+Replies contain only request ID, pending/completed state, acceptance/completion
+times, receipt expiry and the manual Apple-revocation flag. No personal,
+household, billing or worker details are exposed. Pending recovery does not
+expire; a completed receipt is readable for 90 days after server completion.
+Expiry does not remove the account tombstone. Invalid, unknown and expired
+credentials receive the same 404. Authorized reads allow 30 requests per minute;
+invalid keys do not create counters or consume the legitimate key's allowance.
+Status replies are private/no-store. A status lookup cannot run cleanup.
+
+`AccountDeletionVault` stores one unresolved recovery record in OS secure
+storage, independently of account caches and sign-out. The acceptance flow must
+save its original intent, call `prepare`, and await `markSubmitted` **before**
+sending deletion. A lost acknowledgement then reuses the same key after restart.
+Only a never-submitted preparation can be discarded. A missing status response,
+offline failure or 404 never deletes the key or proves that submission failed.
+Validated receipts are persisted; late pending replies cannot overwrite a
+completed receipt or remove a recorded manual Apple action. The UI may dismiss a
+completed receipt only after local account cleanup and the necessary manual
+instructions. No timer or device-clock expiry clears this record automatically.
+
+The standalone `AccountDeletionStatusApi` does not request a Clerk token, send
+cookies or follow redirects. It binds each saved key to its original API origin,
+uses a 25-second cancellable timeout covering the response body, validates the
+minimal receipt and exposes only fixed error messages. The native adapter imports
+[`expo/fetch`](https://docs.expo.dev/versions/v58.0.0/sdk/expo/) explicitly so the
+networking implementation cannot change through the RN-fetch environment flag.
+The key uses [`getRandomBytesAsync`](https://docs.expo.dev/versions/v58.0.0/sdk/crypto/)
+and [`SecureStore`](https://docs.expo.dev/versions/v58.0.0/sdk/securestore/)
+with `WHEN_UNLOCKED_THIS_DEVICE_ONLY`. The installed SDK 58 Android and iOS
+network implementations were also inspected for cookie and redirect handling.
+
+These are recovery foundations; the confirmation/status screens, original-intent
+journal, local data/SDK cleanup and automatic orchestration still need wiring.
+No destructive public acceptance endpoint or cron worker is enabled by this
+change. Apple and native billing provider verification remain outstanding.
+
+Verification on 2026-11-04: all 420 general checks passed with no skips or
+cancellations, including seven PostgreSQL/HTTP-handler status checks and fourteen
+client/middleware recovery checks. Root and mobile lint and TypeScript passed,
+as did the production build and local production-server HTTP check below.
+Migration 0038 was applied twice only to localhost `cyntch_mobile_test`; its two
+users, one household and zero deletion requests remained unchanged. Production
+has not been migrated. SecureStore and network interruption tests use controlled
+adapters; these do not substitute for physical Android/iOS validation.
+
+After a production build, the real local HTTP check is:
+
+```powershell
+$env:CYNTCH_TEST_DATABASE_URL='postgresql://cyntch_test@localhost:55439/cyntch_mobile_test'
+$env:CYNTCH_DELETION_STATUS_HTTP_TEST='true'
+node --test tests/integration/account-deletion-status.cjs
+```
+
+It uses an isolated database schema, a temporary local Next production process
+with no Clerk secret, invalid sign-in credentials and the real data-cleanup
+adapter. External provider phases use acknowledged doubles. It checks pending
+and completed HTTP receipts, the Apple manual flag, cache/privacy headers and
+rejection of destructive HTTP methods, and removes the temporary process/schema.
+The same check also reads both receipts through the native client's transport
+logic using Node's fetch against that real server; OS networking still requires
+physical-device verification.

@@ -8,6 +8,7 @@ import { notificationUuid, notificationSessionId } from "@/shared/mobile/notific
 import type { AccountDeletionScope } from "@/shared/mobile/account-deletion"
 import { accountDeletionIssuer } from "@/lib/account-deletion-identity"
 import type { AppleRevocationRecord } from "@/lib/account-deletion-apple"
+import { accountDeletionRecoveryHash } from "@/lib/account-deletion-status"
 
 export interface AccountDeletionReceipt {
   accountId: string; requestId: string; state: "pending" | "completed"; acceptedAt: string; completedAt: string | null
@@ -40,12 +41,14 @@ const busy = () => new AccountDeletionError("Another account or household change
  * Do not wrap this in the normal shared account-admission lock. This function
  * takes its own exclusive account lock and shared kiosk lock in that order. */
 export async function acceptAccountDeletion(pool: Pool, scope: AccountDeletionScope, secret: string, raw: unknown,
-  recentlyVerified: boolean, verifySuccessors: (accountIds: string[]) => Promise<void>, verifiedSessionIssuer: string): Promise<AccountDeletionReceipt> {
+  recentlyVerified: boolean, verifySuccessors: (accountIds: string[]) => Promise<void>, verifiedSessionIssuer: string, recoverySecret: string): Promise<AccountDeletionReceipt> {
   if (!/^user_[A-Za-z0-9_-]{1,200}$/.test(scope.accountId) || !notificationSessionId.test(scope.sessionId) || !notificationUuid.test(scope.deviceId)) throw new AccountDeletionError("Sign in again before deleting your account.",401)
   if (!recentlyVerified) throw new AccountDeletionError("Verify your sign-in again before deleting your account.",403,"account_reverification_required")
   const issuer=accountDeletionIssuer(verifiedSessionIssuer)
   if (!issuer) throw new AccountDeletionError("Sign in again before deleting your account.",401)
-  const intent=parseAccountDeletionIntent(raw), fingerprint=createHash("sha256").update(JSON.stringify(intent)).digest("hex")
+  if (typeof recoverySecret!=="string" || !/^[a-f0-9]{64}$/.test(recoverySecret)) throw new AccountDeletionError("Save a recovery key before requesting deletion.")
+  const recoveryKeyHash=accountDeletionRecoveryHash(recoverySecret)
+  const intent=parseAccountDeletionIntent(raw), fingerprint=createHash("sha256").update(JSON.stringify({intent,recoveryKeyHash})).digest("hex")
   // A provider lookup has no authority by itself. Membership and role are
   // checked again under the household locks after this network work finishes.
   const successors=[...new Set(intent.ownership.flatMap(choice=>choice.action==="transfer"?[choice.successorId]:[]))].sort()
@@ -103,8 +106,8 @@ export async function acceptAccountDeletion(pool: Pool, scope: AccountDeletionSc
       stripeDiscovery:{complete:false,livemode:null,clocksComplete:false,clockCursor:null,scans:[{testClock:null,cursor:null,complete:false}]},
       stripe:stripeRows.map(row=>({householdId:row.household_id,customerId:row.stripe_customer_id,subscriptionId:row.stripe_subscription_id,
       action:intent.ownership.find(choice=>choice.householdId===row.household_id)!.action})),retiredNativeAccounts,orphanProfileIds,phases:{data:false,stripe:false,native:false,identity:false}}
-    const saved=(await client.query<RequestRow>(`insert into account_deletion_requests(id,account_hash,account_id,request_hash,work)
-      values($1,$2,$3,$4,$5) returning *`,[intent.operationId,accountHash(scope.accountId),scope.accountId,fingerprint,JSON.stringify(work)])).rows[0]
+    const saved=(await client.query<RequestRow>(`insert into account_deletion_requests(id,account_hash,account_id,request_hash,work,recovery_key_hash)
+      values($1,$2,$3,$4,$5,$6) returning *`,[intent.operationId,accountHash(scope.accountId),scope.accountId,fingerprint,JSON.stringify(work),recoveryKeyHash])).rows[0]
     for (const choice of intent.ownership) if (choice.action==="transfer") {
       await assertAccountActive(client,choice.successorId)
       // This commits with the ownership change, before the successor can open

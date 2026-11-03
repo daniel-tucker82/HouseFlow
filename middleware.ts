@@ -1,4 +1,5 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server"
+import { NextResponse, type NextRequest, type NextFetchEvent } from "next/server"
 
 const isProtectedRoute = createRouteMatcher([
   "/app(.*)",
@@ -7,7 +8,7 @@ const isProtectedRoute = createRouteMatcher([
   "/join(.*)",
 ])
 
-export default clerkMiddleware(
+const withClerk = clerkMiddleware(
   async (auth, req) => {
     if (isProtectedRoute(req)) {
       await auth.protect()
@@ -21,6 +22,13 @@ export default clerkMiddleware(
     frontendApiProxy: { enabled: process.env.VERCEL_ENV === "preview" },
   },
 )
+
+export default function middleware(request: NextRequest, event: NextFetchEvent) {
+  // This read-only route authenticates its own recovery key. A deleted Clerk
+  // identity, stale cookie, or identity-provider outage must not gate recovery.
+  if (request.nextUrl.pathname === "/api/mobile/account-deletion/status") return NextResponse.next()
+  return withClerk(request, event)
+}
 
 export const config = {
   matcher: [

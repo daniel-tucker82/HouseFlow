@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-require-imports -- Real PostgreSQL lifecycle fixtures; never application or production credentials. */
-const assert=require('node:assert/strict'),{randomUUID,createHash}=require('node:crypto'),fs=require('node:fs'),path=require('node:path'),Module=require('node:module')
+const assert=require('node:assert/strict'),{randomUUID,randomBytes,createHash}=require('node:crypto'),fs=require('node:fs'),path=require('node:path'),Module=require('node:module')
 const {Pool}=require('pg'),{buildSync}=require('esbuild'),root=path.resolve(__dirname,'../..')
 exports.connectionString=process.env.CYNTCH_TEST_DATABASE_URL
 exports.fixture=async function fixture(t,overrides={}){
@@ -37,6 +37,7 @@ exports.fixture=async function fixture(t,overrides={}){
  const lib=load(['lib/account-deletion-requests.ts','lib/account-deletion-processing.ts','lib/account-deletion-data.ts','lib/account-deletion-review.ts','lib/account-access.ts','lib/native-kiosk-guard.ts','lib/native-kiosk-store.ts','lib/user-sync.ts','lib/usage-controls.ts','lib/planner-creation.ts','lib/completion-operations.ts','lib/native-notification-settings.ts','shared/mobile/kiosk.ts'])
  const read=()=>lib.readAccountDeletionReview(scope,secret)
  const intent=async()=>({operationId:randomUUID(),revision:(await read()).revision,ownership:[{householdId:transfer,action:'transfer',successorId:successor},{householdId:deleting,action:'delete'}],confirmAccountDeletion:true,acknowledgeSubscriptions:true})
- const accept=(action,options={})=>lib.acceptAccountDeletion(db,options.scope??scope,options.secret??secret,action,options.verified??true,options.verify??(async ids=>assert.deepEqual(ids,[successor])),options.issuer??'https://fixture.clerk.accounts.dev')
- return {db,lib,load,scope,secret,owner,successor,other,child,sharedChild,transfer,deleting,shared,native,otherDevice,read,intent,accept,identity}
+ const recoverySecret=randomBytes(32).toString('hex')
+ const accept=(action,options={})=>lib.acceptAccountDeletion(db,options.scope??scope,options.secret??secret,action,options.verified??true,options.verify??(async ids=>assert.deepEqual(ids,[successor])),options.issuer??'https://fixture.clerk.accounts.dev',options.recoverySecret??recoverySecret)
+ return {db,lib,load,scope,secret,recoverySecret,owner,successor,other,child,sharedChild,transfer,deleting,shared,native,otherDevice,read,intent,accept,identity}
 }
