@@ -1,6 +1,6 @@
 import { createHouseholdWithAdmission } from "@/lib/household-admission"
 import { enforceRequestLimit, recordHouseholdUsage, recordHouseholdActivity } from "@/lib/usage-controls"
-import { NextResponse } from "next/server"
+import { after, NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
 import type { PoolClient } from "pg"
 import { db } from "@/lib/db"
@@ -41,6 +41,7 @@ import {
 } from "@/lib/notifications"
 import { dispatchPushForNotificationIds } from "@/lib/push"
 import { PlannerSaveError, savePlannerTask } from "@/lib/save-planner-task"
+import { claimTaskEditVersion, validTaskEditVersion } from "@/lib/task-edit-version"
 
 type QueryClient = {
   query: (...args: unknown[]) => Promise<{ rows: unknown[]; rowCount?: number | null }>
@@ -937,6 +938,10 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  const saveUser = request.headers.get("X-Task-Save-User")
+  if (saveUser && saveUser !== userId) {
+    return NextResponse.json({ error: "Sign back into the account that made this edit to save it." }, { status: 403 })
+  }
   try { await enforceRequestLimit(userId,"write") } catch(error) {
     if (error instanceof EntitlementError) return NextResponse.json({error:error.message},{status:error.status})
     throw error
@@ -951,6 +956,9 @@ export async function POST(request: Request) {
   }
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return NextResponse.json({ error: "Expected a JSON object" }, { status: 400 })
+  }
+  if (body.action === "updateTask" && !validTaskEditVersion(body)) {
+    return NextResponse.json({ error: "Invalid task save version" }, { status: 400 })
   }
   const householdId = String(body.householdId ?? "")
   if (!householdId || body.action === "createHousehold") return handleFlowPost(request)
@@ -969,10 +977,16 @@ export async function POST(request: Request) {
     locked = result.rows[0].acquired
     if (!locked) return NextResponse.json({ error: "Another household change is in progress. Please retry." }, { status: 429 })
     const entitlement = await enforceFlowEntitlements(lockClient, householdId, body)
-    const response = await handleFlowPost(request)
+    const response = await handleFlowPost(request, { userId, body, membership })
     if (body.action !== "deleteHousehold") {
-      await recordHouseholdActivity(lockClient,householdId).catch(() => console.warn("Household activity could not be recorded"))
-      await recordHouseholdUsage(lockClient,householdId,entitlement.tier,Date.now()-started).catch(() => console.warn("Household usage could not be recorded"))
+      const duration = Date.now() - started
+      after(async () => {
+        const usageClient = await db.connect()
+        try {
+          await recordHouseholdActivity(usageClient,householdId).catch(() => console.warn("Household activity could not be recorded"))
+          await recordHouseholdUsage(usageClient,householdId,entitlement.tier,duration).catch(() => console.warn("Household usage could not be recorded"))
+        } finally { usageClient.release() }
+      })
     }
     return response
   } catch (error) {
@@ -986,14 +1000,19 @@ export async function POST(request: Request) {
   }
 }
 
-async function handleFlowPost(request: Request) {
-  const { userId } = await auth()
+async function handleFlowPost(request: Request, context?: {
+  userId: string
+  body: Record<string, unknown>
+  membership: NonNullable<Awaited<ReturnType<typeof getHouseholdMembershipAuthz>>>
+}) {
+  const { userId } = context ?? await auth()
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  await ensureCurrentUserRecord()
-  await ensureRoutineSchemaColumns()
-
-  const body = await request.json()
+  const body = context?.body ?? await request.json()
   const action = body?.action as string | undefined
+  // An authorized task edit already has a household/user record. Fetching the
+  // Clerk profile on every keystroke batch adds a remote round trip to each save.
+  if (action !== "updateTask") await ensureCurrentUserRecord()
+  await ensureRoutineSchemaColumns()
   const clientTimeZone = String(body?.timezone ?? "").trim() || null
 
   if (!action) {
@@ -1041,7 +1060,7 @@ async function handleFlowPost(request: Request) {
     return NextResponse.json({ error: "householdId is required" }, { status: 400 })
   }
 
-  const membership = await getHouseholdMembershipAuthz(householdId, userId)
+  const membership = context?.membership ?? await getHouseholdMembershipAuthz(householdId, userId)
   if (!membership) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
@@ -2367,113 +2386,69 @@ async function handleFlowPost(request: Request) {
       timeZone: householdTimeZone,
     })
 
-    console.info("[api][updateTask] incoming", {
-      householdId,
-      taskId,
-      occurrenceId,
-      title,
-      unlockRuleRaw: body?.unlockRule ?? null,
-      unlockRuleParsed: unlockRule,
-      unlockCombiner,
-      resolvedUnlockAt: resolvedUnlockAt ? resolvedUnlockAt.toISOString() : null,
-      expiryRuleRaw: body?.expiryRule ?? null,
-      expiryRuleParsed: expiryRule,
-      resolvedExpiryAt: resolvedExpiryAt ? resolvedExpiryAt.toISOString() : null,
-    })
-
-    const result = await db.query(
-      `update tasks
-       set title = $1,
-           is_reward = $2,
-           assignee_id = $3,
-           description = $4,
-           unlock_rule = $5::jsonb,
-           unlock_at = $6::timestamptz,
-           unlock_combiner = $7,
-           expiry_rule = $8::jsonb,
-           expires_at = $9::timestamptz,
-           updated_at = now()
-       where id = $10
-         and household_id = $11
-       returning id, household_id, routine_id, routine_occurrence_id, assignee_id, title, description, is_reward, status, position_x, position_y, scheduled_time, unlock_rule, unlock_at, unlock_combiner, expiry_rule, expires_at`,
-      [
-        title,
-        isReward,
-        assigneeId,
-        notes,
-        unlockRule && unlockRule.kind !== "none" ? JSON.stringify(unlockRule) : null,
-        resolvedUnlockAt ? resolvedUnlockAt.toISOString() : null,
-        unlockCombiner,
-        expiryRule && expiryRule.kind !== "none" ? JSON.stringify(expiryRule) : null,
-        resolvedExpiryAt ? resolvedExpiryAt.toISOString() : null,
-        taskId,
-        householdId,
-      ],
-    )
-    console.info("[api][updateTask] update-result", {
-      rowCount: result.rowCount ?? 0,
-      returnedTask:
-        result.rows[0]
-          ? {
-              id: result.rows[0].id,
-              routine_occurrence_id: result.rows[0].routine_occurrence_id,
-              unlock_rule: result.rows[0].unlock_rule,
-              unlock_at: result.rows[0].unlock_at,
-              unlock_combiner: result.rows[0].unlock_combiner,
-              expiry_rule: result.rows[0].expiry_rule,
-              expires_at: result.rows[0].expires_at,
-            }
-          : null,
-    })
-    if ((result.rowCount ?? 0) === 0) {
-      return NextResponse.json({ error: "Task not found for update" }, { status: 404 })
-    }
-    const persistedCheck = await db.query(
-      `select id, routine_occurrence_id, unlock_rule, unlock_at, unlock_combiner, expiry_rule, expires_at
-       from tasks
-       where id = $1::uuid
-       limit 1`,
-      [taskId],
-    )
-    console.info("[api][updateTask] persisted-check", {
-      task:
-        persistedCheck.rows[0]
-          ? {
-              id: persistedCheck.rows[0].id,
-              routine_occurrence_id: persistedCheck.rows[0].routine_occurrence_id,
-              unlock_rule: persistedCheck.rows[0].unlock_rule,
-              unlock_at: persistedCheck.rows[0].unlock_at,
-              unlock_combiner: persistedCheck.rows[0].unlock_combiner,
-              expiry_rule: persistedCheck.rows[0].expiry_rule,
-              expires_at: persistedCheck.rows[0].expires_at,
-            }
-          : null,
-    })
-    await db.query(`delete from task_assignees where task_id = $1`, [taskId])
-    if (assigneeIds.length > 0) {
-      await db.query(
-        `insert into task_assignees (task_id, user_id)
-         select $1, unnest($2::text[])
-         on conflict (task_id, user_id) do nothing`,
-        [taskId, assigneeIds],
+    const client = await db.connect()
+    try {
+      await client.query("BEGIN")
+      if (!await claimTaskEditVersion(client, userId, body)) {
+        const current = await client.query("select * from tasks where id = $1::uuid and household_id = $2::uuid", [taskId, householdId])
+        await client.query("COMMIT")
+        return NextResponse.json({ task: current.rows[0] })
+      }
+      const result = await client.query(
+        `update tasks
+         set title = $1,
+             is_reward = $2,
+             assignee_id = $3,
+             description = $4,
+             unlock_rule = $5::jsonb,
+             unlock_at = $6::timestamptz,
+             unlock_combiner = $7,
+             expiry_rule = $8::jsonb,
+             expires_at = $9::timestamptz,
+             updated_at = now()
+         where id = $10
+           and household_id = $11
+         returning id, household_id, routine_id, routine_occurrence_id, assignee_id, title, description, is_reward, status, position_x, position_y, scheduled_time, unlock_rule, unlock_at, unlock_combiner, expiry_rule, expires_at`,
+        [
+          title,
+          isReward,
+          assigneeId,
+          notes,
+          unlockRule && unlockRule.kind !== "none" ? JSON.stringify(unlockRule) : null,
+          resolvedUnlockAt ? resolvedUnlockAt.toISOString() : null,
+          unlockCombiner,
+          expiryRule && expiryRule.kind !== "none" ? JSON.stringify(expiryRule) : null,
+          resolvedExpiryAt ? resolvedExpiryAt.toISOString() : null,
+          taskId,
+          householdId,
+        ],
       )
-    }
-    if (occurrenceId) {
-      const client = await db.connect()
-      try {
-        await client.query("BEGIN")
+      if ((result.rowCount ?? 0) === 0) {
+        await client.query("ROLLBACK")
+        return NextResponse.json({ error: "Task not found for update" }, { status: 404 })
+      }
+      await client.query(`delete from task_assignees where task_id = $1`, [taskId])
+      if (assigneeIds.length > 0) {
+        await client.query(
+          `insert into task_assignees (task_id, user_id)
+           select $1, unnest($2::text[])
+           on conflict (task_id, user_id) do nothing`,
+          [taskId, assigneeIds],
+        )
+      }
+      if (occurrenceId) {
         await recomputeOccurrenceStatuses(client, occurrenceId)
         await materializeDeferredExpiryForUnlockedTasks(client, occurrenceId)
         await applyRewardAutoCompletion(client, occurrenceId)
-        await client.query("COMMIT")
-      } catch (error) {
-        await client.query("ROLLBACK")
-        throw error
-      } finally {
-        client.release()
       }
+      await client.query("COMMIT")
+      return NextResponse.json({ task: result.rows[0] })
+    } catch (error) {
+      await client.query("ROLLBACK")
+      throw error
+    } finally {
+      client.release()
     }
-    return NextResponse.json({ task: result.rows[0] })
   }
 
   if (action === "updateTaskPosition") {

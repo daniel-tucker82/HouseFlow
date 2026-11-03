@@ -46,3 +46,7 @@ next-env.d.ts
 # generated service worker artifacts
 /public/sw.js
 /public/workbox-*.js
+
+# Generated worker and local demo output
+/public/worker-*.js
+/demos/**/.preview/

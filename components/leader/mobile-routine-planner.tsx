@@ -10,6 +10,8 @@ import { isRenderableUserProfilePhotoUrl } from "@/lib/clerk-profile-image-url"
 import { orderPlannerTasks, taskDescendants, type PlannerTaskInput } from "@/lib/routine-planner"
 import { parseRoutineRecurrenceRules, recurrenceRuleSummary, type RecurrenceRule } from "@/lib/recurrence"
 import styles from "./mobile-planner.module.css"
+import { useTaskSaves } from "@/components/task-save-provider"
+import { overlayTaskEdits } from "@/lib/task-save-queue"
 
 type Data = Pick<LeaderFlowEditorProps, "tasks" | "members" | "routines" | "dependencies" | "taskAssignees">
 type Member = Data["members"][number]
@@ -39,6 +41,7 @@ function hasTimeRules(task: Task) {
 
 export function MobileRoutinePlanner({ initial, onCanvas }: { initial: LeaderFlowEditorProps; onCanvas: (routineId: string | null) => void }) {
   const router = useRouter()
+  const taskSaves = useTaskSaves()
   const [data, setData] = useState<Data>(initial)
   const [selectedId, setSelectedId] = useState(initial.selectedRoutineId ?? initial.routines[0]?.id ?? "")
   const [loading, setLoading] = useState(true)
@@ -68,20 +71,32 @@ export function MobileRoutinePlanner({ initial, onCanvas }: { initial: LeaderFlo
   const names = (ids: string[]) => ids.map(id => data.tasks.find(task => task.id === id)?.title ?? "Unavailable task").join(" + ")
 
   const load = useCallback(async (signal?: AbortSignal) => {
+    const readRevision = taskSaves?.revision ?? 0
     const query = new URLSearchParams({ householdId: initial.selectedHouseholdId })
     const response = await fetch(`/api/leader/flow?${query}`, { signal, cache: "no-store" })
     const json = await response.json()
     if (!response.ok) throw new Error(json.error || "Could not load your routines.")
-    setData(json)
+    return overlayTaskEdits(json as Data, taskSaves?.overlays(initial.selectedHouseholdId, readRevision) ?? [])
+  }, [initial.selectedHouseholdId, taskSaves])
+
+  const acceptLoadedData = useCallback((next: Data) => {
+    setData(next)
     setLoaded(true)
     setLoading(false)
-  }, [initial.selectedHouseholdId])
+  }, [])
+
+  useEffect(() => taskSaves?.onChange(save => {
+    if (save.edit.householdId !== initial.selectedHouseholdId) return
+    setData(previous => overlayTaskEdits(previous, [save]))
+  }), [taskSaves, initial.selectedHouseholdId])
 
   useEffect(() => {
     const controller = new AbortController()
-    load(controller.signal).catch(reason => { if (!controller.signal.aborted) { setError(reason.message); setLoading(false) } })
+    load(controller.signal).then(next => {
+      if (!controller.signal.aborted) acceptLoadedData(next)
+    }).catch(reason => { if (!controller.signal.aborted) { setError(reason.message); setLoading(false) } })
     return () => controller.abort()
-  }, [load])
+  }, [load, acceptLoadedData])
 
   useEffect(() => {
     if (!draft && !details && !creating) return
@@ -91,6 +106,7 @@ export function MobileRoutinePlanner({ initial, onCanvas }: { initial: LeaderFlo
   }, [draft, details, creating])
 
   async function post(action: string, payload: Record<string, unknown> = {}) {
+    await taskSaves?.waitForSaves(initial.selectedHouseholdId)
     const response = await fetch("/api/leader/flow", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...payload, action, householdId: initial.selectedHouseholdId, timezone: household?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone }),
@@ -130,6 +146,14 @@ export function MobileRoutinePlanner({ initial, onCanvas }: { initial: LeaderFlo
   }
 
   async function saveTask(value: Draft) {
+    if (!value.isNew) {
+      try {
+        if (!taskSaves) throw new Error("Autosave is not ready. Please try again.")
+        taskSaves.enqueue({ ...value, action: "updateTask", householdId: initial.selectedHouseholdId }, 0)
+        setDraft(null); setCompleted([]); setError(""); setNotice("")
+      } catch (reason) { setError(reason instanceof Error ? reason.message : "Unable to keep this edit. Please try again.") }
+      return
+    }
     await run(async () => {
       const json = await post(value.isNew ? "createTask" : "updateTask", value)
       setData(previous => ({ ...previous,
@@ -190,7 +214,7 @@ export function MobileRoutinePlanner({ initial, onCanvas }: { initial: LeaderFlo
   return <div ref={panelRef} className={styles.page}>
     <div className={styles.shell}>
       {!draft && !details && !creating && <div className={styles.viewTools}><a href={`/member/dashboard?household=${encodeURIComponent(initial.selectedHouseholdId)}`}>Family board</a><button type="button" className={styles.textButton} disabled={busy} onClick={showCanvas}>Canvas view</button></div>}
-      {error && <div className={styles.error} role="alert">{error}<button className={styles.textButton} disabled={busy} onClick={() => void run(() => load())}>Refresh routines</button></div>}
+      {error && <div className={styles.error} role="alert">{error}<button className={styles.textButton} disabled={busy} onClick={() => void run(async () => acceptLoadedData(await load()))}>Refresh routines</button></div>}
       {notice && <p className={styles.notice} role="status">{notice}</p>}
       {draft ? <PlannerTaskEditor key={draft.taskId} draft={draft} data={data} colors={colors} busy={busy} assigned={assigned} onSave={saveTask} onDelete={deleteTask} onCancel={() => setDraft(null)} onCanvas={showCanvas} /> : details && routine ? <RoutineDetails routine={routine} busy={busy} timezone={household?.timezone ?? "UTC"} onClose={() => setDetails(false)} onCanvas={showCanvas} onAction={(action, payload) => run(async () => { const json = await post(action, { ...payload, routineId: routine.id }); updateRoutine(json.routine) })} /> : <>
         <div className={styles.selectors}>

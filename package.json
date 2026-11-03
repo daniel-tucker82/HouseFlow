@@ -6,7 +6,7 @@
     "dev": "next dev --webpack",
     "build": "next build --webpack",
     "start": "next start",
-    "lint": "eslint",
+    "lint": "eslint . --max-warnings 0",
     "db:migrate": "node scripts/migrate-database.cjs",
     "db:seed:kids-chores": "node scripts/seed-weekly-kids-chores.cjs",
     "mobile:sync": "cap sync",
@@ -14,7 +14,8 @@
     "mobile:add:android": "cap add android",
     "mobile:add:ios": "cap add ios",
     "mobile:open:android": "cap open android",
-    "mobile:open:ios": "cap open ios"
+    "mobile:open:ios": "cap open ios",
+    "demo:mobile": "node demos/mobile-routine-builder/serve.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",

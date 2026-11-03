@@ -84,3 +84,39 @@ For complete manual release/setup tasks, see `MOBILE_HANDOFF_CHECKLIST.md`.
 - Existing leader, member, invitation and native-shell routes remain available.
 
 The public homepage does not query the household database. The signed-in screens still require Clerk and PostgreSQL configuration.
+
+## Task editing and background saves
+
+Canvas task edits update the canvas/sidebar immediately. Updates submitted from the
+routine list also return immediately. A shared, account-scoped queue persists each
+edit in browser storage before accepting it, coalesces rapid changes to the same
+task, and sends saves in order. Navigating between screens does not own or cancel
+the queue. Reloads and reopening the app restore pending edits for the same account.
+Closed/offline browsers resume syncing when the app is open and connected again.
+
+Network errors, busy responses (429), and server errors retry with backoff. Other
+rejections retain the edit and show a notice with retry/discard controls; an
+optimistic update is never labelled server-confirmed until acknowledged. If browser
+storage is unavailable, the editor reports that it cannot safely keep the edit.
+Fresh reads overlay edits made while the read was in flight. Task fields and
+assignments commit together on the server. New task creation still waits for server
+confirmation; this queue only handles updates to existing tasks.
+
+Apply `database/0017_task_edit_versions.sql` (via `npm run db:migrate`) before
+deploying this change. The additive version table makes retries idempotent and
+rejects an older request arriving after a newer edit from the same browser. No
+existing tasks are rewritten. Browser clocks are persisted monotonically so clock
+adjustments and reloads do not reverse the ordering.
+
+Regression checks (no production writes):
+
+```sh
+node --experimental-strip-types --test tests/task-save-queue.test.mjs tests/task-save-route.test.cjs tests/routine-planner.test.mjs
+npm run build
+```
+
+`tests/task-save-browser.cjs` bundles the real editors with isolated authentication
+and a local API delayed by 1.2 seconds. With Playwright installed, run
+`node tests/task-save-browser.cjs`; `CYNTCH_PLAYWRIGHT_PATH` and
+`CYNTCH_CHROMIUM_PATH` can point to an existing package/browser installation. It
+checks immediate feedback, overlapping edits, navigation, and offline recovery.

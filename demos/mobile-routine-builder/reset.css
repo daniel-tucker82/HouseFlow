@@ -1,0 +1,10 @@
+* { box-sizing: border-box; }
+body { margin: 0; font-family: "Segoe UI", Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+button, input, textarea { font-family: inherit; }
+button:not(:disabled), label { cursor: pointer; }
+button:disabled { cursor: default; }
+input, textarea { cursor: text; }
+input[type="checkbox"], input[type="radio"] { cursor: pointer; accent-color: #23685b; }
+:focus-visible { outline: 2px solid #428676; outline-offset: 3px; }
+::selection { background: #d8e9dc; color: #20483b; }
+svg { display: block; }

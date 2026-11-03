@@ -3,10 +3,13 @@
 import {
   useCallback,
   useEffect,
+  useEffectEvent,
+  useLayoutEffect,
   useMemo,
   useOptimistic,
   useRef,
   useState,
+  useSyncExternalStore,
   useTransition,
   type MouseEvent as ReactMouseEvent,
 } from "react"
@@ -47,6 +50,8 @@ import {
 import { cn } from "@/lib/utils"
 import { isRenderableUserProfilePhotoUrl } from "@/lib/clerk-profile-image-url"
 import { TOKEN_COLOR_OPTIONS, buildMemberTokenColorMap, memberColorFor } from "@/lib/member-tokens"
+import { useTaskSaves, useTaskSaveStatus } from "@/components/task-save-provider"
+import { overlayTaskEdits, type TaskEdit, type TaskSave } from "@/lib/task-save-queue"
 import { saveHideCompletedTasksPreference } from "@/lib/actions/leader-dashboard"
 
 type Member = {
@@ -328,11 +333,12 @@ type TaskNodeData = {
   onToggleOccurrenceComplete?: () => void
 }
 
+const subscribeToHydration = () => () => {}
+const clientHasHydrated = () => true
+const serverHasHydrated = () => false
+
 function TaskNode({ data, selected }: NodeProps<Node<TaskNodeData>>) {
-  const [isClientMounted, setIsClientMounted] = useState(false)
-  useEffect(() => {
-    setIsClientMounted(true)
-  }, [])
+  const isClientMounted = useSyncExternalStore(subscribeToHydration, clientHasHydrated, serverHasHydrated)
   const initials = (name: string) =>
     name
       .split(" ")
@@ -894,7 +900,6 @@ function findInsertHoverEdgeId(
     const sw = taskNodeMeasuredSize(sn).w
     const sh = taskNodeMeasuredSize(sn).h
     const tw = taskNodeMeasuredSize(tn).w
-    const th = taskNodeMeasuredSize(tn).h
     const sx = sn.position.x + sw / 2
     const sy = sn.position.y + sh
     const tx = tn.position.x + tw / 2
@@ -928,6 +933,8 @@ export function LeaderFlowEditor({
   onListView,
 }: LeaderFlowEditorProps) {
   const router = useRouter()
+  const taskSaves = useTaskSaves()
+  const pendingTaskSaves = useTaskSaveStatus(taskSaves)
   const [, startTransition] = useTransition()
   const [localRoutines, setLocalRoutines] = useState<Routine[]>(routines)
   const [localMembers, setLocalMembers] = useState<Member[]>(members)
@@ -969,7 +976,7 @@ export function LeaderFlowEditor({
     null,
   )
   const [guidePlaceMode, setGuidePlaceMode] = useState<GuidePlaceMode | null>(null)
-  const [guidePreviewFlow, setGuidePreviewFlow] = useState<{ x: number; y: number } | null>(null)
+  const [, setGuidePreviewFlow] = useState<{ x: number; y: number } | null>(null)
   const [guidePreviewScreen, setGuidePreviewScreen] = useState<{ x: number; y: number } | null>(null)
   const [editingGuideId, setEditingGuideId] = useState<string | null>(null)
   const [editingGuideValue, setEditingGuideValue] = useState("")
@@ -996,16 +1003,12 @@ export function LeaderFlowEditor({
   const householdPanelToggleRef = useRef<HTMLButtonElement | null>(null)
   const taskSettingsFormRef = useRef<HTMLFormElement | null>(null)
   const taskTitleInputRef = useRef<HTMLInputElement | null>(null)
-  const taskSettingsAutosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const coalescedFlowReloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const scheduleCoalescedFlowReloadRef = useRef<() => void>(() => {})
-  const recentlyCreatedTaskIdsRef = useRef<Set<string>>(new Set())
+  const [recentlyCreatedTaskIds, setRecentlyCreatedTaskIds] = useState<Set<string>>(() => new Set())
   const recentlyCreatedTaskGlowTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
-  const taskSettingsSaveRequestIdRef = useRef(0)
-  const taskSettingsDirtyVersionRef = useRef(0)
-  const taskSettingsSavedVersionRef = useRef(0)
   const activeTaskForSettingsRef = useRef<Task | null>(null)
-  activeTaskForSettingsRef.current = activeTask
+  useLayoutEffect(() => { activeTaskForSettingsRef.current = activeTask }, [activeTask])
   const flushTaskSettingsIfDirtyRef = useRef<() => Promise<void>>(async () => {})
   const recurrenceSaveTimersRef = useRef<Record<string, ReturnType<typeof setTimeout> | null>>({})
   const guideStorageKeyMemo = useMemo(
@@ -1019,7 +1022,7 @@ export function LeaderFlowEditor({
   const [expandedRoutineIds, setExpandedRoutineIds] = useState<Record<string, boolean>>(
     selectedRoutineId ? { [selectedRoutineId]: true } : {},
   )
-  const [expandedTemplateSectionIds, setExpandedTemplateSectionIds] = useState<Record<string, boolean>>(
+  const [expandedTemplateSectionIds] = useState<Record<string, boolean>>(
     {},
   )
   const [isHouseholdPanelOpen, setIsHouseholdPanelOpen] = useState(false)
@@ -1032,9 +1035,12 @@ export function LeaderFlowEditor({
     return () => window.removeEventListener("keydown", dismiss)
   }, [sidebarOpen])
   const [localHouseholds, setLocalHouseholds] = useState<Household[]>(households)
-  useEffect(() => {
+  const [householdSnapshot, setHouseholdSnapshot] = useState(households)
+  // Reconcile new server props before rendering children, preserving local edits between refreshes.
+  if (householdSnapshot !== households) {
+    setHouseholdSnapshot(households)
     setLocalHouseholds(households)
-  }, [households])
+  }
   const memberTokenColorMap = useMemo(() => buildMemberTokenColorMap(localMembers), [localMembers])
   const selectedHouseholdLeaderId = useMemo(
     () => localHouseholds.find((household) => household.id === selectedHouseholdId)?.leader_id ?? "",
@@ -1220,17 +1226,23 @@ export function LeaderFlowEditor({
     routineId: selectedRoutineId as string | null,
     occurrenceId: selectedOccurrenceId as string | null,
   })
-  occurrenceCtxRef.current = {
-    householdId: selectedHouseholdId,
-    routineId: selectedRoutineId,
-    occurrenceId: selectedOccurrenceId,
-  }
+  useLayoutEffect(() => {
+    occurrenceCtxRef.current = {
+      householdId: selectedHouseholdId,
+      routineId: selectedRoutineId,
+      occurrenceId: selectedOccurrenceId,
+    }
+  }, [selectedHouseholdId, selectedRoutineId, selectedOccurrenceId])
 
-  const syncRoute = (
+  const syncRoute = useCallback((
     householdId: string,
     routineId?: string | null,
     occurrenceId?: string | null,
   ) => {
+    if (taskSettingsSaveError) return
+    taskSaves?.flush()
+    setActiveTask(null)
+    setSelectedTaskId(null)
     setSidebarOpen(false)
     const nextRoutineId = routineId ?? null
     const nextOccurrenceId = occurrenceId ?? null
@@ -1248,7 +1260,124 @@ export function LeaderFlowEditor({
     // Use the App Router so `searchParams` and server props (e.g. `selectedHouseholdId`) update.
     // `history.replaceState` alone leaves the controlled household `<select>` stuck on stale props.
     void router.replace(nextHref, { scroll: false })
-  }
+  }, [router, taskSaves, taskSettingsSaveError])
+
+  // Node callbacks stay stable while responses use the latest committed task/dependency data.
+  const applyOccurrenceTaskStatusesSnapshotRef = useRef<(occurrenceId: string, rows: OccurrenceTaskStatus[]) => void>(() => {})
+  const handleOccurrenceToggle = useCallback((taskId: string, completed: boolean) => {
+    const { householdId, occurrenceId } = occurrenceCtxRef.current
+    if (!occurrenceId) return
+    setLocalOccurrenceTaskStatuses((prev) => {
+      const nextStatus = completed ? "completed" : "unlocked"
+      if (prev.some((row) => row.task_id === taskId)) {
+        return prev.map((row) => (row.task_id === taskId ? { ...row, status: nextStatus } : row))
+      }
+      return [...prev, { task_id: taskId, status: nextStatus }]
+    })
+    void (async () => {
+      const res = await fetch("/api/leader/flow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "setOccurrenceTaskCompleted",
+          householdId,
+          occurrenceId,
+          taskId,
+          completed,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC",
+        }),
+      })
+      if (!res.ok) {
+        scheduleCoalescedFlowReloadRef.current()
+        return
+      }
+      const json = (await res.json().catch(() => null)) as
+        | { occurrenceTaskStatuses?: Array<{ task_id: string; status: string }> }
+        | null
+      if (json?.occurrenceTaskStatuses) {
+        applyOccurrenceTaskStatusesSnapshotRef.current(occurrenceId, json.occurrenceTaskStatuses)
+      }
+      scheduleCoalescedFlowReloadRef.current()
+    })()
+  }, [])
+
+  const nodes: Node[] = useMemo(
+    () =>
+      localTasks.map((task, index) => {
+        const occurrenceRow = localOccurrenceTaskStatuses.find((item) => item.task_id === task.id)
+        const occurrenceStatus = occurrenceRow?.status ?? task.status
+        const isOcc = Boolean(selectedOccurrenceId)
+        const statusByTaskId = new Map<string, "locked" | "unlocked" | "completed">(
+          localOccurrenceTaskStatuses.map((item) => [
+            item.task_id,
+            item.status as "locked" | "unlocked" | "completed",
+          ]),
+        )
+        return {
+          id: task.id,
+          type: "taskNode",
+          position: {
+            x: task.position_x ?? 80 + (index % 4) * 280,
+            y: task.position_y ?? 80 + Math.floor(index / 4) * 170,
+          },
+          zIndex: 1,
+          data: {
+            title: task.title,
+            status: occurrenceStatus,
+            isReward: task.is_reward,
+            highlighted: selectedTaskId === task.id,
+            justCreated: recentlyCreatedTaskIds.has(task.id),
+            assignees: localTaskAssignees
+              .filter((assignment) => assignment.task_id === task.id)
+              .map((assignment) => {
+                const member = localMembers.find((m) => m.id === assignment.user_id)
+                return member
+                  ? { ...member, tokenColorClass: memberTokenColorMap.get(member.id) }
+                  : null
+              })
+              .filter(Boolean) as Member[],
+            occurrenceView: isOcc,
+            occurrenceStatus,
+            lockTooltip: isOcc ? buildLockTooltip(task, occurrenceStatus, localDeps, statusByTaskId) : null,
+            onToggleOccurrenceComplete: isOcc
+              ? () => {
+                  handleOccurrenceToggle(task.id, occurrenceStatus !== "completed")
+                }
+              : undefined,
+          },
+        }
+      }),
+    [
+      localTasks,
+      recentlyCreatedTaskIds,
+      selectedTaskId,
+      localOccurrenceTaskStatuses,
+      localTaskAssignees,
+      localMembers,
+      memberTokenColorMap,
+      selectedOccurrenceId,
+      handleOccurrenceToggle,
+      localDeps,
+      buildLockTooltip,
+    ],
+  )
+
+  const initialEdges: Edge[] = useMemo(
+    () =>
+      localDeps.map((dep) => ({
+        id: `${dep.source_task_id}-${dep.target_task_id}`,
+        source: dep.source_task_id,
+        target: dep.target_task_id,
+        markerEnd: { type: MarkerType.ArrowClosed },
+      })),
+    [localDeps],
+  )
+
+  const [flowNodes, setFlowNodes] = useState<Node[]>(nodes)
+  const [flowEdges, setFlowEdges] = useState(initialEdges)
+  const flowEdgesRef = useRef<Edge[]>(initialEdges)
+  const [insertHoverEdgeId, setInsertHoverEdgeId] = useState<string | null>(null)
+  const insertHoverEdgeIdRef = useRef<string | null>(null)
 
   const applyOccurrenceTaskStatusesSnapshot = useCallback(
     (
@@ -1295,6 +1424,10 @@ export function LeaderFlowEditor({
     [buildLockTooltip, localDeps, localTasks],
   )
 
+  useLayoutEffect(() => {
+    applyOccurrenceTaskStatusesSnapshotRef.current = applyOccurrenceTaskStatusesSnapshot
+  }, [applyOccurrenceTaskStatusesSnapshot])
+
   const fetchOccurrenceTaskStatusesSnapshot = useCallback(
     async (householdId: string, occurrenceId: string) => {
       const res = await fetch("/api/leader/flow", {
@@ -1317,54 +1450,19 @@ export function LeaderFlowEditor({
     [applyOccurrenceTaskStatusesSnapshot],
   )
 
-  const handleOccurrenceToggle = useCallback((taskId: string, completed: boolean) => {
-    const { householdId, routineId, occurrenceId } = occurrenceCtxRef.current
-    if (!occurrenceId) return
-    setLocalOccurrenceTaskStatuses((prev) => {
-      const nextStatus = completed ? "completed" : "unlocked"
-      if (prev.some((row) => row.task_id === taskId)) {
-        return prev.map((row) => (row.task_id === taskId ? { ...row, status: nextStatus } : row))
-      }
-      return [...prev, { task_id: taskId, status: nextStatus }]
-    })
-    void (async () => {
-      const res = await fetch("/api/leader/flow", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "setOccurrenceTaskCompleted",
-          householdId,
-          occurrenceId,
-          taskId,
-          completed,
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC",
-        }),
-      })
-      if (!res.ok) {
-        scheduleCoalescedFlowReloadRef.current()
-        return
-      }
-      const json = (await res.json().catch(() => null)) as
-        | { occurrenceTaskStatuses?: Array<{ task_id: string; status: string }> }
-        | null
-      if (json?.occurrenceTaskStatuses) {
-        applyOccurrenceTaskStatusesSnapshot(occurrenceId, json.occurrenceTaskStatuses)
-      }
-      scheduleCoalescedFlowReloadRef.current()
-    })()
-  }, [applyOccurrenceTaskStatusesSnapshot])
-
-  const reloadFlow = async (
+  const reloadFlow = useCallback(async function reloadFlow(
     householdId: string,
     routineId?: string | null,
     occurrenceId?: string | null,
-  ) => {
+  ) {
     const requestId = ++latestReloadRequestIdRef.current
+    const readRevision = taskSaves?.revision ?? 0
     const query = new URLSearchParams({ householdId })
     query.set("timezone", Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC")
     if (routineId) query.set("routineId", routineId)
     if (occurrenceId) query.set("occurrenceId", occurrenceId)
-    const response = await fetch(`/api/leader/flow?${query.toString()}`)
+    const response = await fetch(`/api/leader/flow?${query.toString()}`, { cache: "no-store" })
+    if (requestId !== latestReloadRequestIdRef.current) return
     if (response.status === 404 && occurrenceId) {
       saveLastManagementSelection(lastManagementSelectionKeyMemo, {
         routineId: routineId ?? null,
@@ -1375,7 +1473,8 @@ export function LeaderFlowEditor({
       return
     }
     if (!response.ok) return
-    const json = await response.json()
+    const raw = await response.json()
+    const json = overlayTaskEdits(raw, taskSaves?.overlays(householdId, readRevision) ?? [])
     if (requestId !== latestReloadRequestIdRef.current) return
     if (json.serverNow) {
       const serverNowMs = new Date(String(json.serverNow)).getTime()
@@ -1386,6 +1485,7 @@ export function LeaderFlowEditor({
     setLocalRoutines(json.routines ?? [])
     setLocalMembers(json.members ?? [])
     setLocalTasks(json.tasks ?? [])
+    setActiveTask(previous => previous ? (json.tasks as Task[]).find(task => task.id === previous.id) ?? null : null)
     setLocalAllTasks(json.allTasks ?? [])
     setLocalDeps(json.dependencies ?? [])
     setLocalInvites(json.invites ?? [])
@@ -1450,7 +1550,7 @@ export function LeaderFlowEditor({
             status: occurrenceStatus,
             isReward: task.is_reward,
             highlighted: selectedTaskId === task.id,
-            justCreated: recentlyCreatedTaskIdsRef.current.has(task.id),
+            justCreated: recentlyCreatedTaskIds.has(task.id),
             assignees: (json.taskAssignees ?? [])
               .filter((assignment: TaskAssignee) => assignment.task_id === task.id)
               .map((assignment: TaskAssignee) => {
@@ -1488,8 +1588,8 @@ export function LeaderFlowEditor({
         markerEnd: { type: MarkerType.ArrowClosed },
       })),
     )
-  }
-  reloadFlowRef.current = reloadFlow
+  }, [taskSaves, lastManagementSelectionKeyMemo, syncRoute, selectedTaskId, recentlyCreatedTaskIds, buildLockTooltip, handleOccurrenceToggle])
+  useLayoutEffect(() => { reloadFlowRef.current = reloadFlow }, [reloadFlow])
 
   const scheduleCoalescedFlowReload = useCallback(() => {
     if (coalescedFlowReloadTimerRef.current) clearTimeout(coalescedFlowReloadTimerRef.current)
@@ -1512,7 +1612,7 @@ export function LeaderFlowEditor({
     selectedOccurrenceId,
     selectedRoutineId,
   ])
-  scheduleCoalescedFlowReloadRef.current = scheduleCoalescedFlowReload
+  useLayoutEffect(() => { scheduleCoalescedFlowReloadRef.current = scheduleCoalescedFlowReload }, [scheduleCoalescedFlowReload])
 
   useEffect(() => {
     return () => {
@@ -1523,21 +1623,19 @@ export function LeaderFlowEditor({
     }
   }, [selectedHouseholdId, selectedRoutineId, selectedOccurrenceId])
 
+  // Reload when the scope changes, not when an edit updates the callback's local data.
+  const reloadSelectedFlow = useEffectEvent(() => reloadFlow(selectedHouseholdId, selectedRoutineId, selectedOccurrenceId))
   useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      await reloadFlow(selectedHouseholdId, selectedRoutineId, selectedOccurrenceId)
-      if (cancelled) return
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [selectedHouseholdId, selectedRoutineId, selectedOccurrenceId])
+    void reloadSelectedFlow()
+    return () => { latestReloadRequestIdRef.current += 1 }
+  }, [selectedHouseholdId, selectedRoutineId, selectedOccurrenceId, taskSaves])
 
-  useEffect(() => {
+  const [routeSnapshot, setRouteSnapshot] = useState({ routineId: initialSelectedRoutineId, occurrenceId: initialSelectedOccurrenceId })
+  if (routeSnapshot.routineId !== initialSelectedRoutineId || routeSnapshot.occurrenceId !== initialSelectedOccurrenceId) {
+    setRouteSnapshot({ routineId: initialSelectedRoutineId, occurrenceId: initialSelectedOccurrenceId })
     setSelectedRoutineId(initialSelectedRoutineId)
     setSelectedOccurrenceId(initialSelectedOccurrenceId)
-  }, [initialSelectedRoutineId, initialSelectedOccurrenceId])
+  }
 
   useEffect(() => {
     if (!selectedRoutineId && !selectedOccurrenceId) return
@@ -1549,31 +1647,35 @@ export function LeaderFlowEditor({
 
   useEffect(() => {
     if (selectedRoutineId || selectedOccurrenceId) return
-    const stored = loadLastManagementSelection(lastManagementSelectionKeyMemo)
-    const incompleteBoards = taskBoards.filter(
-      (board) => !(board.total_tasks > 0 && board.completed_tasks >= board.total_tasks),
-    )
-    if (stored?.occurrenceId) {
-      const storedBoard = incompleteBoards.find((board) => board.id === stored.occurrenceId)
-      if (storedBoard) {
-        syncRoute(selectedHouseholdId, storedBoard.routine_id ?? stored.routineId ?? null, storedBoard.id)
+    const frame = window.requestAnimationFrame(() => {
+      const stored = loadLastManagementSelection(lastManagementSelectionKeyMemo)
+      const incompleteBoards = taskBoards.filter(
+        (board) => !(board.total_tasks > 0 && board.completed_tasks >= board.total_tasks),
+      )
+      if (stored?.occurrenceId) {
+        const storedBoard = incompleteBoards.find((board) => board.id === stored.occurrenceId)
+        if (storedBoard) {
+          syncRoute(selectedHouseholdId, storedBoard.routine_id ?? stored.routineId ?? null, storedBoard.id)
+          return
+        }
+      }
+      if (stored?.routineId && localRoutines.some((routine) => routine.id === stored.routineId)) {
+        syncRoute(selectedHouseholdId, stored.routineId, null)
         return
       }
-    }
-    if (stored?.routineId && localRoutines.some((routine) => routine.id === stored.routineId)) {
-      syncRoute(selectedHouseholdId, stored.routineId, null)
-      return
-    }
-    const firstBoard = incompleteBoards[0] ?? taskBoards[0]
-    if (firstBoard) {
-      syncRoute(selectedHouseholdId, firstBoard.routine_id ?? null, firstBoard.id)
-      return
-    }
-    const firstRoutine = localRoutines[0]
-    if (firstRoutine) {
-      syncRoute(selectedHouseholdId, firstRoutine.id, null)
-    }
+      const firstBoard = incompleteBoards[0] ?? taskBoards[0]
+      if (firstBoard) {
+        syncRoute(selectedHouseholdId, firstBoard.routine_id ?? null, firstBoard.id)
+        return
+      }
+      const firstRoutine = localRoutines[0]
+      if (firstRoutine) {
+        syncRoute(selectedHouseholdId, firstRoutine.id, null)
+      }
+    })
+    return () => window.cancelAnimationFrame(frame)
   }, [
+    syncRoute,
     selectedRoutineId,
     selectedOccurrenceId,
     taskBoards,
@@ -1711,123 +1813,8 @@ export function LeaderFlowEditor({
     }
   }, [selectedHouseholdId, selectedRoutineId, selectedOccurrenceId])
 
-  useEffect(() => {
-    setLocalRoutines(routines)
-    setLocalMembers(members)
-    setLocalTasks(tasks)
-    setLocalAllTasks(allTasks)
-    setLocalDeps(dependencies)
-    setLocalInvites(invites)
-    setLocalOccurrences(occurrences)
-    setLocalOccurrenceTaskStatuses(occurrenceTaskStatuses)
-    setLocalTaskAssignees(taskAssignees)
-    setLocalTemplateTaskAssignees(templateTaskAssignees)
-    if (selectedOccurrenceId) {
-      const statusByTaskId = new Map<string, "locked" | "unlocked" | "completed">(
-        occurrenceTaskStatuses.map((item) => [
-          item.task_id,
-          item.status as "locked" | "unlocked" | "completed",
-        ]),
-      )
-      const orderedTasks = orderOccurrenceTasksForSidebar(
-        tasks.map((task) => ({
-          id: task.id,
-          title: task.title,
-          status:
-            statusByTaskId.get(task.id) ?? (task.status as "locked" | "unlocked" | "completed"),
-          assignee_ids: taskAssignees
-            .filter((assignment) => assignment.task_id === task.id)
-            .map((assignment) => assignment.user_id),
-          is_reward: task.is_reward,
-        })) as OccurrenceTaskListItem[],
-        dependencies,
-      )
-      setOccurrenceTaskLists((prev) => ({
-        ...prev,
-        [selectedOccurrenceId]: orderedTasks,
-      }))
-    }
-    const gKey = guideStorageKey(selectedHouseholdId, selectedRoutineId, selectedOccurrenceId)
-    setFlowNodes((prevNodes) => {
-      const colorMap = buildMemberTokenColorMap(members)
-      const statusByTaskId = new Map<string, "locked" | "unlocked" | "completed">(
-        occurrenceTaskStatuses.map((item) => [item.task_id, item.status as "locked" | "unlocked" | "completed"]),
-      )
-      const taskNodes = tasks.map((task, index) => {
-        const existing = prevNodes.find((node) => node.id === task.id)
-        const occRow = occurrenceTaskStatuses.find((item) => item.task_id === task.id)
-        const occurrenceStatus = occRow?.status ?? task.status
-        const isOcc = Boolean(selectedOccurrenceId)
-        return {
-          id: task.id,
-          type: "taskNode" as const,
-          draggable: existing?.draggable ?? true,
-          selected: existing?.selected ?? false,
-          position:
-            existing?.position ?? {
-              x: task.position_x ?? 80 + (index % 4) * 280,
-              y: task.position_y ?? 80 + Math.floor(index / 4) * 170,
-            },
-          zIndex: 1,
-          data: {
-            title: task.title,
-            status: occurrenceStatus,
-            isReward: task.is_reward,
-            highlighted: false,
-            justCreated: recentlyCreatedTaskIdsRef.current.has(task.id),
-            assignees: taskAssignees
-              .filter((assignment) => assignment.task_id === task.id)
-              .map((assignment) => {
-                const member = members.find((m) => m.id === assignment.user_id)
-                return member
-                  ? { ...member, tokenColorClass: colorMap.get(member.id) }
-                  : null
-              })
-              .filter(Boolean) as Member[],
-            occurrenceView: isOcc,
-            occurrenceStatus,
-            lockTooltip: isOcc ? buildLockTooltip(task, occurrenceStatus, dependencies, statusByTaskId) : null,
-            onToggleOccurrenceComplete: isOcc
-              ? () => {
-                  handleOccurrenceToggle(task.id, occurrenceStatus !== "completed")
-                }
-              : undefined,
-          },
-        }
-      })
-      return mergeTaskNodesWithGuides(gKey, taskNodes)
-    })
-    setFlowEdges(
-      dependencies.map((dep) => ({
-        id: `${dep.source_task_id}-${dep.target_task_id}`,
-        source: dep.source_task_id,
-        target: dep.target_task_id,
-        markerEnd: { type: MarkerType.ArrowClosed },
-      })),
-    )
-    setActiveTask((prev) => {
-      if (!prev) return null
-      const nextTask = tasks.find((task) => task.id === prev.id)
-      return nextTask ? { ...prev, ...nextTask } : null
-    })
-    setSelectedTaskId((prev) => (prev && tasks.some((task) => task.id === prev) ? prev : null))
-    setEdgeMenu(null)
-    setEditingGuideId(null)
-  }, [
-    routines,
-    tasks,
-    allTasks,
-    dependencies,
-    invites,
-    occurrences,
-    occurrenceTaskStatuses,
-    taskAssignees,
-    templateTaskAssignees,
-    members,
-    selectedHouseholdId,
-    selectedOccurrenceId,
-    selectedRoutineId,
-  ])
+  // Server-component props can arrive from a navigation started before a save.
+  // Keep one refresh path (reloadFlow), which overlays edits made during the read.
 
   useEffect(() => {
     const onPointerDown = (event: MouseEvent) => {
@@ -1844,83 +1831,13 @@ export function LeaderFlowEditor({
   }, [])
 
   useEffect(() => {
+    const timers = recurrenceSaveTimersRef.current
     return () => {
-      for (const timer of Object.values(recurrenceSaveTimersRef.current)) {
+      for (const timer of Object.values(timers)) {
         if (timer) clearTimeout(timer)
       }
     }
   }, [])
-
-  const nodes: Node[] = useMemo(
-    () =>
-      localTasks.map((task, index) => {
-        const occurrenceRow = localOccurrenceTaskStatuses.find((item) => item.task_id === task.id)
-        const occurrenceStatus = occurrenceRow?.status ?? task.status
-        const isOcc = Boolean(selectedOccurrenceId)
-        const statusByTaskId = new Map<string, "locked" | "unlocked" | "completed">(
-          localOccurrenceTaskStatuses.map((item) => [
-            item.task_id,
-            item.status as "locked" | "unlocked" | "completed",
-          ]),
-        )
-        return {
-          id: task.id,
-          type: "taskNode",
-          position: {
-            x: task.position_x ?? 80 + (index % 4) * 280,
-            y: task.position_y ?? 80 + Math.floor(index / 4) * 170,
-          },
-          zIndex: 1,
-          data: {
-            title: task.title,
-            status: occurrenceStatus,
-            isReward: task.is_reward,
-            highlighted: selectedTaskId === task.id,
-            justCreated: recentlyCreatedTaskIdsRef.current.has(task.id),
-            assignees: localTaskAssignees
-              .filter((assignment) => assignment.task_id === task.id)
-              .map((assignment) => {
-                const member = localMembers.find((m) => m.id === assignment.user_id)
-                return member
-                  ? { ...member, tokenColorClass: memberTokenColorMap.get(member.id) }
-                  : null
-              })
-              .filter(Boolean) as Member[],
-            occurrenceView: isOcc,
-            occurrenceStatus,
-            lockTooltip: isOcc ? buildLockTooltip(task, occurrenceStatus, localDeps, statusByTaskId) : null,
-            onToggleOccurrenceComplete: isOcc
-              ? () => {
-                  handleOccurrenceToggle(task.id, occurrenceStatus !== "completed")
-                }
-              : undefined,
-          },
-        }
-      }),
-    [
-      localTasks,
-      selectedTaskId,
-      localOccurrenceTaskStatuses,
-      localTaskAssignees,
-      localMembers,
-      memberTokenColorMap,
-      selectedOccurrenceId,
-      handleOccurrenceToggle,
-      localDeps,
-      buildLockTooltip,
-    ],
-  )
-
-  const initialEdges: Edge[] = useMemo(
-    () =>
-      localDeps.map((dep) => ({
-        id: `${dep.source_task_id}-${dep.target_task_id}`,
-        source: dep.source_task_id,
-        target: dep.target_task_id,
-        markerEnd: { type: MarkerType.ArrowClosed },
-      })),
-    [localDeps],
-  )
 
   const dependencyToEdge = (dep: Dependency): Edge => ({
     id: `${dep.source_task_id}-${dep.target_task_id}`,
@@ -1935,19 +1852,17 @@ export function LeaderFlowEditor({
     }
   }
 
-  const [flowNodes, setFlowNodes] = useState<Node[]>(nodes)
-  const [flowEdges, setFlowEdges] = useState(initialEdges)
-  const flowEdgesRef = useRef<Edge[]>(initialEdges)
-  const [insertHoverEdgeId, setInsertHoverEdgeId] = useState<string | null>(null)
-  const insertHoverEdgeIdRef = useRef<string | null>(null)
-
   const pulseNewTask = (taskId: string) => {
-    recentlyCreatedTaskIdsRef.current.add(taskId)
+    setRecentlyCreatedTaskIds(previous => new Set([...previous, taskId]))
     if (recentlyCreatedTaskGlowTimersRef.current[taskId]) {
       clearTimeout(recentlyCreatedTaskGlowTimersRef.current[taskId])
     }
     recentlyCreatedTaskGlowTimersRef.current[taskId] = setTimeout(() => {
-      recentlyCreatedTaskIdsRef.current.delete(taskId)
+      setRecentlyCreatedTaskIds(previous => {
+        const next = new Set(previous)
+        next.delete(taskId)
+        return next
+      })
       delete recentlyCreatedTaskGlowTimersRef.current[taskId]
       setFlowNodes((prev) =>
         prev.map((node) =>
@@ -1965,14 +1880,10 @@ export function LeaderFlowEditor({
     }, 2200)
   }
 
-  useEffect(
-    () => () => {
-      Object.values(recentlyCreatedTaskGlowTimersRef.current).forEach((timer) => clearTimeout(timer))
-      recentlyCreatedTaskGlowTimersRef.current = {}
-      recentlyCreatedTaskIdsRef.current.clear()
-    },
-    [],
-  )
+  useEffect(() => {
+    const timers = recentlyCreatedTaskGlowTimersRef.current
+    return () => { Object.values(timers).forEach(timer => clearTimeout(timer)) }
+  }, [])
 
   useEffect(() => {
     flowEdgesRef.current = flowEdges
@@ -2198,6 +2109,7 @@ export function LeaderFlowEditor({
     () => (activeTask ? isTaskNodeLocked(activeTask.id) : false),
     [activeTask, isTaskNodeLocked],
   )
+  const activeTaskSave = pendingTaskSaves.find(save => save.edit.taskId === activeTask?.id && save.edit.householdId === selectedHouseholdId)
 
   const toggleTaskNodeLock = useCallback((taskIds: string[]) => {
     const ids = new Set(taskIds)
@@ -2219,6 +2131,8 @@ export function LeaderFlowEditor({
     async (taskIds: string[], occurrenceId?: string | null) => {
       const uniqueTaskIds = [...new Set(taskIds)]
       if (uniqueTaskIds.length === 0) return
+      try { await taskSaves?.waitForSaves(selectedHouseholdId) }
+      catch (error) { window.alert(error instanceof Error ? error.message : "Please wait for task edits to save."); return }
       await flushTaskSettingsIfDirtyRef.current()
       await Promise.all(
         uniqueTaskIds.map((taskId) =>
@@ -2237,7 +2151,7 @@ export function LeaderFlowEditor({
       setActiveTask(null)
       await reloadFlow(selectedHouseholdId, selectedRoutineId, selectedOccurrenceId)
     },
-    [reloadFlow, selectedHouseholdId, selectedOccurrenceId, selectedRoutineId],
+    [reloadFlow, selectedHouseholdId, selectedOccurrenceId, selectedRoutineId, taskSaves],
   )
 
   useEffect(() => {
@@ -2399,7 +2313,6 @@ export function LeaderFlowEditor({
       setFlowNodes((nds) => {
         const next = nds.map((n) => {
           if (n.id !== node.id || n.type !== "dayDivider") return n
-          const current = n.position
           const currData = n.data as DayDividerData
           if (data.orientation === "horizontal") {
             return {
@@ -2511,6 +2424,8 @@ export function LeaderFlowEditor({
   }
 
   const deleteTask = async (task: Task) => {
+    try { await taskSaves?.waitForSaves(selectedHouseholdId) }
+    catch (error) { window.alert(error instanceof Error ? error.message : "Please wait for task edits to save."); return }
     await flushTaskSettingsIfDirtyRef.current()
     await fetch("/api/leader/flow", {
       method: "POST",
@@ -2527,6 +2442,8 @@ export function LeaderFlowEditor({
   }
 
   const deleteRoutine = async (routineId: string) => {
+    try { await taskSaves?.waitForSaves(selectedHouseholdId) }
+    catch (error) { window.alert(error instanceof Error ? error.message : "Please wait for task edits to save."); return }
     const routine = localRoutines.find((item) => item.id === routineId)
     const label = routine?.name ?? "this routine"
     setRoutineMenu(null)
@@ -2561,22 +2478,6 @@ export function LeaderFlowEditor({
       await reloadFlow(selectedHouseholdId, null, null)
       return
     }
-    await reloadFlow(selectedHouseholdId, selectedRoutineId, selectedOccurrenceId)
-  }
-
-  const deleteTaskById = async (taskId: string, occurrenceId?: string | null) => {
-    await flushTaskSettingsIfDirtyRef.current()
-    await fetch("/api/leader/flow", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "deleteTask",
-        householdId: selectedHouseholdId,
-        taskId,
-        occurrenceId: occurrenceId ?? null,
-      }),
-    })
-    setActiveTask(null)
     await reloadFlow(selectedHouseholdId, selectedRoutineId, selectedOccurrenceId)
   }
 
@@ -2648,6 +2549,7 @@ export function LeaderFlowEditor({
 
   const fetchOccurrenceTaskList = async (occurrenceId: string) => {
     if (occurrenceTaskLists[occurrenceId]) return
+    const readRevision = taskSaves?.revision ?? 0
     setOccurrenceTaskListsLoading((prev) => ({ ...prev, [occurrenceId]: true }))
     const response = await fetch("/api/leader/flow", {
       method: "POST",
@@ -2659,13 +2561,16 @@ export function LeaderFlowEditor({
       }),
     })
     const json = await response.json()
-    const rawTasks = ((json.tasks ?? []) as OccurrenceTaskListItem[]).map((task) => ({
+    const edits = new Map(taskSaves?.overlays(selectedHouseholdId, readRevision).map(save => [save.edit.taskId, save]) ?? [])
+    const rawTasks = ((json.tasks ?? []) as OccurrenceTaskListItem[]).map(task => {
+      const save = edits.get(task.id)
+      return {
       id: task.id,
-      title: task.title,
+      title: save?.patch.title ?? task.title,
       status: task.status,
-      assignee_ids: task.assignee_ids ?? [],
-      is_reward: task.is_reward,
-    }))
+      assignee_ids: save?.edit.assigneeIds ?? task.assignee_ids ?? [],
+      is_reward: save?.patch.is_reward ?? task.is_reward,
+    } })
     const orderedTasks = orderOccurrenceTasksForSidebar(
       rawTasks as OccurrenceTaskListItem[],
       (json.dependencies ?? []) as Array<{ source_task_id: string; target_task_id: string }>,
@@ -2839,6 +2744,8 @@ export function LeaderFlowEditor({
   }, [])
 
   const createOccurrence = async (routineId: string) => {
+    try { await taskSaves?.waitForSaves(selectedHouseholdId) }
+    catch (error) { window.alert(error instanceof Error ? error.message : "Please wait for task edits to save."); return }
     const response = await fetch("/api/leader/flow", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -3412,7 +3319,7 @@ export function LeaderFlowEditor({
         status: occurrenceNodeStatus,
         isReward: serverTask.is_reward,
         highlighted: selectedTaskId === serverTask.id,
-        justCreated: recentlyCreatedTaskIdsRef.current.has(serverTask.id),
+        justCreated: recentlyCreatedTaskIds.has(serverTask.id),
         assignees: assigneesForNode,
         occurrenceView: isOcc,
         occurrenceStatus: occurrenceNodeStatus,
@@ -3449,7 +3356,7 @@ export function LeaderFlowEditor({
     })
   }
 
-  const saveTaskSettings = async (formData: FormData, taskForSave: Task) => {
+  const queueTaskSettings = (formData: FormData, taskForSave: Task) => {
     const task = taskForSave
     const isOccurrenceTask = Boolean(task.routine_occurrence_id)
     const unlockDateInput = normalizeDateInput(String(formData.get("unlockDate") ?? ""))
@@ -3546,11 +3453,11 @@ export function LeaderFlowEditor({
       expiryMode === "fixed" && expiryDateInput
         ? new Date(`${expiryDateInput}T${expiryTime ?? "00:00"}:00`).toISOString()
         : null
-    const payload = {
+    const payload: TaskEdit = {
       action: "updateTask",
       householdId: selectedHouseholdId,
       taskId: task.id,
-      occurrenceId: task.routine_occurrence_id ?? selectedOccurrenceId,
+      occurrenceId: task.routine_occurrence_id ?? null,
       title: String(formData.get("title") ?? task.title),
       notes: String(formData.get("notes") ?? ""),
       assigneeIds: formData.getAll("assigneeIds").map(String),
@@ -3561,106 +3468,46 @@ export function LeaderFlowEditor({
       expiryRule,
       expiryAtOverride,
     }
-    const saveResponse = await fetch("/api/leader/flow", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    })
-    if (!saveResponse.ok) {
-      const errorPayload = await saveResponse.json().catch(() => ({}))
-      throw new Error(String(errorPayload?.error ?? "Failed to save task settings"))
-    }
-    const saveJson = await saveResponse.json().catch(() => ({}))
-    if (!saveJson?.task) {
-      throw new Error("Task settings were not persisted by the backend")
-    }
-    const serverTask = saveJson.task as Task
-    applyTaskPersistToLocalState(serverTask, payload.assigneeIds.map(String))
-    scheduleCoalescedFlowReload()
-    return serverTask
-  }
-
-  const runTaskSettingsAutosave = async (
-    formData: FormData,
-    taskForSave?: Task | null,
-    dirtyVersion = taskSettingsDirtyVersionRef.current,
-  ) => {
-    const task = taskForSave ?? activeTaskForSettingsRef.current
-    if (!task) return
-    if (dirtyVersion <= taskSettingsSavedVersionRef.current) return
-    const requestId = ++taskSettingsSaveRequestIdRef.current
+    if (!taskSaves) throw new Error("Autosave is not ready. Please keep this editor open and try again.")
+    taskSaves.enqueue(payload)
     setTaskSettingsSaveState("saving")
     setTaskSettingsSaveError(null)
-    try {
-      await saveTaskSettings(formData, task)
-      if (requestId !== taskSettingsSaveRequestIdRef.current) return
-      taskSettingsSavedVersionRef.current = Math.max(taskSettingsSavedVersionRef.current, dirtyVersion)
-      setTaskSettingsSaveState("saved")
-    } catch (error) {
-      if (requestId !== taskSettingsSaveRequestIdRef.current) return
+  }
+
+  const applyQueuedTask = useEffectEvent((save: TaskSave) => {
+    if (save.edit.householdId !== selectedHouseholdId) return
+    const current = localTasks.find(task => task.id === save.edit.taskId)
+    if (current) applyTaskPersistToLocalState({ ...current, ...save.patch }, save.edit.assigneeIds)
+    if (!taskSaves?.getSnapshot().some(job => job.edit.taskId === save.edit.taskId)) {
+      if (activeTaskForSettingsRef.current?.id === save.edit.taskId) setTaskSettingsSaveState("saved")
+      if (current?.routine_occurrence_id) scheduleCoalescedFlowReload()
+    }
+  })
+  useEffect(() => taskSaves?.onChange(save => applyQueuedTask(save)), [taskSaves])
+
+  const markTaskSettingsDirty = () => {
+    const form = taskSettingsFormRef.current
+    const task = activeTaskForSettingsRef.current
+    if (!form || !task) return
+    try { queueTaskSettings(new FormData(form), task) }
+    catch (error) {
       setTaskSettingsSaveState("error")
-      setTaskSettingsSaveError(error instanceof Error ? error.message : "Failed to save task settings")
+      setTaskSettingsSaveError(error instanceof Error ? error.message : "Unable to keep this edit. Please leave the editor open.")
     }
   }
 
   const flushTaskSettingsIfDirty = async () => {
-    if (taskSettingsAutosaveTimerRef.current) {
-      clearTimeout(taskSettingsAutosaveTimerRef.current)
-      taskSettingsAutosaveTimerRef.current = null
+    if (taskSettingsSaveError && taskSettingsFormRef.current && activeTaskForSettingsRef.current) {
+      // If browser storage was unavailable, keep the form open until it can be kept safely.
+      queueTaskSettings(new FormData(taskSettingsFormRef.current), activeTaskForSettingsRef.current)
     }
-    const form = taskSettingsFormRef.current
-    const task = activeTaskForSettingsRef.current
-    const dirtyVersion = taskSettingsDirtyVersionRef.current
-    if (!form || !task || dirtyVersion <= taskSettingsSavedVersionRef.current) return
-    await runTaskSettingsAutosave(new FormData(form), task, dirtyVersion)
+    taskSaves?.flush()
   }
-  flushTaskSettingsIfDirtyRef.current = flushTaskSettingsIfDirty
+  useLayoutEffect(() => { flushTaskSettingsIfDirtyRef.current = flushTaskSettingsIfDirty })
 
-  const scheduleTaskSettingsAutosave = (immediate = false) => {
-    if (!activeTaskForSettingsRef.current) return
-    if (!taskSettingsFormRef.current) return
-    const dirtyVersion = taskSettingsDirtyVersionRef.current
-    if (dirtyVersion <= taskSettingsSavedVersionRef.current) return
-    if (taskSettingsAutosaveTimerRef.current) {
-      clearTimeout(taskSettingsAutosaveTimerRef.current)
-      taskSettingsAutosaveTimerRef.current = null
-    }
-    const save = () => {
-      const form = taskSettingsFormRef.current
-      const task = activeTaskForSettingsRef.current
-      if (!form || !task) return
-      void runTaskSettingsAutosave(new FormData(form), task, dirtyVersion)
-    }
-    if (immediate) {
-      save()
-      return
-    }
-    taskSettingsAutosaveTimerRef.current = setTimeout(save, 900)
-  }
-
-  const markTaskSettingsDirty = () => {
-    taskSettingsDirtyVersionRef.current += 1
-    scheduleTaskSettingsAutosave(false)
-  }
-
+  const activeTaskId = activeTask?.id
   useEffect(() => {
-    taskSettingsDirtyVersionRef.current = 0
-    taskSettingsSavedVersionRef.current = 0
-    if (!activeTask) {
-      if (taskSettingsAutosaveTimerRef.current) {
-        clearTimeout(taskSettingsAutosaveTimerRef.current)
-        taskSettingsAutosaveTimerRef.current = null
-      }
-      setTaskSettingsSaveState("idle")
-      setTaskSettingsSaveError(null)
-      return
-    }
-    setTaskSettingsSaveState("idle")
-    setTaskSettingsSaveError(null)
-  }, [activeTask?.id])
-
-  useEffect(() => {
-    if (!activeTask) return
+    if (!activeTaskId) return
     const frame = window.requestAnimationFrame(() => {
       const input = taskTitleInputRef.current
       if (!input) return
@@ -3673,21 +3520,15 @@ export function LeaderFlowEditor({
       input.setSelectionRange(end, end)
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [activeTask?.id])
-
-  useEffect(() => {
-    return () => {
-      if (taskSettingsAutosaveTimerRef.current) {
-        clearTimeout(taskSettingsAutosaveTimerRef.current)
-      }
-    }
-  }, [])
+  }, [activeTaskId])
 
   const openTaskSettings = async (task: Task | null) => {
     if (!task) return
     if (!activeTask || activeTask.id !== task.id) {
       await flushTaskSettingsIfDirty()
     }
+    setTaskSettingsSaveState("idle")
+    setTaskSettingsSaveError(null)
     const rule = task.unlock_rule as { kind?: string } | null
     const expiryRule = task.expiry_rule as { kind?: string } | null
     const isOccurrenceTask = Boolean(task.routine_occurrence_id)
@@ -3786,7 +3627,7 @@ export function LeaderFlowEditor({
           {selectedRoutineId && !selectedOccurrenceId && <span className="hidden rounded-full border bg-card px-2.5 py-1 text-[10px] font-medium text-muted-foreground sm:block">Routine template</span>}
         </div>
         <div className="flex items-center gap-2">
-          {onListView && <Button type="button" variant="outline" className="h-10 gap-2 bg-card px-3" onClick={async () => { await flushTaskSettingsIfDirtyRef.current(); if (taskSettingsDirtyVersionRef.current > taskSettingsSavedVersionRef.current) return; onListView(selectedRoutineId) }}><ListTree className="size-4" />Routine builder</Button>}
+          {onListView && <Button type="button" variant="outline" className="h-10 gap-2 bg-card px-3" onClick={async () => { await flushTaskSettingsIfDirtyRef.current(); onListView(selectedRoutineId) }}><ListTree className="size-4" />Routine builder</Button>}
           <Button ref={householdPanelToggleRef} type="button" variant="outline" className="h-10 gap-2 bg-card px-3" aria-label="Household settings" aria-expanded={isHouseholdPanelOpen} onClick={() => setIsHouseholdPanelOpen(previous => !previous)}><Users className="size-4" /><span className="hidden sm:inline">Household</span></Button>
           <Button type="button" onClick={createTask} disabled={!selectedRoutineId && !selectedOccurrenceId} className="h-10 gap-2 px-4" title={!selectedRoutineId && !selectedOccurrenceId ? "Choose a routine or board to add a task" : "Add a task or reward"}><Plus className="size-4" />Add task</Button>
         </div>
@@ -5256,7 +5097,6 @@ export function LeaderFlowEditor({
             id="task-settings-form"
             ref={taskSettingsFormRef}
             key={activeTask.id}
-            onInput={markTaskSettingsDirty}
             onChange={markTaskSettingsDirty}
             onBlur={(event) => {
               const nextFocusedElement = event.relatedTarget
@@ -5276,6 +5116,7 @@ export function LeaderFlowEditor({
               <input
                 ref={taskTitleInputRef}
                 name="title"
+                maxLength={200}
                 defaultValue={activeTask.title}
                 className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm shadow-sm outline-none transition-[box-shadow,border-color] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
               />
@@ -5317,6 +5158,7 @@ export function LeaderFlowEditor({
               <label className="text-xs font-medium text-muted-foreground">Notes</label>
               <textarea
                 name="notes"
+                maxLength={4000}
                 defaultValue={activeTask.description ?? ""}
                 placeholder="Add notes for this task..."
                 rows={4}
@@ -5618,14 +5460,11 @@ export function LeaderFlowEditor({
             </div>
             </div>
             <div className="mt-3 flex shrink-0 flex-wrap justify-end gap-2 border-t border-border/60 pt-3">
-              <p className="mr-auto self-center text-xs text-muted-foreground">
-                {taskSettingsSaveState === "saving"
-                  ? "Saving..."
-                  : taskSettingsSaveState === "saved"
-                    ? "Saved"
-                    : taskSettingsSaveState === "error"
-                      ? taskSettingsSaveError ?? "Save failed"
-                      : "Auto-save enabled"}
+              <p role="status" className="mr-auto self-center text-xs text-muted-foreground">
+                {taskSettingsSaveError ?? (activeTaskSave?.state === "error"
+                  ? "Not saved — see the save notice"
+                  : activeTaskSave ? "Saving in background…"
+                    : taskSettingsSaveState === "idle" ? "Auto-save enabled" : "Saved")}
               </p>
               <Button
                 type="button"

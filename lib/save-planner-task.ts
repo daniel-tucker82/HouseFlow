@@ -1,5 +1,6 @@
 import { db } from "@/lib/db"
 import { plannerTaskSchema, taskDescendants, type PlannerDependency } from "@/lib/routine-planner"
+import { claimTaskEditVersion } from "@/lib/task-edit-version"
 
 export class PlannerSaveError extends Error {
   constructor(message: string, public status = 400) { super(message) }
@@ -23,6 +24,11 @@ export async function savePlannerTask(householdId: string, userId: string, raw: 
     const existing = await client.query("select id from tasks where id = $1::uuid and household_id = $2::uuid and routine_id = $3::uuid and routine_occurrence_id is null for update", [input.taskId, householdId, input.routineId])
     if (!input.isNew && !existing.rowCount) throw new PlannerSaveError("This task was removed. Refresh the routine.", 404)
     if (input.isNew && existing.rowCount) throw new PlannerSaveError("This task has already been saved. Refresh the routine.", 409)
+    if (!input.isNew && !await claimTaskEditVersion(client, userId, raw as Record<string, unknown>)) {
+      const current = await client.query("select * from tasks where id = $1::uuid and household_id = $2::uuid", [input.taskId, householdId])
+      await client.query("COMMIT")
+      return current.rows[0]
+    }
     const members = await client.query("select user_id from household_members where household_id = $1::uuid and user_id = any($2::text[])", [householdId, assignees])
     if (members.rowCount !== assignees.length) throw new PlannerSaveError("One of these people no longer belongs to this household.")
     const sources = await client.query("select id, routine_id from tasks where household_id = $1::uuid and routine_occurrence_id is null and id = any($2::uuid[])", [householdId, prerequisites])

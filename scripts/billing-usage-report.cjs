@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-require-imports -- Standalone Node operations script. */
 const { Client } = require('pg')
 
 // Explicit credentials only; never load a production environment file implicitly.
