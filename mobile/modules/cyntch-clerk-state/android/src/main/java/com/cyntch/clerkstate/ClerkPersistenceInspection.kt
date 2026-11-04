@@ -18,7 +18,7 @@ internal object ClerkPersistenceInspection {
   fun inspectSnapshots(accountId: String, read: () -> List<ByteArray?>, decrypt: (String) -> String): Map<String, Any> = try {
     val before = read()
     require(before.size == 2)
-    val results = before.map { bytes -> inspect(bytes?.let(::cacheValue)?.let(decrypt), accountId) }
+    val results = before.map { bytes -> inspect(bytes?.let { cacheValue(it) }?.let(decrypt), accountId) }
     val after = read()
     require(before.size == after.size && before.indices.all { before[it].contentEquals(after[it]) })
     verdict(
@@ -53,7 +53,7 @@ internal object ClerkPersistenceInspection {
 
   /** Read the on-disk XML, not SharedPreferences' potentially newer memory view.
    * No external entities, duplicate cache entries or non-string cache values. */
-  fun cacheValue(xml: ByteArray): String? {
+  fun cacheValue(xml: ByteArray, key: String = "CACHED_CLERK_STATE"): String? {
     val text = Charsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(xml)).toString()
     require(!text.contains("<!DOCTYPE") && !text.contains('\u0000'))
     val factory = DocumentBuilderFactory.newInstance()
@@ -70,7 +70,7 @@ internal object ClerkPersistenceInspection {
     var value: String? = null
     for (index in 0 until root.childNodes.length) {
       val child = root.childNodes.item(index)
-      if (child is org.w3c.dom.Element && child.getAttribute("name") == "CACHED_CLERK_STATE") {
+      if (child is org.w3c.dom.Element && child.getAttribute("name") == key) {
         require(!found && child.tagName == "string")
         require((0 until child.childNodes.length).none { child.childNodes.item(it) is org.w3c.dom.Element })
         found = true

@@ -1,5 +1,5 @@
 import { getClerkInstance } from "@clerk/expo"
-import { inspectNativeClerkAccount, inspectNativeClerkPersistence } from "../../modules/cyntch-clerk-state"
+import { forgetNativeClerkBiometricCredentials, inspectNativeClerkAccount, inspectNativeClerkPersistence } from "../../modules/cyntch-clerk-state"
 import { openLocalStore } from "../storage/native-store"
 
 let tail: Promise<unknown> = Promise.resolve()
@@ -14,6 +14,9 @@ export async function verifyNativeClerkDeletion(accountId: string, timeoutMs = 8
     if (!await (await openLocalStore()).deletedAccounts.isDeleted(accountId)) throw incomplete()
     const clerk = getClerkInstance()
     if (!clerk.loaded || !clerk.client) throw incomplete()
+    // Local private-key erasure does not depend on the provider already having
+    // removed its profile. It may finish even while the network is unavailable.
+    await forgetNativeClerkBiometricCredentials(accountId)
     const native = await inspectNativeClerkAccount(accountId,true)
     if (!native.ready || native.hasAccount || native.hasUnidentifiedSession || native.hasAuthenticationSnapshot) throw incomplete()
     // The native refresh's JS invalidation notification is asynchronous. Await

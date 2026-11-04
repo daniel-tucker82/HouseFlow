@@ -1893,6 +1893,73 @@ performance guarantee. Evidence: `cyntch-clerk-persistence-runtime.json`,
 `cyntch-live-1793774079544.xml`. No account was deleted, no credential was reset,
 and network settings were restored after testing.
 
+### Android biometric credential cleanup
+
+After confirming the durable accepted-deletion fence, recovery now removes the
+account's local biometric credentials before refreshing its provider profile.
+Android calls Clerk 1.3.0's public
+`biometricCredentials.forgetLocalCredentials(accountId)` off the UI thread. It
+does not reset Clerk, clear the shared device token or erase another account's
+credentials. Removing local keys does not replace remote identity/credential
+revocation; the server deletion workflow remains required.
+
+The native adapter validates the pinned SDK's credential metadata before calling
+it. This matters because the SDK can treat unreadable or unsupported metadata as
+an empty list. Unknown versions, malformed records, duplicate credential IDs or
+shared key references cannot establish cleanup. The adapter checks both the
+account and application scope, waits for the SDK operation, then verifies that
+the target records and their previously recorded Android Keystore aliases are
+gone. Unretired legacy preferences/backup records and concurrent file changes
+keep cleanup incomplete. No key material or metadata is returned to JavaScript.
+
+Failures retain the receipt. The existing eight-second UI timeout does not
+cancel the underlying work or allow a retry to overtake it. There is no extra
+request, key inspection or disk work on ordinary task saves.
+
+**This erasure method is currently implemented on Android only.** ClerkKit
+1.6.2 exposes its account-scoped local-forget method only within its Swift
+package; inspection of 1.7.1 found the same restriction. Its public current-device
+revocation method requires an active session, so it is not sufficient for
+interrupted recovery after server-side deletion. The JavaScript boundary rejects
+a missing erasure method, including on iOS, instead of reporting cleanup as
+complete. The supported iOS cleanup path, native verification, late enrollment
+callbacks and end-to-end deletion remain unfinished. Deletion submission stays
+disabled. See the pinned
+[ClerkKit implementation](https://github.com/clerk/clerk-ios/blob/1.6.2/Sources/ClerkKit/Core/BiometricCredentials.swift).
+
+Android unit tests cover account/application selection, malformed metadata and
+duplicate credential/key references. JavaScript tests cover the accepted-deletion
+fence, missing/failed/incompatible native methods, offline refresh failure and
+serialization across a timeout. The device test at
+`android/src/androidTest/java/com/cyntch/clerkstate/ClerkBiometricCleanupDeviceTest.kt`
+inside the local module uses the real pinned SDK and Android Keystore in the
+separate `com.cyntch.clerkstate.test` APK. It creates only local fixture keys,
+not provider users or enrolled biometric credentials. Build it with
+`:cyntch-clerk-state:assembleDebugAndroidTest` and pass a development publishable
+key as the `cyntchClerkPublishableKey` instrumentation argument. It refuses to run
+in the household app's package or with a production key.
+
+The API 36 Android emulator passed this isolated SDK/Keystore test five times,
+including a run after clearing only the test package's data. These runs verify
+selective key removal, preservation of another account/application's records and
+keys, repeat cleanup, and refusal of an unsupported metadata version. They do
+not verify biometric enrollment, an actual account deletion or iOS. One earlier
+attempt failed without stage diagnostics; another failed in metadata validation
+before SDK deletion. Their causes are not established. A separate attempt failed
+to attach the test process. Native errors
+now retain only the stage, exception type and source location for diagnosis;
+JavaScript receives the same generic recovery message. Keep the deletion release
+gate closed pending the remaining verification above.
+
+The updated household app APK also loaded its existing two-task board unchanged
+(0 of 2 complete). A read-only runtime check found the new native erasure method
+registered and the persisted/loaded sign-in profiles consistent. No deletion or
+credential mutation was invoked in that app. Validation: 33 JavaScript tests,
+13 Android JVM tests, mobile lint/typecheck, root lint, Android APK build and
+Android/iOS Hermes exports passed. Emulator evidence and artifact hashes are in
+`C:/Users/danie/.codex/tmp/cyntch-clerk-biometric-evidence.json`; the isolated test
+package was removed and the emulator stopped after verification.
+
 ### Processing accepted deletions in scheduled batches
 
 `runAccountDeletions()` connects the durable PostgreSQL coordinator to the real

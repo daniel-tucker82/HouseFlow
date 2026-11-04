@@ -9,7 +9,8 @@ function fixture(){
  const clerk={loaded:true,user:{id:'user_b'},client:{sessions:[{id:'sess_b',user:{id:'user_b'}}],signIn:{id:null},signUp:{id:null},reload:async()=>{calls.push('reload-js')}}}
  const bridge={getAuthFlowState:async()=>({isLoaded:loaded}),refreshClient:async()=>{calls.push('refresh')}}
  const inspector={inspectAccount:async accountId=>{calls.push(['inspect',accountId]);return {...state,privatePayload:'never expose this'}},
-  inspectPersistence:async accountId=>{calls.push(['persisted',accountId]);return {...persisted,privatePayload:'never expose this'}}}
+  inspectPersistence:async accountId=>{calls.push(['persisted',accountId]);return {...persisted,privatePayload:'never expose this'}},
+  forgetBiometricCredentials:async accountId=>{calls.push(['forget-biometric',accountId]);return {format:1,removedCount:0}}}
  const api=load(['mobile/modules/cyntch-clerk-state/index.ts','mobile/src/services/native-clerk-deletion.ts'],{
   expo:{requireOptionalNativeModule:name=>available?(name==='ClerkExpo'?bridge:name==='CyntchClerkState'?inspector:null):null},
   '@clerk/expo':{getClerkInstance:()=>clerk},'../storage/native-store':{openLocalStore:async()=>({deletedAccounts:{isDeleted:async()=>deleted}})},
@@ -36,7 +37,7 @@ test('cleanup cannot refresh or inspect native identity without an accepted loca
 test('old native profiles, unidentified sessions and authentication snapshots keep cleanup incomplete',async()=>{
  for(const key of ['hasAccount','hasUnidentifiedSession','hasAuthenticationSnapshot','ready']){
   const f=fixture();f.state[key]=key!=='ready';await assert.rejects(f.api.verifyNativeClerkDeletion('user_a'),/still being verified/)
-  assert.deepEqual(f.calls,['refresh',['inspect','user_a']])
+  assert.deepEqual(f.calls,[['forget-biometric','user_a'],'refresh',['inspect','user_a']])
  }
 })
 test('the JS client must also have retired the deleted account and its unscoped authentication snapshots',async()=>{
@@ -46,7 +47,7 @@ test('the JS client must also have retired the deleted account and its unscoped 
 })
 test('verifying a deleted account preserves another signed-in account and never clears a shared credential',async()=>{
  const f=fixture(),before=JSON.stringify(f.clerk);await f.api.verifyNativeClerkDeletion('user_a')
- assert.equal(JSON.stringify(f.clerk),before);assert.deepEqual(f.calls,['refresh',['inspect','user_a'],'reload-js',['persisted','user_a'],['inspect','user_a']])
+ assert.equal(JSON.stringify(f.clerk),before);assert.deepEqual(f.calls,[['forget-biometric','user_a'],'refresh',['inspect','user_a'],'reload-js',['persisted','user_a'],['inspect','user_a']])
 })
 
 test('an absent, incompatible or unreadable persisted-profile inspector cannot establish cleanup',async()=>{
@@ -66,7 +67,7 @@ test('a cleared memory client cannot hide an older disk profile, ambiguous sessi
  for(const key of ['hasAccount','hasUnidentifiedSession','hasAuthenticationSnapshot','ready']){
   const f=fixture();f.persisted[key]=key!=='ready'
   await assert.rejects(f.api.verifyNativeClerkDeletion('user_a'),/still being verified/)
-  assert.deepEqual(f.calls,['refresh',['inspect','user_a'],'reload-js',['persisted','user_a']])
+  assert.deepEqual(f.calls,[['forget-biometric','user_a'],'refresh',['inspect','user_a'],'reload-js',['persisted','user_a']])
   f.persisted[key]=key==='ready';await f.api.verifyNativeClerkDeletion('user_a')
  }
  const f=fixture();assert.deepEqual(await f.api.inspectNativeClerkPersistence('user_a'),f.persisted)
@@ -80,6 +81,33 @@ test('native-to-JS propagation is refreshed explicitly, and both clients are rec
  await assert.rejects(f.api.verifyNativeClerkDeletion('user_a'),/still being verified/)
  f.state.hasAccount=false;f.clerk.client.reload=async()=>{throw Error('private network response')}
  await assert.rejects(f.api.verifyNativeClerkDeletion('user_a'),error=>error.message.includes('still being verified')&&!error.message.includes('private'))
+})
+
+test('missing, failing or incompatible private-key cleanup cannot be reported as a successful deletion',async()=>{
+ const f=fixture();f.inspector.forgetBiometricCredentials=undefined
+ await assert.rejects(f.api.verifyNativeClerkDeletion('user_a'),/still being verified/);assert.deepEqual(f.calls,[])
+ for(const result of [null,{format:2,removedCount:0},{format:1,removedCount:'0'},{format:1,removedCount:-1},{format:1,removedCount:NaN}]){
+  f.inspector.forgetBiometricCredentials=async()=>result
+  await assert.rejects(f.api.verifyNativeClerkDeletion('user_a'),/still being verified/);assert.deepEqual(f.calls,[])
+ }
+ f.inspector.forgetBiometricCredentials=async()=>{throw Error('private key metadata')}
+ await assert.rejects(f.api.forgetNativeClerkBiometricCredentials('user_a'),error=>!error.message.includes('private key'))
+ f.setLoaded(false);let erased=false;f.inspector.forgetBiometricCredentials=async()=>{erased=true;return {format:1,removedCount:0}}
+ await assert.rejects(f.api.forgetNativeClerkBiometricCredentials('user_a'),/could not be verified/);assert.equal(erased,false)
+ f.setLoaded(true);f.inspector.forgetBiometricCredentials=async()=>{f.setLoaded(false);return {format:1,removedCount:0}}
+ await assert.rejects(f.api.forgetNativeClerkBiometricCredentials('user_a'),/could not be verified/)
+})
+
+test('private-key cleanup remains serialized after a timeout, and a failed network refresh can be retried safely',async()=>{
+ const f=fixture(),entered=deferred(),finish=deferred();let erasures=0
+ f.inspector.forgetBiometricCredentials=async accountId=>{assert.equal(accountId,'user_a');erasures++;if(erasures===1){entered.resolve();await finish.promise};return {format:1,removedCount:erasures===1?1:0}}
+ const first=assert.rejects(f.api.verifyNativeClerkDeletion('user_a',20),/still being verified/)
+ await entered.promise;await first
+ const second=f.api.verifyNativeClerkDeletion('user_a',2000);await new Promise(resolve=>setImmediate(resolve));assert.equal(erasures,1);assert.deepEqual(f.calls,[])
+ finish.resolve();await second;assert.equal(erasures,2)
+ f.bridge.refreshClient=async()=>{throw Error('offline')}
+ await assert.rejects(f.api.verifyNativeClerkDeletion('user_a'),/still being verified/);assert.equal(erasures,3)
+ f.bridge.refreshClient=async()=>{};await f.api.verifyNativeClerkDeletion('user_a');assert.equal(erasures,4)
 })
 test('a UI timeout retains the native verification queue until the original refresh finishes',async()=>{
  const f=fixture(),entered=deferred(),finish=deferred();let started=0

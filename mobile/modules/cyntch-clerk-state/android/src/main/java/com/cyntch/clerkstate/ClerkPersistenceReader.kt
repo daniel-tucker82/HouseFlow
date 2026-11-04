@@ -21,7 +21,7 @@ internal object ClerkPersistenceReader {
     ClerkPersistenceInspection.inspectSnapshots(accountId, { files.map(::read) }, ::decrypt)
   } catch (_: Exception) { ClerkPersistenceInspection.verdict(false) }
 
-  private fun read(file: File): ByteArray? {
+  internal fun read(file: File): ByteArray? {
     if (!file.exists()) return null
     require(file.isFile && file.length() in 1..maxBytes.toLong())
     return file.inputStream().use { stream ->

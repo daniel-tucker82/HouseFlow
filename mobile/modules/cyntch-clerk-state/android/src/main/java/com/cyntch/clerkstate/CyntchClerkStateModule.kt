@@ -5,10 +5,15 @@ import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 
 /** No tokens, names, email addresses or other accounts' identifiers cross this
- * boundary. This module does not configure, clear or mutate Clerk state. */
+ * boundary. It never configures/resets Clerk or clears a shared credential. */
 class CyntchClerkStateModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("CyntchClerkState")
+
+    AsyncFunction("forgetBiometricCredentials") { accountId: String ->
+      val context = appContext.reactContext ?: throw IllegalStateException("Sign-in cleanup is unavailable.")
+      ClerkBiometricCleanup.forget(context, accountId)
+    }
 
     // AsyncFunction runs storage work off the JavaScript/UI thread.
     AsyncFunction("inspectPersistence") { accountId: String ->

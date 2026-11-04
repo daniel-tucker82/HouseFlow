@@ -8,7 +8,11 @@ export interface NativeClerkAccountState {
   hasAuthenticationSnapshot: boolean
 }
 interface ClerkBridge { getAuthFlowState(): Promise<{isLoaded:boolean}>; refreshClient(): Promise<void> }
-interface StateBridge { inspectAccount(accountId: string): Promise<unknown>; inspectPersistence(accountId: string): Promise<unknown> }
+interface StateBridge {
+  inspectAccount(accountId: string): Promise<unknown>
+  inspectPersistence(accountId: string): Promise<unknown>
+  forgetBiometricCredentials?(accountId: string): Promise<unknown>
+}
 const unavailable = () => new Error("Native sign-in cleanup could not be verified. Keep the saved deletion receipt and try again.")
 
 function parseState(value: unknown): NativeClerkAccountState {
@@ -42,5 +46,19 @@ export async function inspectNativeClerkPersistence(accountId: string): Promise<
     const state = parseState(await inspector.inspectPersistence(accountId))
     if (!(await clerk.getAuthFlowState()).isLoaded) throw unavailable()
     return state
+  } catch {throw unavailable()}
+}
+
+/** The caller must first verify the durable accepted-deletion fence. Unsupported
+ * platforms/builds must not silently skip private-key cleanup. */
+export async function forgetNativeClerkBiometricCredentials(accountId: string): Promise<void> {
+  try {
+    if (!/^user_[A-Za-z0-9_-]{1,200}$/.test(accountId)) throw unavailable()
+    const clerk = requireOptionalNativeModule<ClerkBridge>("ClerkExpo")
+    const state = requireOptionalNativeModule<StateBridge>("CyntchClerkState")
+    if (!clerk || !state?.forgetBiometricCredentials || !(await clerk.getAuthFlowState()).isLoaded) throw unavailable()
+    const result = await state.forgetBiometricCredentials(accountId) as {format?:unknown;removedCount?:unknown} | null
+    if (!result || result.format !== 1 || typeof result.removedCount !== "number" || !Number.isSafeInteger(result.removedCount) || result.removedCount < 0 ||
+      !(await clerk.getAuthFlowState()).isLoaded) throw unavailable()
   } catch {throw unavailable()}
 }
