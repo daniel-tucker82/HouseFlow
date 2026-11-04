@@ -4,6 +4,16 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
+The Android workflow also runs the optimized APK on an API 24 (Android 7)
+Nexus 5 emulator, matching the current native minimum SDK. The compatibility
+script uses Android's UIAutomator hierarchy and ADB input rather than assuming
+the modern Maestro driver's OS support matches the application's. It requires
+installation, welcome/native sign-in in both orientations, and force-stop/relaunch,
+retaining screenshots, UI hierarchy, logcat and an APK hash. This added check is
+awaiting hosted execution; it does not establish authenticated-workflow or
+performance coverage on the minimum OS. The Clerk iOS dependency requires iOS 17;
+minimum-iOS runtime verification remains separate outstanding work.
+
 Android run `41836733823` (source `0d257f0`) compiled the patched Clerk UI and
 optimized application successfully; dependency insight confirms the bridge uses
 `:cyntch-clerk-ui`. Both tablet text sizes and the phone's 1.6x text flow passed,
