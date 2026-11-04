@@ -75,6 +75,22 @@ full Swift Package Manager migration does not yet support Expo Router. Version
 before upgrading. Native prebuild and pod-install logs are retained even if the
 compiler cannot start.
 
+The compatibility change passed mobile lint/typecheck, all 42 billing client and
+identity-recovery checks, and an Android x86_64 debug build. Its first emulator
+launch stayed blank and reported a Clerk initialization timeout. A controlled
+relaunch reached the signed-out welcome screen and responded to JavaScript
+inspection. The task board and startup reliability were not verified; do not
+count the relaunch as resolving the first failure. A bug report and thread
+snapshot were retained locally, alongside the low-memory host observations.
+Evidence: `C:/Users/danie/.codex/tmp/cyntch-ios-compat-evidence.json`.
+
+The Mac workflow also compiles and runs the production account-cache parser
+against synthetic Swift fixtures before generating the app. These checks cover
+target/other accounts, unidentified sessions, authentication attempts, malformed
+caches and the restricted bridge payload. They do not read the Keychain and do
+not verify account erasure, SDK concurrency, biometric keys or device behavior.
+The added Swift checks still require their first Mac execution.
+
 Local validation used EAS CLI 27.4.1's profile resolver and actual Git archive
 copy implementation. The 138-file archive installed from its lockfile and
 exported Android/iOS Hermes bundles without the web app's dependencies. Native

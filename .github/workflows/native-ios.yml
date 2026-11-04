@@ -42,6 +42,14 @@ jobs:
           cache-dependency-path: mobile/package-lock.json
       - name: Install locked dependencies
         run: npm ci --no-audit --no-fund
+      - name: Verify native account-cache inspection
+        run: |
+          set -o pipefail
+          xcrun swiftc -swift-version 5 -parse-as-library \
+            modules/cyntch-clerk-state/ios/ClerkPersistenceInspection.swift \
+            modules/cyntch-clerk-state/tests/ClerkPersistenceInspectionTests.swift \
+            -o "$RUNNER_TEMP/cyntch-clerk-persistence-tests"
+          "$RUNNER_TEMP/cyntch-clerk-persistence-tests" 2>&1 | tee "$RUNNER_TEMP/cyntch-clerk-persistence-tests.log"
       - name: Generate the native iOS project
         run: |
           set -o pipefail
@@ -74,6 +82,7 @@ jobs:
         with:
           name: native-ios-compilation
           path: |
+            ${{ runner.temp }}/cyntch-clerk-persistence-tests.log
             ${{ runner.temp }}/cyntch-ios-prebuild.log
             ${{ runner.temp }}/cyntch-ios-pods.log
             ${{ runner.temp }}/cyntch-ios.log
