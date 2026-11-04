@@ -10,10 +10,10 @@ interface RunEditorApi {
 }
 export interface RunEditorState {
   household: HouseholdSummary | null; occurrenceId: string | null; data: RunEditorSnapshot | null; draft: RunTaskDraft | null;
-  pending: RunEdit[]; online: boolean; loading: boolean; busy: boolean; draftSaving: boolean; error: string | null
+  pending: RunEdit[]; online: boolean; loading: boolean; busy: boolean; draftSaving: boolean; error: string | null; refreshError: string | null
 }
 export class RunEditorController {
-  private state: RunEditorState = { household: null, occurrenceId: null, data: null, draft: null, pending: [], online: false, loading: false, busy: false, draftSaving: false, error: null }
+  private state: RunEditorState = { household: null, occurrenceId: null, data: null, draft: null, pending: [], online: false, loading: false, busy: false, draftSaving: false, error: null, refreshError: null }
   private listeners = new Set<() => void>()
   private active = true
   private stopped = false
@@ -56,11 +56,12 @@ export class RunEditorController {
     if (!allowed) throw new Error("Open this board with parent access to edit its tasks.")
     this.reads++; this.draftRevision++
     this.draftDirty = false
-    this.update({ household, occurrenceId, data: null, draft: null, loading: true, busy: false, draftSaving: false, error: null })
+    this.update({ household, occurrenceId, data: null, draft: null, loading: true, busy: false, draftSaving: false, error: null, refreshError: null })
     await this.readLocal(); await this.refresh()
-    if (generation === this.generation && !this.state.online) this.update({ loading: false, error: this.state.data ? null : "Connect once to load this task board’s editing details." })
+    if (generation === this.generation && !this.state.online) this.update({ loading: false,
+      error: this.state.error ?? (this.state.data ? null : "Connect once to load this task board’s editing details.") })
   }
-  close() { this.generation++; this.reads++; this.localReads++; this.draftRevision++; this.update({ household: null, occurrenceId: null, data: null, draft: null, loading: false, busy: false, draftSaving: false, error: null }) }
+  close() { this.generation++; this.reads++; this.localReads++; this.draftRevision++; this.update({ household: null, occurrenceId: null, data: null, draft: null, loading: false, busy: false, draftSaving: false, error: null, refreshError: null }) }
   setConnectivity(online: boolean) {
     const recovered = online && !this.state.online
     this.update({ online }); clearTimeout(this.timer)
@@ -76,12 +77,16 @@ export class RunEditorController {
       const data = await this.api.runEditor(household.id, occurrenceId)
       if (read !== this.reads || generation !== this.generation || mutation !== this.mutations || this.stopped) return
       await this.store.cache(this.accountId, household.id, occurrenceId, data); await this.readLocal()
+      if (read === this.reads && generation === this.generation && !this.stopped) this.update({ refreshError: null })
     } catch (error) {
-      if (generation === this.generation && read === this.reads) {
+      if (generation === this.generation && read === this.reads && !this.stopped) {
         if (error instanceof TransportError && [403, 404, 410].includes(error.status)) {
           await this.store.invalidate(this.accountId, household.id, occurrenceId); await this.readLocal()
         }
-        this.report(error)
+        // Background reads must neither move an open form to its save-error
+        // banner nor replace a warning that its local draft was not persisted.
+        if (generation === this.generation && read === this.reads && !this.stopped)
+          this.update({ refreshError: error instanceof Error ? error.message : "Unable to refresh this task board." })
       }
     }
     finally { if (generation === this.generation && read === this.reads) this.update({ loading: false }) }

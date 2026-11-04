@@ -278,6 +278,71 @@ test('a failed draft write remains visible through unrelated refreshes and a rej
   assert.deepEqual(controller.getSnapshot().pending, []); assert.equal(controller.getSnapshot().data.tasks[0].title, 'Pack bag')
 })
 
+test('background refresh failures preserve the open draft and never replace local-save errors', { timeout: 5000 }, async t => {
+  const f = await fixture(t), reads = []
+  const controller = new RunEditorController(f.local.runEditor, 'parent', 'device', {
+    runEditor: () => new Promise((resolve, reject) => reads.push({ resolve, reject })), saveRunEdit: async edit => reply(edit),
+  }, () => 'unused')
+  t.after(() => controller.stop()); await controller.open(household, 'run1')
+  await controller.setDraft(draft({ title: 'Keep editing here' })); controller.setConnectivity(true)
+  controller.setConnectivity(false); reads.shift().reject(new Error('Network request failed'))
+  await until(controller, state => !state.loading)
+  assert.equal(controller.getSnapshot().error, null, 'background failure cannot trigger the form save-error scroll')
+  assert.equal(controller.getSnapshot().refreshError, 'Network request failed')
+  assert.equal(controller.getSnapshot().draft.title, 'Keep editing here')
+  assert.equal((await f.local.runEditor.draft('parent', 'h1', 'run1')).title, 'Keep editing here')
+
+  f.db.fail = 'INSERT INTO device_settings'
+  await assert.rejects(controller.setDraft(draft({ title: 'Unsaved local text' })), /Disk full/)
+  const localError = controller.getSnapshot().error
+  assert.match(localError, /Draft not saved/)
+  controller.setConnectivity(true); reads.shift().reject(new Error('Another connection failure'))
+  await until(controller, state => !state.loading)
+  assert.equal(controller.getSnapshot().error, localError, 'connection failure cannot hide the unsaved-draft warning')
+  assert.equal(controller.getSnapshot().refreshError, 'Another connection failure')
+  const refresh = controller.refresh(); reads.shift().resolve(snapshot()); await refresh
+  assert.equal(controller.getSnapshot().refreshError, null, 'a successful refresh clears only its own warning')
+  assert.equal(controller.getSnapshot().error, localError)
+  assert.equal(controller.getSnapshot().draft.title, 'Unsaved local text')
+  f.db.fail = null; await controller.setDraft(controller.getSnapshot().draft)
+  assert.equal(controller.getSnapshot().error, null)
+  assert.equal((await f.local.runEditor.draft('parent', 'h1', 'run1')).title, 'Unsaved local text')
+})
+
+test('a late refresh error cannot reopen a closed editor warning or hide access revocation', { timeout: 5000 }, async t => {
+  const f = await fixture(t), reads = []
+  const controller = new RunEditorController(f.local.runEditor, 'parent', 'device', {
+    runEditor: () => new Promise((resolve, reject) => reads.push({ resolve, reject })), saveRunEdit: async edit => reply(edit),
+  }, () => 'unused')
+  t.after(() => controller.stop()); await controller.open(household, 'run1'); controller.setConnectivity(true)
+  controller.close(); reads.shift().reject(new Error('Late failure')); await new Promise(resolve => setImmediate(resolve))
+  assert.equal(controller.getSnapshot().refreshError, null)
+  const open = controller.open(household, 'run1')
+  await new Promise(resolve => setImmediate(resolve)); reads.shift().reject(new TransportError('Access revoked', 403)); await open
+  assert.equal(controller.getSnapshot().data, null)
+  assert.equal(controller.getSnapshot().refreshError, 'Access revoked')
+  assert.equal(await f.local.runEditor.get('parent', 'h1', 'run1'), null)
+})
+
+test('disconnecting during initial refresh cannot clear a failed local draft written while cached details were open', { timeout: 5000 }, async t => {
+  const f = await fixture(t)
+  let rejectRead
+  const controller = new RunEditorController(f.local.runEditor, 'parent', 'device', {
+    runEditor: () => new Promise((_, reject) => { rejectRead = reject }), saveRunEdit: async edit => reply(edit),
+  }, () => 'unused')
+  t.after(() => controller.stop()); controller.setConnectivity(true)
+  const opening = controller.open(household, 'run1'); await new Promise(resolve => setImmediate(resolve))
+  assert.ok(controller.getSnapshot().data)
+  f.db.fail = 'INSERT INTO device_settings'
+  await assert.rejects(controller.setDraft(draft({ title: 'Keep this unsaved text' })), /Disk full/)
+  const warning = controller.getSnapshot().error
+  controller.setConnectivity(false); rejectRead(new Error('Connection lost')); await opening
+  assert.match(warning, /Draft not saved/)
+  assert.equal(controller.getSnapshot().error, warning)
+  assert.equal(controller.getSnapshot().draft.title, 'Keep this unsaved text')
+  assert.equal(controller.getSnapshot().loading, false)
+})
+
 test('kiosk activation accounts for live drafts and queued writes, then purges the live editor cache', async t => {
   const f = await fixture(t), hh = randomUUID(), occurrenceId = randomUUID(), home = { ...household, id: hh }
   const data = snapshot(occurrenceId); data.householdId = hh; data.occurrence.household_id = hh; data.tasks[0].household_id = hh

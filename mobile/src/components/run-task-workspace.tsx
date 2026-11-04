@@ -29,7 +29,7 @@ export function RunTaskWorkspace({ household, occurrenceId, onClose, backActionR
     return () => { if (backActionRef.current === back) backActionRef.current = null }
   }, [backActionRef, closeEditor, editing, onClose, state.busy])
   if (editing && state.draft && data) return <PlannerTaskEditor key={state.draft.taskId} initial={state.draft} snapshot={runAsPlanner(data)} embedded
-    timezone={household.timezone} busy={state.busy} savingDraft={state.draftSaving} error={state.error}
+    timezone={household.timezone} busy={state.busy} savingDraft={state.draftSaving} error={state.error} online={state.online}
     onDraft={draft => { void runEditor.setDraft(draft).catch(() => {}) }} onClose={closeEditor}
     onSave={draft => { void runEditor.save(draft).then(() => setEditing(false)).catch(report) }} />
   return <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -40,6 +40,7 @@ export function RunTaskWorkspace({ household, occurrenceId, onClose, backActionR
         <Copy tone="muted">Changes here apply only to this board. Your routine template and other runs stay as they are.</Copy>
         {!state.online ? <Copy tone="muted">You’re offline. Existing task edits save on this device; connect to add new tasks.</Copy> : null}
         {state.error ? <View accessibilityRole="alert"><Copy style={{ color: colors.danger }}>{state.error}</Copy></View> : null}
+        {state.refreshError ? <Copy tone="muted">{state.refreshError}</Copy> : null}
         <Action secondary label={state.loading ? "Refreshing…" : "Refresh board"} disabled={!state.online || state.loading || state.busy} onPress={() => void runEditor.refresh()} />
         {state.draft ? <Card><Copy tone="label">Unfinished task: {state.draft.title || "New task"}</Copy>
           <Action label="Continue editing" onPress={() => setEditing(true)} />

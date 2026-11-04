@@ -29,10 +29,10 @@ export function PlannerChoice({ label, selected, onPress, detail }: { label: str
   </Pressable>
 }
 
-export function PlannerTaskEditor<D extends PlannerTaskDraft | RunTaskDraft>({ initial, snapshot, timezone, busy, error, onSave, onClose, onDraft, embedded = false, savingDraft = false }: {
+export function PlannerTaskEditor<D extends PlannerTaskDraft | RunTaskDraft>({ initial, snapshot, timezone, busy, error, online, onSave, onClose, onDraft, embedded = false, savingDraft = false }: {
   initial: D; snapshot: PlannerSnapshot; busy: boolean; error: string | null;
   timezone: string;
-  embedded?: boolean; savingDraft?: boolean;
+  embedded?: boolean; savingDraft?: boolean; online?: boolean;
   onSave: (draft: D) => void; onClose: () => void; onDraft: (draft: D) => void
 }) {
   const [draft, setDraft] = useState(initial)
@@ -57,6 +57,7 @@ export function PlannerTaskEditor<D extends PlannerTaskDraft | RunTaskDraft>({ i
           </View>
           {error ? <View accessibilityRole="alert"><Copy style={{ color: colors.danger }}>{error}</Copy></View> : null}
           {live ? <Copy tone="muted">{savingDraft ? "Saving draft on this device…" : error ? "Check the message above before leaving this draft." : "Draft saved on this device. Changes apply to this run only."}</Copy> : null}
+          {live && online !== undefined ? <View style={[styles.row, { flexWrap: "wrap" }]}><Copy tone="label">Connection</Copy><Copy tone="muted">{online ? "Online" : "Offline"}</Copy></View> : null}
           <PlannerField label="Task name" value={draft.title} editable={!busy} onChange={title => update({ title })} />
           <PlannerField label="Notes" value={draft.notes} editable={!busy} onChange={notes => update({ notes })} multiline maxLength={4000} />
           <Card><View style={styles.row}><View style={{ flex: 1 }}><Copy tone="label">Make this a reward</Copy><Copy tone="muted">Something to look forward to when the earlier tasks are done.</Copy></View>

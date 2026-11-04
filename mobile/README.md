@@ -2247,5 +2247,32 @@ Diagnostics are `cyntch-live-timing-anr.txt` and
 `cyntch-live-timing-anr-dropbox.txt` in the evidence directory. Release-build and
 physical-device startup/performance checks remain open. During offline switching,
 the form also moved back to its top while automation was targeting Save; an
-unintended assignee selection was corrected before submission. Background-error
-scroll behavior needs investigation before the interaction is considered polished.
+unintended assignee selection was corrected before submission. The following
+increment addresses the background-error and connection-status layout behavior.
+
+### Keep editing through connection changes
+
+Live editor refresh failures now have separate state from local draft/save
+failures. Background refreshes cannot trigger the form's save-error scrolling
+or overwrite a warning that the latest draft did not reach local storage.
+Successful refreshes clear only their own warning; a local-save warning remains
+until the write succeeds. Access revocation still invalidates the editor cache.
+Refresh warnings remain visible in the task workspace with its retry control.
+
+An always-present Connection row shows Online or Offline inside the live form.
+Switching connectivity does not insert or remove content above the fields.
+The 22 focused SQLite/controller/timing tests passed, including failed disk
+writes combined with failed/successful refreshes, closed-editor responses and
+permission revocation. An initial refresh finishing offline also retains any
+local-save error raised while cached details were already open. Final mobile
+lint/type and Android/iOS export results
+are recorded with the runtime evidence in
+`C:/Users/danie/.codex/tmp/cyntch-editor-refresh-runtime.json`.
+
+The Android API 36 development client retained the exact Save button bounds
+through online/offline/online transitions in portrait, landscape and landscape
+with 1.5-scale text. The draft stayed intact. The unused test draft was discarded
+through the native confirmation; final edit queue and draft counts were zero.
+Device font, orientation and connectivity were restored and the emulator stopped.
+The final session's ANR/crash event query was empty. This does not resolve the
+earlier ANR or replace physical iOS/Android and release-build performance tests.
