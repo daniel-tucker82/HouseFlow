@@ -3,6 +3,7 @@
 const fs = require('node:fs')
 const path = require('node:path')
 const { execFileSync, spawnSync } = require('node:child_process')
+const { inspectScreenshotOrientations } = require('./device-screenshot-evidence.cjs')
 
 if (process.platform !== 'darwin' || process.env.GITHUB_ACTIONS !== 'true') {
   throw new Error('Run this verification on the macOS GitHub Actions host.')
@@ -67,7 +68,9 @@ for (const [index, template] of devices.entries()) {
       '--test-output-dir', folder, '--debug-output', folder, path.resolve('.maestro/signed-out.yaml'),
     ], { stdio: 'inherit', timeout: 300_000, env: process.env })
     result.exitCode = run.status
+    result.orientationEvidence = inspectScreenshotOrientations(folder)
     if (run.error || run.status !== 0) throw new Error(`Simulator flow failed (${run.error?.code ?? run.status}).`)
+    if (!result.orientationEvidence.passed) throw new Error('Screenshots do not prove both requested orientations.')
     result.passed = true
     stage('completed')
   } catch (error) {

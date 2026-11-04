@@ -14,6 +14,12 @@ iPad setup timeout prompted a five-minute cold-boot allowance and per-command
 timings/stage reporting. These fixes still require a successful hosted rerun.
 Failed-run evidence: `C:/Users/danie/.codex/tmp/cyntch-ios-evidence-41822109295`.
 
+Startup account-storage failures now replace the loading spinner with a readable,
+scrollable retry screen. Internal storage/SDK exception text is not shown on
+that screen. The saved-account readiness gate remains in place, so failure does
+not reveal account controls. Mobile lint/types pass; native visual verification
+of this error state is still pending.
+
 Membership departure notifications now describe the recorded cause: a parent
 removing someone produces "was removed", while self-requested account deletion
 produces "left" for surviving households. The cause commits with membership
@@ -56,9 +62,29 @@ production API. The APK is for this emulator verification, not store submission.
 
 The seven-day artifact retains the APK and hash, build logs, per-device model,
 OS and display metadata, JUnit results, screenshots, Maestro output and logcat.
-Local JavaScript/YAML/shell checks and mobile lint/types validate the setup;
-the first hosted build/device results must still be inspected before claiming
-these journeys pass. Authenticated workflows, physical-device performance,
+Run `41825137438` at `55d1ae4` compiled the optimized APK successfully. Both
+devices opened the welcome and native authentication screens, then failed on
+an incorrect test label (`Email address`; Android displayed `Enter your email`).
+The retained phone screenshot also exposes a genuine defect: the Continue
+button is compressed and clipped in landscape, with no scrollable form. The
+same non-scrolling auth scaffold remains in the published Clerk Android UI
+1.4.1 sources; no dependency upgrade or layout fix has been applied yet.
+
+The shared flow now selects Clerk's published native field/action identifiers
+on both platforms and requires the complete Continue control and its text to be
+reachable in each orientation. It checks portrait authentication first to retain
+that evidence even if landscape fails. On Android, the driver maps rotations
+using the emulator's natural display orientation. The previous Pixel Tablet
+screenshots were labelled backwards. Both drivers now check the actual PNG
+dimensions before accepting orientation coverage and retain those findings.
+The evidence checker correctly rejects the original tablet screenshots and the
+missing authentication/restart screenshots. This is a regression check for an
+open defect, not a claim that sign-in now passes.
+
+Downloaded evidence: `C:/Users/danie/.codex/tmp/cyntch-android-evidence-41825137438`.
+The original ZIP SHA-256 is
+`45e5e0fa502e27344522911336345ca66bca89063c6d0773d9a6d335545fca07`.
+Authenticated workflows, physical-device performance,
 push delivery, billing and the remaining device matrix need separate evidence.
 Both native workflows let an active run finish and queue the latest pending
 revision, preserving device evidence when implementation work is pushed.
@@ -117,7 +143,7 @@ retaining the local Expo module's Android and Swift sources. Update the allowlis
 if mobile code gains another external source dependency. EAS regenerates native
 app projects through the existing config plugins.
 
-`.github/workflows/native-ios.yml` provides unsigned arm64 Simulator verification
+`.github/workflows/native-ios.yml` provides locally signed arm64 Simulator verification
 on the mobile development branch, using a standard macOS 26 runner and Xcode
 26.6. EAS remains the signing/distribution path.
 
@@ -142,8 +168,8 @@ the welcome screen after restarting. It uses Cyntch's public development Clerk
 identifier, grants no device permissions and never submits login credentials.
 The application API is a reserved `.invalid` address, so these checks cannot
 exercise production household data. No Metro server or signing account is used.
-The first execution of these runtime checks is pending; adding the flow is not
-evidence that it passes. They do not cover authenticated journeys, real device
+The first runtime attempt failed on the unsigned binary's Keychain access;
+the corrected signing and flow still need a successful run. They do not cover authenticated journeys, real device
 performance, purchases, delivered pushes or store readiness.
 
 RevenueCat's React Native SDK is pinned to `10.16.0`. The first Mac check

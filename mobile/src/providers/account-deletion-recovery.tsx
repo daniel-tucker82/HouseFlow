@@ -1,10 +1,11 @@
 import { createContext, useContext, useEffect, useState, useSyncExternalStore, type PropsWithChildren } from "react"
-import { AppState, View } from "react-native"
+import { AppState, ScrollView, View } from "react-native"
+import { SafeAreaView } from "react-native-safe-area-context"
 import { useAuth } from "@clerk/expo"
 import { useAuthViewState } from "@clerk/expo/native-components"
 import type { AccountDeletionRecoveryController } from "../services/account-deletion-recovery"
 import { nativeAccountDeletionRecovery } from "../services/native-account-deletion"
-import { Action, Copy, Loading, styles } from "../components/ui"
+import { Action, Copy, Loading, usePalette } from "../components/ui"
 
 const RecoveryContext = createContext<AccountDeletionRecoveryController | null>(null)
 
@@ -17,14 +18,29 @@ export function AccountDeletionRecoveryProvider({children}: PropsWithChildren) {
     void nativeAccountDeletionRecovery().then(value => { if (!cancelled) { setController(value);void value.refresh().catch(() => undefined) } }).catch(() => { if (!cancelled) setError(true) })
     return () => { cancelled = true }
   },[attempt])
-  if (error) return <View style={styles.center}><Copy>Unable to open saved account recovery information.</Copy><Action label="Try again" onPress={() => {setError(false);setAttempt(value => value+1)}} /></View>
+  if (error) return <AccountRecoveryUnavailable onRetry={() => {setError(false);setAttempt(value => value+1)}} />
   if (!controller) return <Loading label="Opening saved account information…" />
   return <RecoveryContext value={controller}><RecoveryReady>{children}</RecoveryReady></RecoveryContext>
 }
 function RecoveryReady({children}: PropsWithChildren) {
   const {controller,state} = useAccountDeletionRecovery()
-  if (!state.ready) return <View style={{flex:1}}><Loading label="Checking saved account information…" />{state.error ? <View style={styles.content}><Copy>{state.error}</Copy><Action label="Try again" disabled={state.busy} onPress={() => void controller.refresh().catch(() => undefined)} /></View> : null}</View>
+  if (!state.ready) {
+    if (state.error && !state.busy) return <AccountRecoveryUnavailable onRetry={() => void controller.refresh().catch(() => undefined)} />
+    return <Loading label="Checking saved account information…" />
+  }
   return children
+}
+function AccountRecoveryUnavailable({onRetry}: {onRetry: () => void}) {
+  const colors = usePalette()
+  return <SafeAreaView style={{flex:1,backgroundColor:colors.background}}>
+    <ScrollView contentContainerStyle={{flexGrow:1,justifyContent:"center",padding:24}}>
+      <View style={{width:"100%",maxWidth:560,alignSelf:"center",gap:20}}>
+        <Copy tone="heading">Cyntch couldn’t open</Copy>
+        <Copy>We couldn’t read saved account information on this device. Try again, or close and reopen Cyntch.</Copy>
+        <Action label="Try again" onPress={onRetry} />
+      </View>
+    </ScrollView>
+  </SafeAreaView>
 }
 /** Mounted inside Clerk, independently of the signed-in application runtime.
  * Retry on readiness, identity and foreground transitions, including dismissed

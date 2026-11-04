@@ -1,26 +1,53 @@
 appId: com.cyntch.app
 name: Signed-out startup, rotation and native authentication
+env:
+  PORTRAIT_ORIENTATION: ${PORTRAIT_ORIENTATION || "PORTRAIT"}
+  LANDSCAPE_ORIENTATION: ${LANDSCAPE_ORIENTATION || "LANDSCAPE_LEFT"}
 ---
 - launchApp:
     permissions:
       all: deny
-- setOrientation: PORTRAIT
+- setOrientation: ${PORTRAIT_ORIENTATION}
 - extendedWaitUntil:
     visible: "Sign in or create an account"
     timeout: 60000
 - assertVisible: "A little more together."
 - takeScreenshot: welcome-portrait
-- setOrientation: LANDSCAPE_LEFT
+- setOrientation: ${LANDSCAPE_ORIENTATION}
 - assertVisible: "Sign in or create an account"
 - takeScreenshot: welcome-landscape
+- setOrientation: ${PORTRAIT_ORIENTATION}
 - tapOn: "Sign in or create an account"
 - extendedWaitUntil:
-    visible: "Email address"
+    visible:
+      id: "clerk.auth.start.identifier"
     timeout: 60000
-- takeScreenshot: native-sign-in-landscape
-- setOrientation: PORTRAIT
-- assertVisible: "Email address"
+# Verify the complete action is reachable, including when the form needs scrolling.
+# A visible field alone did not catch the clipped landscape Continue button.
+- scrollUntilVisible:
+    element:
+      id: "clerk.auth.start.continue"
+    direction: DOWN
+    timeout: 10000
+    visibilityPercentage: 100
+- assertVisible: "Continue"
 - takeScreenshot: native-sign-in-portrait
+- setOrientation: ${LANDSCAPE_ORIENTATION}
+- scrollUntilVisible:
+    element:
+      id: "clerk.auth.start.identifier"
+    direction: UP
+    timeout: 10000
+    visibilityPercentage: 100
+- scrollUntilVisible:
+    element:
+      id: "clerk.auth.start.continue"
+    direction: DOWN
+    timeout: 10000
+    visibilityPercentage: 100
+- assertVisible: "Continue"
+- takeScreenshot: native-sign-in-landscape
+- setOrientation: ${PORTRAIT_ORIENTATION}
 - stopApp
 - launchApp:
     permissions:

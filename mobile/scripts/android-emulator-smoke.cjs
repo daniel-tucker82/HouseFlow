@@ -4,6 +4,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { createHash } = require('node:crypto')
 const { execFileSync, spawnSync } = require('node:child_process')
+const { androidOrientationParameters, inspectScreenshotOrientations } = require('./device-screenshot-evidence.cjs')
 
 if (process.platform !== 'linux' || process.env.GITHUB_ACTIONS !== 'true') {
   throw new Error('Run this verification on the Linux GitHub Actions host.')
@@ -33,6 +34,7 @@ try {
   report.osVersion = adb('shell', 'getprop', 'ro.build.version.release').trim()
   report.displaySize = adb('shell', 'wm', 'size').trim()
   report.displayDensity = adb('shell', 'wm', 'density').trim()
+  report.orientations = androidOrientationParameters(report.displaySize)
   adb('install', '-r', apk)
   adb('logcat', '-c')
   const log = fs.openSync(path.join(output, 'maestro.log'), 'w')
@@ -40,12 +42,16 @@ try {
   try {
     run = spawnSync(maestro, [
       '--device', serial, 'test', '--format', 'junit', '--output', path.join(output, 'report.xml'),
+      '-e', `PORTRAIT_ORIENTATION=${report.orientations.portrait}`,
+      '-e', `LANDSCAPE_ORIENTATION=${report.orientations.landscape}`,
       '--test-output-dir', output, '--debug-output', output, path.resolve('.maestro/signed-out.yaml'),
     ], { stdio: ['ignore', log, log], timeout: 300_000, env: process.env })
   } finally { fs.closeSync(log) }
   console.log(fs.readFileSync(path.join(output, 'maestro.log'), 'utf8'))
   report.exitCode = run.status
+  report.orientationEvidence = inspectScreenshotOrientations(output)
   if (run.error || run.status !== 0) throw new Error(`Android flow failed (${run.error?.code ?? run.status}).`)
+  if (!report.orientationEvidence.passed) throw new Error('Screenshots do not prove both requested orientations.')
   report.passed = true
 } catch (error) {
   report.error = error.message
