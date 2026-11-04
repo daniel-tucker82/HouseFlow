@@ -66,7 +66,9 @@ android {
   compileSdk 36
   defaultConfig {
     minSdk 24
-    consumerProguardFiles generated.map { it.file('proguard.txt') }
+    // AGP 9 rejects Provider values in this API. prepareClerkUi remains an
+    // explicit preBuild dependency; resolving this path performs no file IO.
+    consumerProguardFiles generated.get().file('proguard.txt').asFile
   }
   buildFeatures { compose = true }
   compileOptions {
@@ -75,9 +77,9 @@ android {
   }
   sourceSets {
     main {
-      java.srcDir generated.map { it.dir('kotlin') }
-      res.srcDir generated.map { it.dir('res') }
-      manifest.srcFile generated.map { it.file('AndroidManifest.xml') }
+      java.srcDir generated.get().dir('kotlin').asFile
+      res.srcDir generated.get().dir('res').asFile
+      manifest.srcFile generated.get().file('AndroidManifest.xml').asFile
       assets.srcDir 'assets'
     }
   }

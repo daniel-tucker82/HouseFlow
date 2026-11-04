@@ -81,6 +81,10 @@ now compiles the library directly with Gradle's project-directory option before
 the app build, and the generated included build has an explicit name. Java and
 Kotlin compilation targets are both 17. Failure evidence is retained in
 `C:/Users/danie/.codex/tmp/cyntch-android-evidence-41833452182`.
+Run `41835086449` reached the standalone library but AGP 9 rejected its lazy
+ProGuard file provider. Generated source/resource/rule paths now use concrete
+files with the existing explicit preBuild dependency. That failed run's evidence
+is in `C:/Users/danie/.codex/tmp/cyntch-android-evidence-41835086449`.
 
 The shared flow now selects Clerk's published native field/action identifiers
 on both platforms and requires the complete Continue control and its text to be
