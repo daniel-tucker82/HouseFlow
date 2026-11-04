@@ -1,5 +1,6 @@
 import { useState } from "react"
-import { Modal, ScrollView, Switch, View } from "react-native"
+import { ScrollView, Switch, View } from "react-native"
+import { AppModal } from "./app-modal"
 import { SafeAreaView } from "react-native-safe-area-context"
 import type { BoardSnapshot } from "../../../shared/mobile/contracts"
 import { boardDisplayAccess, defaultBoardDisplay, type BoardDisplayPreferences } from "../../../shared/mobile/board-view"
@@ -24,7 +25,7 @@ export function BoardDisplaySettings({ board, accountId, preferences, onSave, on
     catch (cause) { setError(cause instanceof Error ? cause.message : "These display settings could not be saved.") }
     finally { setBusy(false) }
   }
-  return <Modal visible animationType="slide" presentationStyle="pageSheet" supportedOrientations={["portrait", "landscape-left", "landscape-right"]} onRequestClose={() => { if (!busy) onClose() }}>
+  return <AppModal visible animationType="slide" presentationStyle="pageSheet" supportedOrientations={["portrait", "landscape-left", "landscape-right"]} onRequestClose={() => { if (!busy) onClose() }}>
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
       <ScrollView contentContainerStyle={[styles.content, { maxWidth: 750 }]}>
         <Copy tone="heading">Display settings</Copy>
@@ -45,5 +46,5 @@ export function BoardDisplaySettings({ board, accountId, preferences, onSave, on
         <Action secondary label="Cancel" disabled={busy} onPress={onClose} />
       </ScrollView>
     </SafeAreaView>
-  </Modal>
+  </AppModal>
 }

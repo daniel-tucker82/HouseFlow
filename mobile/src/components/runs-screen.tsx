@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
-import { Alert, FlatList, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, TextInput, View, useWindowDimensions } from "react-native"
+import { Alert, FlatList, Keyboard, KeyboardAvoidingView, Platform, Pressable, RefreshControl, ScrollView, TextInput, View, useWindowDimensions } from "react-native"
+import { AppModal } from "./app-modal"
 import { useFocusEffect } from "expo-router"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { ChevronRight } from "lucide-react-native"
@@ -41,7 +42,7 @@ export default function RunsScreen() {
         <Copy tone="muted">{dateLabel(run, state.household!.timezone)}</Copy><Copy>{run.status === "cancelled" ? "Cancelled" : `${run.completed_tasks} of ${run.total_tasks} done`}</Copy>
       </Card></Pressable>} />
     }</NewTaskBoard>
-    <Modal visible={Boolean(state.runId)} animationType="slide" presentationStyle="pageSheet" supportedOrientations={["portrait", "landscape-left", "landscape-right"]} onRequestClose={() => {
+    <AppModal visible={Boolean(state.runId)} animationType="slide" presentationStyle="pageSheet" supportedOrientations={["portrait", "landscape-left", "landscape-right"]} onRequestClose={() => {
       if (Keyboard.isVisible()) Keyboard.dismiss()
       else if (backActionRef.current) backActionRef.current()
       else runs.closeRun()
@@ -51,7 +52,7 @@ export default function RunsScreen() {
           {state.runLoading ? <Loading label="Opening this run…" /> : <><Copy>{state.runError ?? "This run is not available on this device."}</Copy>{board.online ? <Action label="Try again" onPress={() => void runs.refreshRun()} /> : null}</>}
         </View>}
       </SafeAreaView>
-    </Modal>
+    </AppModal>
   </SafeAreaView>
 }
 

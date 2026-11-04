@@ -1,6 +1,7 @@
 import { useSession } from "@clerk/expo"
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
-import { KeyboardAvoidingView, Modal, Platform, ScrollView, TextInput, View } from "react-native"
+import { KeyboardAvoidingView, Platform, ScrollView, TextInput, View } from "react-native"
+import { AppModal } from "./app-modal"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { Action, Card, Copy, styles, usePalette } from "./ui"
 
@@ -86,7 +87,7 @@ export function AccountReverification({request}: {request: ReverificationRequest
     })
   }
   const factors = (verification?.status === "needs_second_factor" ? verification.supportedSecondFactors : verification?.supportedFirstFactors)?.filter(item => item.strategy !== "enterprise_sso") ?? []
-  return <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={() => finish(false)}><SafeAreaView style={{flex:1,backgroundColor:colors.background}}>
+  return <AppModal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={() => finish(false)}><SafeAreaView style={{flex:1,backgroundColor:colors.background}}>
     <KeyboardAvoidingView style={{flex:1}} behavior={Platform.OS === "ios" ? "padding" : undefined}><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
       <Copy tone="title">Verify your identity</Copy><Copy tone="muted">Confirm that it’s you before changing your account.</Copy>
       <Card>{error ? <View accessibilityRole="alert"><Copy style={{color:colors.danger}}>{error}</Copy></View> : null}
@@ -104,5 +105,5 @@ export function AccountReverification({request}: {request: ReverificationRequest
         {!busy && verification && factors.length === 0 ? <Copy>This account has no supported verification method available. Cancel, then check your sign-in methods in account settings.</Copy> : null}
       </Card><Action secondary label="Cancel verification" onPress={() => finish(false)} />
     </ScrollView></KeyboardAvoidingView>
-  </SafeAreaView></Modal>
+  </SafeAreaView></AppModal>
 }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react"
-import { KeyboardAvoidingView, Modal, Platform, ScrollView, TextInput, View } from "react-native"
+import { KeyboardAvoidingView, Platform, ScrollView, TextInput, View } from "react-native"
+import { AppModal } from "./app-modal"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { usePlanner, useRuntime } from "../providers/runtime"
 import { PlannerPendingCreations } from "./planner-pending-creations"
@@ -52,7 +53,7 @@ export function NewTaskBoard({ householdId, enabled, children }: { householdId: 
     {!loaded && error ? <Action secondary label="Reload saved board name" onPress={() => { setError(null); setLoadAttempt(value => value + 1) }} /> : null}
     <PlannerPendingCreations householdId={householdId} onlyBoards />
     </View> : null)}
-    <Modal visible={enabled && open} animationType="slide" presentationStyle="pageSheet" supportedOrientations={["portrait", "landscape-left", "landscape-right"]} onRequestClose={() => { if (!busy) setOpen(false) }}>
+    <AppModal visible={enabled && open} animationType="slide" presentationStyle="pageSheet" supportedOrientations={["portrait", "landscape-left", "landscape-right"]} onRequestClose={() => { if (!busy) setOpen(false) }}>
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
           <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={[styles.content, { maxWidth: 800, gap: 16 }]}>
@@ -72,6 +73,6 @@ export function NewTaskBoard({ householdId, enabled, children }: { householdId: 
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
-    </Modal>
+    </AppModal>
   </>
 }

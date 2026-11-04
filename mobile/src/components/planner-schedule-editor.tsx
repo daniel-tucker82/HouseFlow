@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react"
-import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Switch, View, type ScrollViewInstance } from "react-native"
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Switch, View, type ScrollViewInstance } from "react-native"
+import { AppModal } from "./app-modal"
+import { useReducedMotion } from "../providers/motion-preferences"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { randomUUID } from "expo-crypto"
 import { nextRecurrenceDate, type RecurrenceFrequency } from "../../../lib/recurrence"
@@ -42,11 +44,12 @@ export function PlannerScheduleEditor({ draft, timezone, busy, error, onChange, 
   onChange: (draft: RoutineScheduleDraft) => void; onSave: () => void; onClose: () => void
 }) {
   const colors = usePalette(), form = useRef<ScrollViewInstance>(null)
+  const reducedMotion = useReducedMotion()
   const [expanded, setExpanded] = useState<string | null>(draft.schedule.rules[0]?.id ?? null)
-  useEffect(() => { if (error) form.current?.scrollTo({ y: 0, animated: true }) }, [error])
+  useEffect(() => { if (error) form.current?.scrollTo({ y: 0, animated: !reducedMotion }) }, [error, reducedMotion])
   function update(schedule: RoutineSchedule) { onChange({ ...draft, schedule }) }
   function edit(id: string, patch: Partial<EditableRecurrenceRule>) { update({ ...draft.schedule, rules: draft.schedule.rules.map(rule => rule.id === id ? { ...rule, ...patch } : rule) }) }
-  return <Modal visible animationType="slide" presentationStyle="pageSheet" supportedOrientations={["portrait", "landscape-left", "landscape-right"]} onRequestClose={() => { if (!busy) onClose() }}>
+  return <AppModal visible animationType="slide" presentationStyle="pageSheet" supportedOrientations={["portrait", "landscape-left", "landscape-right"]} onRequestClose={() => { if (!busy) onClose() }}>
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}><KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
       <ScrollView ref={form} keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.content, { maxWidth: 720 }]}>
         <View style={[styles.row, { flexWrap: "wrap" }]}><Copy tone="heading" style={{ flex: 1, minWidth: 160 }}>Routine schedule</Copy><Action secondary label="Close" disabled={busy} onPress={onClose} /></View>
@@ -87,5 +90,5 @@ export function PlannerScheduleEditor({ draft, timezone, busy, error, onChange, 
         <Action label={busy ? "Saving…" : "Save schedule"} disabled={busy} onPress={onSave} />
       </ScrollView>
     </KeyboardAvoidingView></SafeAreaView>
-  </Modal>
+  </AppModal>
 }

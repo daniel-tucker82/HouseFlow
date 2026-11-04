@@ -1,5 +1,6 @@
 import { useState } from "react"
-import { FlatList, Modal, Pressable, ScrollView, View, useWindowDimensions } from "react-native"
+import { FlatList, Pressable, ScrollView, View, useWindowDimensions } from "react-native"
+import { AppModal } from "./app-modal"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { Check, Circle, Gift, LockKeyhole } from "lucide-react-native"
 import { completePracticeTask, practiceTaskStates, resetRoutinePractice, type RoutinePractice } from "../../../shared/mobile/routine-practice"
@@ -20,7 +21,7 @@ export function PlannerPractice({ practice, onChange, onClose }: {
     <Copy>Practice your task order. These taps do not complete real household tasks or send notifications.</Copy>
     <Copy tone="muted">Time and expiry rules apply in live runs. This practice uses the template as it was when you opened it.</Copy>
   </View>
-  return <Modal visible animationType="slide" presentationStyle="pageSheet" supportedOrientations={["portrait", "landscape-left", "landscape-right"]} onRequestClose={onClose}>
+  return <AppModal visible animationType="slide" presentationStyle="pageSheet" supportedOrientations={["portrait", "landscape-left", "landscape-right"]} onRequestClose={onClose}>
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} onLayout={event => setAvailableWidth(event.nativeEvent.layout.width)}>
       <View style={[styles.row, { padding: 20, flexWrap: "wrap", borderBottomWidth: 1, borderColor: colors.border }]}>
         <Copy tone="heading" style={{ flex: 1, minWidth: 140 }}>Try it out</Copy><Action secondary label="Back to editing" onPress={onClose} />
@@ -48,5 +49,5 @@ export function PlannerPractice({ practice, onChange, onClose }: {
           }} />
       </View>
     </SafeAreaView>
-  </Modal>
+  </AppModal>
 }

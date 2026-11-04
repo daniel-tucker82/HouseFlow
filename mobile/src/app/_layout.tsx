@@ -5,7 +5,9 @@ import { nativeClerkResourceCache } from "../services/native-clerk-offline-cache
 import { Tabs } from "expo-router"
 import { StatusBar } from "expo-status-bar"
 import { useEffect, useState } from "react"
-import { Alert, BackHandler, Modal, Platform, ScrollView, StyleSheet, useWindowDimensions, View } from "react-native"
+import { Alert, BackHandler, Platform, ScrollView, StyleSheet, useWindowDimensions, View } from "react-native"
+import { AppModal } from "../components/app-modal"
+import { MotionPreferencesProvider } from "../providers/motion-preferences"
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context"
 import { CircleCheck, History, ListChecks, Settings, Users } from "lucide-react-native"
 import { Action, Copy, Loading, styles, usePalette } from "../components/ui"
@@ -66,7 +68,7 @@ function Application({ onSignIn }: { onSignIn: () => void }) {
       </View>
       </ScrollView>
     </SafeAreaView>}
-    <Modal visible={recoveryOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setRecoveryOpen(false)}><AccountDeletionStatusView onClose={() => setRecoveryOpen(false)} /></Modal>
+    <AppModal visible={recoveryOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setRecoveryOpen(false)}><AccountDeletionStatusView onClose={() => setRecoveryOpen(false)} /></AppModal>
   </>
 }
 
@@ -95,16 +97,16 @@ function ApplicationWithSignIn() {
         finishes sign-in. Keep the native flow here until its own dismissal. */}
     {Platform.OS === "android" ? androidAuthOpen ? <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.surface }]}>
       <AuthView onDismiss={() => setAuthOpen(false)} />
-    </View> : null : <Modal visible={authOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setAuthOpen(false)}>
+    </View> : null : <AppModal visible={authOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setAuthOpen(false)}>
       <AuthView onDismiss={() => setAuthOpen(false)} />
-    </Modal>}
+    </AppModal>}
   </View>
 }
 
 export default function RootLayout() {
   const key = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY
-  return <SafeAreaProvider><StatusBar style="auto" /><AccountDeletionRecoveryProvider>{key ? <ClerkProvider publishableKey={key} tokenCache={tokenCache} __experimental_resourceCache={nativeClerkResourceCache}>
+  return <SafeAreaProvider><MotionPreferencesProvider><StatusBar style="auto" /><AccountDeletionRecoveryProvider>{key ? <ClerkProvider publishableKey={key} tokenCache={tokenCache} __experimental_resourceCache={nativeClerkResourceCache}>
     <AccountDeletionIdentityRecovery />
     <KioskProvider><ApplicationWithSignIn /></KioskProvider>
-  </ClerkProvider> : <View style={styles.center}><Copy tone="heading">Cyntch setup is incomplete</Copy><Copy>This build is missing its sign-in configuration.</Copy></View>}</AccountDeletionRecoveryProvider></SafeAreaProvider>
+  </ClerkProvider> : <View style={styles.center}><Copy tone="heading">Cyntch setup is incomplete</Copy><Copy>This build is missing its sign-in configuration.</Copy></View>}</AccountDeletionRecoveryProvider></MotionPreferencesProvider></SafeAreaProvider>
 }

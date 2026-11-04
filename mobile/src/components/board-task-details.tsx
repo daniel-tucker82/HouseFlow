@@ -1,4 +1,5 @@
-import { Modal, ScrollView, View } from "react-native"
+import { ScrollView, View } from "react-native"
+import { AppModal } from "./app-modal"
 import { SafeAreaView } from "react-native-safe-area-context"
 import type { BoardTask } from "../../../shared/mobile/contracts"
 import { Action, Card, Copy, styles, usePalette } from "./ui"
@@ -18,7 +19,7 @@ export function BoardTaskDetails({ task, memberNames, timezone, canEdit, saving,
   task: BoardTask | null; memberNames: string; timezone?: string; canEdit: boolean; saving: boolean; needsAttention: boolean; kiosk: boolean; onToggle: () => void; onClose: () => void
 }) {
   const colors = usePalette(), waiting = task ? taskWaitingLabel(task, timezone) : null
-  return <Modal visible animationType="slide" presentationStyle="pageSheet" supportedOrientations={["portrait", "landscape-left", "landscape-right"]} onRequestClose={onClose}>
+  return <AppModal visible animationType="slide" presentationStyle="pageSheet" supportedOrientations={["portrait", "landscape-left", "landscape-right"]} onRequestClose={onClose}>
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}><ScrollView contentContainerStyle={[styles.content, { maxWidth: 750 }]}>
       <View style={[styles.row, { flexWrap: "wrap" }]}><Copy tone="heading" style={{ flex: 1, minWidth: 140 }}>{task?.is_reward ? "Reward details" : "Task details"}</Copy><Action secondary label="Close details" onPress={onClose} /></View>
       {task ? <><Copy tone="title">{task.title}</Copy>
@@ -39,5 +40,5 @@ export function BoardTaskDetails({ task, memberNames, timezone, canEdit, saving,
         </Copy><Copy tone="muted">{task.metadata_sync === "rejected" ? "Open this run in Runs, then Edit tasks, to review the saved change." : "Your task edits are saved on this device. They will sync when a connection is available."}</Copy></Card> : null}
       </> : <Copy>This task is no longer available on this display. Close these details to return to Today.</Copy>}
     </ScrollView></SafeAreaView>
-  </Modal>
+  </AppModal>
 }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
-import { Alert, Modal, Pressable, ScrollView, Switch, View } from "react-native"
+import { Alert, Pressable, ScrollView, Switch, View } from "react-native"
+import { AppModal } from "./app-modal"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { Check } from "lucide-react-native"
 import { router } from "expo-router"
@@ -21,9 +22,9 @@ export function NotificationSettingsCard() {
     <Copy>{state.permission === "denied" ? "Notifications aren’t allowed yet" : state.device?.hasToken ? "This device is registered" : "This device is not receiving push notifications yet"}</Copy>
     <Action secondary label="Choose notifications" onPress={() => setOpen(true)} />
     <Action secondary label="Notification history" onPress={() => router.navigate("/notifications")} />
-    <Modal visible={open} animationType="slide" presentationStyle="pageSheet" supportedOrientations={["portrait", "landscape-left", "landscape-right"]} onRequestClose={() => setOpen(false)}>
+    <AppModal visible={open} animationType="slide" presentationStyle="pageSheet" supportedOrientations={["portrait", "landscape-left", "landscape-right"]} onRequestClose={() => setOpen(false)}>
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>{open ? <NotificationSettings onClose={() => setOpen(false)} /> : null}</SafeAreaView>
-    </Modal>
+    </AppModal>
   </Card>
 }
 

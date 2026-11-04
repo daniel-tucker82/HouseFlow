@@ -1,6 +1,7 @@
 import { useAuth } from "@clerk/expo"
 import { useState } from "react"
-import { Alert, Modal, ScrollView, View } from "react-native"
+import { Alert, ScrollView, View } from "react-native"
+import { AppModal } from "./app-modal"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { useKiosk } from "../providers/kiosk"
 import { useNotificationSession } from "../providers/notification-session"
@@ -43,7 +44,7 @@ export function KioskScreen({ onParentSignIn }: { onParentSignIn: () => void }) 
         <Action label={state.syncing ? "Recovering access…" : isSignedIn ? "Sign in again as the parent" : "Sign in as the parent"} disabled={!state.online || state.syncing} onPress={() => void recover()} /></> : null}
     </View> : null} />
     </RuntimeProvider>
-    <Modal visible={pinOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={closePin}>
+    <AppModal visible={pinOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={closePin}>
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}><ScrollView automaticallyAdjustKeyboardInsets keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
         <Copy tone="title">Parent access</Copy><Copy tone="muted">Enter the PIN for this device to unlock Cyntch’s parent controls.</Copy>
         {record.intent !== "recover" ? <><ParentPinInput label="Parent PIN" value={pin} onChange={setPin} />
@@ -52,6 +53,6 @@ export function KioskScreen({ onParentSignIn }: { onParentSignIn: () => void }) 
         <Action secondary label="Forgot PIN? Sign in as parent" disabled={busy} onPress={() => void recover()} />
         <Action secondary label="Back to family tasks" disabled={busy} onPress={closePin} />
       </ScrollView></SafeAreaView>
-    </Modal>
+    </AppModal>
   </View>
 }

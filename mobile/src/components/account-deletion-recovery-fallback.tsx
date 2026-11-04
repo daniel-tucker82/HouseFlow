@@ -1,5 +1,6 @@
 import { useState } from "react"
-import { Modal, View } from "react-native"
+import { View } from "react-native"
+import { AppModal } from "./app-modal"
 import { useAccountDeletionRecovery } from "../providers/account-deletion-recovery"
 import { useKiosk } from "../providers/kiosk"
 import { Action, styles } from "./ui"
@@ -12,8 +13,8 @@ export function AccountDeletionRecoveryFallback() {
   const [open,setOpen] = useState(false)
   if (!state.record?.submitted || !kiosk.state.ready || kiosk.state.changing || kiosk.state.record) return null
   return <View style={styles.content}><Action secondary label="Check saved account deletion" onPress={() => setOpen(true)} />
-    <Modal visible={open} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setOpen(false)}>
+    <AppModal visible={open} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setOpen(false)}>
       <AccountDeletionStatusView readOnly onClose={() => setOpen(false)} />
-    </Modal>
+    </AppModal>
   </View>
 }

@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react"
-import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Switch, TextInput, View, type ScrollViewInstance } from "react-native"
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Switch, TextInput, View, type ScrollViewInstance } from "react-native"
+import { AppModal } from "./app-modal"
+import { useReducedMotion } from "../providers/motion-preferences"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { Check } from "lucide-react-native"
 import { plannerDescendants, type PlannerSnapshot, type PlannerTaskDraft } from "../../../shared/mobile/planner"
@@ -37,7 +39,8 @@ export function PlannerTaskEditor<D extends PlannerTaskDraft | RunTaskDraft>({ i
 }) {
   const [draft, setDraft] = useState(initial)
   const form = useRef<ScrollViewInstance>(null)
-  useEffect(() => { if (error) form.current?.scrollTo({ y: 0, animated: true }) }, [error])
+  const reducedMotion = useReducedMotion()
+  useEffect(() => { if (error) form.current?.scrollTo({ y: 0, animated: !reducedMotion }) }, [error, reducedMotion])
   const colors = usePalette()
   const task = snapshot.tasks.find(item => item.id === draft.taskId)
   const timing = draft.timing ?? timingForTask(task)
@@ -82,6 +85,6 @@ export function PlannerTaskEditor<D extends PlannerTaskDraft | RunTaskDraft>({ i
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
-  return embedded ? content : <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={() => { if (!busy) onClose() }}
-    supportedOrientations={["portrait", "landscape-left", "landscape-right"]}>{content}</Modal>
+  return embedded ? content : <AppModal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={() => { if (!busy) onClose() }}
+    supportedOrientations={["portrait", "landscape-left", "landscape-right"]}>{content}</AppModal>
 }

@@ -1,5 +1,6 @@
 import { useState } from "react"
-import { Modal, Platform, Pressable, ScrollView, TextInput, View, useWindowDimensions } from "react-native"
+import { Platform, Pressable, ScrollView, TextInput, View, useWindowDimensions } from "react-native"
+import { AppModal } from "./app-modal"
 import { SafeAreaView } from "react-native-safe-area-context"
 import NativeDateTimePicker from "@expo/ui/community/datetime-picker"
 import { Check, ChevronDown } from "lucide-react-native"
@@ -14,7 +15,7 @@ export function PlannerSelect<T extends string>({ label, value, options, onChang
       style={[styles.row, { minHeight: 52, padding: 14, borderWidth: 1, borderColor: colors.border, borderRadius: 12, backgroundColor: colors.surface }]}>
       <Copy style={{ flex: 1 }}>{options.find(item => item.value === value)?.label ?? value}</Copy><ChevronDown size={20} color={colors.muted} />
     </Pressable>
-    <Modal visible={open} animationType="slide" presentationStyle="pageSheet" supportedOrientations={["portrait", "landscape-left", "landscape-right"]} onRequestClose={() => setOpen(false)}>
+    <AppModal visible={open} animationType="slide" presentationStyle="pageSheet" supportedOrientations={["portrait", "landscape-left", "landscape-right"]} onRequestClose={() => setOpen(false)}>
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}><ScrollView contentContainerStyle={[styles.content, { maxWidth: 720 }]}>
         <Copy tone="heading">{label}</Copy>
         {options.map(item => <Pressable key={item.value} accessibilityRole="radio" accessibilityLabel={item.label} accessibilityState={{ checked: item.value === value }}
@@ -23,7 +24,7 @@ export function PlannerSelect<T extends string>({ label, value, options, onChang
         </Pressable>)}
         <Action secondary label="Cancel" onPress={() => setOpen(false)} />
       </ScrollView></SafeAreaView>
-    </Modal>
+    </AppModal>
   </View>
 }
 

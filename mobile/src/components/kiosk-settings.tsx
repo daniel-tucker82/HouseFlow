@@ -1,5 +1,6 @@
 import { useState } from "react"
-import { Alert, Modal, ScrollView, Switch, TextInput, View } from "react-native"
+import { Alert, ScrollView, Switch, TextInput, View } from "react-native"
+import { AppModal } from "./app-modal"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { useKiosk } from "../providers/kiosk"
 import { useBoard } from "../providers/runtime"
@@ -31,7 +32,7 @@ export function KioskSettingsCard() {
       }} />
       {!board.online ? <Copy tone="muted">Connect to set up this device. Task updates and PIN unlocking will work offline afterward.</Copy> : null}
     </Card>
-    <Modal visible={open} animationType="slide" presentationStyle="pageSheet" onRequestClose={close}>
+    <AppModal visible={open} animationType="slide" presentationStyle="pageSheet" onRequestClose={close}>
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}><ScrollView automaticallyAdjustKeyboardInsets keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
         <Copy tone="title">Set up family display</Copy><Copy tone="muted">These choices apply only to this device.</Copy>
         {members.map(member => <Card key={member.id}><Copy tone="heading">{member.name}</Copy>
@@ -46,6 +47,6 @@ export function KioskSettingsCard() {
         <Action label="Enable kiosk mode" disabled={!visible.length || pin.length !== 6 || confirm.length !== 6 || state.changing} onPress={() => void enable()} />
         <Action secondary label="Cancel" onPress={close} />
       </ScrollView></SafeAreaView>
-    </Modal>
+    </AppModal>
   </>
 }

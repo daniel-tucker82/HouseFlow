@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react"
-import { Alert, FlatList, Modal, Pressable, RefreshControl, ScrollView, View, useWindowDimensions } from "react-native"
+import { Alert, FlatList, Pressable, RefreshControl, ScrollView, View, useWindowDimensions } from "react-native"
+import { AppModal } from "./app-modal"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { randomUUID } from "expo-crypto"
 import { ChevronRight, Gift } from "lucide-react-native"
@@ -164,7 +165,7 @@ function PlannerWorkspace({ householdId }: { householdId: string }) {
     {practice ? <PlannerPractice practice={practice} onChange={setPractice} onClose={() => setPractice(null)} /> : null}
     {editorOpen && draft && data ? <PlannerTaskEditor key={draft.taskId} initial={draft} snapshot={data} timezone={state.household?.timezone ?? "UTC"} busy={editorBusy} error={editorError}
       onSave={value => void saveTask(value)} onClose={() => { if (!editorBusy) setEditorOpen(false) }} onDraft={value => { setEditorError(null); persistDraft(value) }} /> : null}
-    <Modal visible={Boolean(routineForm)} animationType="slide" presentationStyle="pageSheet" supportedOrientations={["portrait", "landscape-left", "landscape-right"]} onRequestClose={() => { if (!state.busy) setRoutineForm(null) }}>
+    <AppModal visible={Boolean(routineForm)} animationType="slide" presentationStyle="pageSheet" supportedOrientations={["portrait", "landscape-left", "landscape-right"]} onRequestClose={() => { if (!state.busy) setRoutineForm(null) }}>
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
         <Copy tone="heading">{routineForm?.id ? "Rename routine" : "New routine"}</Copy>
         {state.error ? <Copy style={{ color: colors.danger }}>{state.error}</Copy> : null}
@@ -180,6 +181,6 @@ function PlannerWorkspace({ householdId }: { householdId: string }) {
           if (mounted.current) setRoutineForm(null)
         })} /><Action secondary label="Cancel" disabled={state.busy} onPress={() => setRoutineForm(null)} />
       </ScrollView></SafeAreaView>
-    </Modal>
+    </AppModal>
   </SafeAreaView>
 }

@@ -4,6 +4,28 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
+Cyntch's 16 modal presentations now use the system reduced-motion preference.
+One root provider reads the setting at startup, listens for changes and refreshes
+it when the app returns to the foreground. Until a successful read, or if a read
+fails, presentations use no animation. A delayed read cannot override a newer
+setting event. The same preference disables automatic animated scrolling to
+validation errors in the task and schedule editors. Screen state, native sheet
+presentation, orientation props and dismissal callbacks are preserved.
+This follows React Native 0.88's
+[AccessibilityInfo](https://reactnative.dev/docs/accessibilityinfo) and
+[Modal](https://reactnative.dev/docs/modal) APIs. Page/form sheets already use
+iOS orientation behavior; their `supportedOrientations` prop is ignored by iOS.
+
+Mobile lint and types pass. Device verification remains required: launch with
+reduced motion enabled, open/close sign-in, task details, editing, settings,
+kiosk PIN and account-recovery sheets; change the system setting while the app
+is active and while backgrounded; return with an unsaved form and verify its
+contents and navigation remain intact. Trigger task/schedule validation errors
+and confirm the message is revealed without animated scrolling. Repeat with the
+setting disabled to verify ordinary transitions. This change alone does not
+establish screen-reader coverage or motion behavior inside third-party native
+authentication/purchase components.
+
 Normal sign-in and kiosk parent recovery now share one presentation outside the
 notification-session loading gate. A session change can replace application
 content while the native auth view remains mounted until Clerk dismisses it.
