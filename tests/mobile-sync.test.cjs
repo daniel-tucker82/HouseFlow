@@ -522,6 +522,25 @@ test('R11 native run changes fence late Today/history reads and reject repeat cl
   settleOld()
 })
 
+test('R13 a page requested before creation cannot erase the acknowledged board', async t => {
+  const f = await manageableRun(t), requests = []
+  const board = new BoardController(f.store, 'parent', 'device', {}, () => 'unused')
+  const runs = new RunsController(f.store, 'parent', { runs: () => new Promise(resolve => requests.push(resolve)) }, board)
+  t.after(() => { runs.stop(); board.stop() })
+  await board.start(); runs.observe({ ...board.getSnapshot(), online: true }); runs.setVisible(true)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(requests.length, 1)
+  runs.invalidateCreationReads()
+  const created = { ...f.run.run, id: 'new-board', title: 'Saturday jobs' }
+  await f.store.cacheRunPage('parent', historyPage('active', [created, f.run.run]))
+  requests.shift()(historyPage('active', [f.run.run]))
+  await new Promise(resolve => setImmediate(resolve))
+  runs.observe({ ...board.getSnapshot(), online: false })
+  await runs.reloadAfterCreation()
+  assert.equal(runs.getSnapshot().page.items[0].id, 'new-board')
+  assert.equal((await f.store.getRunPage('parent', 'h1', 'active')).items.length, 2)
+})
+
 test('R12 run management requires current parent access and preserves data after an uncertain reply', async t => {
   const f = await manageableRun(t), board = new BoardController(f.store, 'parent', 'device', {}, () => 'unused')
   let allowed = true, calls = 0, finish

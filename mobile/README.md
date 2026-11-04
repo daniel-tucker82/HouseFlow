@@ -2032,3 +2032,89 @@ readiness. No production deployment, database migration or signed build was made
 Full functional coverage is still incomplete. In particular, the web canvas's
 creation/editing of one-off task boards still needs an equivalent native workflow;
 native Runs currently displays existing boards and supports their rename/removal.
+
+### One-off board write transactions
+
+The server now accepts an immutable `creationId` for `createTaskBoard`. The board
+and its receipt commit together; retries return the original board/start time
+without consuming another quota slot. Changed payloads conflict, deleted boards
+are not recreated, and current role/kiosk restrictions still apply to replay.
+Board names and optional start times are validated before database admission.
+
+Structured `createTask`/`updateTask` requests containing both `occurrenceId` and
+`prerequisiteIds` now edit live run tasks atomically. They validate the run, its
+template association, household assignees, same-run prerequisites and cycles.
+Creating/editing a live task cannot rewrite a template or another run. Cancelled
+runs reject editing. Metadata, assignments, dependencies, optional time rules,
+resulting task availability and creation receipts share one transaction. Existing
+task-save revisions prevent old or repeated edits from reapplying timing rules.
+Ordinary metadata edits retain resolved times and canvas positions; explicit
+timing edits use the web editor's server edit-time baseline and can include exact
+availability/expiry overrides. Timing overrides require the accompanying rules.
+
+The existing entitlement checks apply to the actual target: standalone boards
+remain Premium, existing metadata remains editable after downgrade, and Free
+requests cannot introduce paid time rules or use a run ID to evade template
+limits. The flow route reads membership once, after acquiring the household
+write lock and before either a new write or receipt replay, so that permission
+read cannot become stale before write admission.
+
+Apply `database/0040_task_board_creation_receipts.sql` before enabling native
+board-creation requests. Earlier receipt migrations now leave a newer superset
+constraint intact when the migration runner reapplies them. Isolated PostgreSQL
+tests exercise repeated migrations while newer receipt rows exist. No production
+migration has been applied for this work.
+
+Server checkpoint validation: 550 general regression tests and 19 isolated
+billing tests passed, as did root lint/types and the production web build. The
+broader native workflow continues below; native task editing within a live run
+is still incomplete.
+
+### Native one-off board creation
+
+Runs now includes a parent/supervisor creation sheet for a named one-off board.
+Its unfinished name is stored per account/household/device, including offline
+edits. Submission requires connectivity and returns after the local transaction;
+the immutable request continues uploading/retrying in the background. A second
+board request is blocked until the first has synced or been reviewed. Requests
+with uncertain outcomes cannot be silently discarded.
+
+The server response must match the saved household, board kind and name before
+acknowledgement. The resulting run-list entry and request deletion commit in one
+SQLite transaction. Disk failure retains the request; a delayed receipt cannot
+replace a newer cached run or repopulate revoked parent data. In-flight run-list
+reads are invalidated before acknowledgement. Drafts participate in kiosk
+activation checks and are cleared when management access is revoked.
+
+The creation sheet is mounted outside the list's column-count key, preserving
+the open form and text during rotation. Large text and short landscape windows
+can scroll to every action. The native form does not yet provide live task
+creation/editing: the server transaction exists, but its native editor, durable
+run-scoped edit cache/queue and device tests remain required for full parity.
+
+Validation for this increment: 556 general tests passed (including real
+PostgreSQL and SQLite), 19 isolated billing regression tests passed, and root
+and mobile lint/types passed. The production web build and final Android/iOS
+Hermes exports passed. Android device checks and export evidence are recorded in
+`C:/Users/danie/.codex/tmp/cyntch-board-create-runtime.json`.
+Migration 0040 was also applied to the verified local test database on port
+55439 for emulator testing; no production migration or deployment was made.
+
+On the Android development client, the unfinished name survived force-stop and
+relaunch. The corrected sheet stayed open during rotation, and 1.5-scale text
+in landscape could scroll to all actions. Offline submission was disabled; a
+name edited offline survived a full emulator restart. A Free-plan rejection
+remained available for review. Temporarily enabling Premium on only the local
+fixture allowed retry of that same request, produced exactly one board and one
+server receipt, and displayed/opened the new board in Runs. The test board was
+deleted through the app, original fixture billing fields restored, and device
+font/orientation/network defaults restored.
+
+An Android input-dispatch ANR occurred during concurrent bundle compilation
+and keyboard/offline testing (5,158ms KeyEvent timeout). Host free memory was
+about 1GB; captured stacks show ART/CheckJNI and a runnable JavaScript thread,
+but this does not establish the cause. The final creation test succeeded after
+compilation finished and the emulator was restarted. The ANR investigation,
+release-build performance and physical Android/iOS checks remain outstanding.
+Diagnostic files are `cyntch-board-create-anr.txt` and
+`cyntch-board-create-anr-dropbox.txt` in the same temporary evidence directory.

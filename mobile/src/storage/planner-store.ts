@@ -5,6 +5,8 @@ import type { Routine } from "../../../lib/types"
 import { retryDelayMs } from "../../../shared/mobile/sync-policy"
 import type { LocalDatabase, SqlConnection } from "./local-store"
 import { kioskRestriction, requireKioskParentAccess } from "./kiosk-store"
+import { boardCreationTitle, createdBoard } from "../../../shared/mobile/run-creation"
+import type { RunPage } from "../../../shared/mobile/runs"
 
 type EditRow = { id: string; account_id: string; household_id: string; device_id: string; revision: number; data: string;
   state: "pending" | "rejected"; attempts: number; next_attempt_ms: number; error: string | null }
@@ -43,6 +45,7 @@ export class PlannerStore {
       await tx.runAsync(`INSERT INTO planner_access VALUES (?, ?, ?) ON CONFLICT(account_id,household_id) DO UPDATE SET allowed=excluded.allowed`,
         accountId, householdId, allowed.has(householdId) ? 1 : 0)
       if (!allowed.has(householdId)) {
+        await tx.runAsync("DELETE FROM device_settings WHERE account_id=? AND setting_key=?", accountId, `planner-board-draft:${householdId}`)
         await tx.runAsync("DELETE FROM planner_snapshots WHERE account_id=? AND household_id=?", accountId, householdId)
         await tx.runAsync("UPDATE planner_edits SET state='rejected',error=? WHERE account_id=? AND household_id=?",
           "You no longer have permission to manage this household.", accountId, householdId)
@@ -54,6 +57,18 @@ export class PlannerStore {
   async allowed(accountId: string, householdId: string, tx: SqlConnection = this.database) {
     if (await kioskRestriction(tx)) return false
     return Boolean((await tx.getFirstAsync<{ allowed: number }>("SELECT allowed FROM planner_access WHERE account_id=? AND household_id=?", accountId, householdId))?.allowed)
+  }
+  async boardDraft(accountId: string, householdId: string): Promise<string> {
+    if (!await this.allowed(accountId, householdId)) return ""
+    const row = await this.database.getFirstAsync<{ data: string }>("SELECT data FROM device_settings WHERE account_id=? AND setting_key=?", accountId, `planner-board-draft:${householdId}`)
+    return row ? JSON.parse(row.data) ?? "" : ""
+  }
+  async saveBoardDraft(accountId: string, householdId: string, title: string) {
+    await this.database.withExclusiveTransactionAsync(async tx => {
+      if (!await this.allowed(accountId, householdId, tx)) throw new Error("Parent access to this household is required.")
+      await tx.runAsync("INSERT INTO device_settings VALUES(?,?,?) ON CONFLICT(account_id,setting_key) DO UPDATE SET data=excluded.data",
+        accountId, `planner-board-draft:${householdId}`, JSON.stringify(title || null))
+    })
   }
   private async cached(accountId: string, householdId: string, tx: SqlConnection) {
     const row = await tx.getFirstAsync<{ data: string }>("SELECT data FROM planner_snapshots WHERE account_id=? AND household_id=?", accountId, householdId)
@@ -155,6 +170,12 @@ export class PlannerStore {
   async enqueueCreation(creation: PlannerCreation, replacesId?: string) {
     await this.database.withExclusiveTransactionAsync(async tx => {
       if (!await this.allowed(creation.accountId, creation.householdId, tx)) throw new Error("You no longer have permission to manage this household.")
+      if (creation.body.action === "createTaskBoard") {
+        boardCreationTitle(creation.body.title)
+        if ((await this.creations(creation.accountId, tx)).some(item => item.householdId === creation.householdId && item.body.action === "createTaskBoard")) {
+          throw new Error("Sync or review the saved task board request before creating another.")
+        }
+      }
       if (creation.body.action === "saveRoutineSchedule") {
         validateRoutineSchedule(creation.body.baseSchedule); validateRoutineSchedule(creation.body.schedule)
         await this.requireNoPendingStart(creation.accountId, creation.householdId, String(creation.body.routineId), tx)
@@ -184,11 +205,27 @@ export class PlannerStore {
         // Clear the unfinished form atomically with its durable submission.
         await tx.runAsync("DELETE FROM device_settings WHERE account_id=? AND setting_key=?", creation.accountId, `planner-task-draft:${creation.householdId}`)
       }
+      if (creation.body.action === "createTaskBoard") await tx.runAsync("DELETE FROM device_settings WHERE account_id=? AND setting_key=?", creation.accountId, `planner-board-draft:${creation.householdId}`)
     })
   }
-  async acknowledgeCreation(accountId: string, id: string, result?: { routine?: Routine }) {
+  async acknowledgeCreation(accountId: string, id: string, result?: { routine?: Routine; occurrence?: unknown }) {
     await this.database.withExclusiveTransactionAsync(async tx => {
       const saved = (await this.creations(accountId, tx)).find(item => item.id === id)
+      if (saved?.body.action === "createTaskBoard") {
+        // A late reply must not restore parent data after permission revocation.
+        if (!await this.allowed(accountId, saved.householdId, tx)) return
+        const run = createdBoard(result?.occurrence, saved.householdId, saved.body.title)
+        const rows = await tx.getAllAsync<{ data: string }>("SELECT data FROM run_pages WHERE account_id=? AND household_id=?", accountId, saved.householdId)
+        const pages = rows.map(row => JSON.parse(row.data) as RunPage)
+        const cached = await tx.getFirstAsync("SELECT 1 FROM run_snapshots WHERE account_id=? AND household_id=? AND occurrence_id=?", accountId, saved.householdId, run.id)
+        // A lost-reply retry may arrive after this board has already been edited.
+        if (!cached && !pages.some(page => page.items.some(item => item.id === run.id))) {
+          const page = pages.find(page => page.view === "active") ?? { householdId: saved.householdId, view: "active", items: [], nextCursor: null, fetchedAt: new Date().toISOString() }
+          page.items.push(run)
+          page.items.sort((a, b) => b.scheduled_for.localeCompare(a.scheduled_for) || b.id.localeCompare(a.id))
+          await tx.runAsync("INSERT INTO run_pages VALUES(?,?,?,?) ON CONFLICT(account_id,household_id,view) DO UPDATE SET data=excluded.data", accountId, saved.householdId, "active", JSON.stringify(page))
+        }
+      }
       if (saved?.body.action === "saveRoutineSchedule" && (result?.routine?.id !== saved.body.routineId || result?.routine?.household_id !== saved.householdId)) throw new Error("The schedule response did not match your household. Retrying safely.")
       await tx.runAsync("DELETE FROM planner_creations WHERE account_id=? AND id=?", accountId, id)
       if (saved?.body.action === "saveRoutineSchedule" && result?.routine) {

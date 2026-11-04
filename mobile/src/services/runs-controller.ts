@@ -36,6 +36,15 @@ export class RunsController {
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
   private update(patch: Partial<RunsState>) { if (!this.stopped) { this.state = { ...this.state, ...patch }; this.listeners.forEach(listener => listener()) } }
   private report(error: unknown, detail = false) { this.update({ [detail ? "runError" : "error"]: error instanceof Error ? error.message : "Unable to load these runs." }) }
+  invalidateCreationReads() {
+    this.pageRevision++; this.runRevision++; this.localRevision++
+    this.update({ refreshing: false, runLoading: false })
+  }
+  async reloadAfterCreation() {
+    this.invalidateCreationReads()
+    await this.readLocal()
+    await this.refresh()
+  }
   observe(state: BoardState) {
     const household = state.board?.household ?? null, switched = household?.id !== this.state.household?.id
     const reconnected = !this.online && state.online

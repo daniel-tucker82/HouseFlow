@@ -8,6 +8,7 @@ import type { BoardTask } from "../../../shared/mobile/contracts"
 import { useBoard, useRuns, useRuntime } from "../providers/runtime"
 import { BoardTaskRow } from "./board-screen"
 import { PlannerSelect } from "./planner-inputs"
+import { NewTaskBoard } from "./new-task-board"
 import { Action, Card, Copy, Loading, styles, usePalette } from "./ui"
 
 const dateLabel = (run: RunSummary, timezone: string) => new Date(run.scheduled_for).toLocaleString(undefined, { timeZone: timezone, year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
@@ -15,13 +16,16 @@ function report(error: unknown) { Alert.alert("Unable to update runs", error ins
 
 export default function RunsScreen() {
   const { runs } = useRuntime(), state = useRuns(), board = useBoard(), colors = usePalette()
+  const household = state.household
   const { width, fontScale } = useWindowDimensions(), columns = width / Math.max(1, fontScale) >= 840 ? 2 : 1
   useFocusEffect(useCallback(() => { runs.setVisible(true); return () => runs.setVisible(false) }, [runs]))
-  if (!state.household) return <View style={[styles.center, { backgroundColor: colors.background }]}><Copy tone="heading">Your household’s runs</Copy><Copy tone="muted">Choose a household in Today to see its active runs and history.</Copy></View>
+  if (!household) return <View style={[styles.center, { backgroundColor: colors.background }]}><Copy tone="heading">Your household’s runs</Copy><Copy tone="muted">Choose a household in Today to see its active runs and history.</Copy></View>
   return <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1, backgroundColor: colors.background }}>
+    <NewTaskBoard key={household.id} householdId={household.id} enabled={household.role !== "member"}>{boardControls =>
     <FlatList key={columns} numColumns={columns} columnWrapperStyle={columns > 1 ? { gap: 16 } : undefined} data={state.page?.items ?? []} keyExtractor={run => run.id}
       contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={state.refreshing} onRefresh={() => void runs.refresh()} tintColor={colors.primary} />}
-      ListHeaderComponent={<View style={{ gap: 16 }}><Copy tone="title">Runs</Copy><Copy tone="muted">{state.household.name} · Each run is a copy of a routine, or a board of one-off tasks.</Copy>
+      ListHeaderComponent={<View style={{ gap: 16 }}><Copy tone="title">Runs</Copy><Copy tone="muted">{household.name} · Each run is a copy of a routine, or a board of one-off tasks.</Copy>
+        {boardControls}
         <View style={styles.row}>{(["active", "past"] as const).map(view => <Pressable key={view} accessibilityRole="tab" accessibilityState={{ selected: state.view === view }}
           onPress={() => void runs.selectView(view).catch(report)} style={[styles.action, { flex: 1, backgroundColor: state.view === view ? colors.primary : colors.soft }]}><Copy style={{ color: state.view === view ? colors.onPrimary : colors.text, textAlign: "center", fontWeight: "600" }}>{view === "active" ? "Active runs" : "Past runs"}</Copy></Pressable>)}</View>
         {!board.online ? <Copy tone="muted">You’re offline. Previously opened runs are available here; saved changes will sync when connected.</Copy> : null}
@@ -34,6 +38,7 @@ export default function RunsScreen() {
         onPress={() => void runs.openRun(run.id).catch(report)} style={{ flex: 1 }}><Card><View style={styles.row}><Copy tone="heading" style={{ flex: 1 }}>{run.title}</Copy><ChevronRight color={colors.primary} size={22} /></View>
         <Copy tone="muted">{dateLabel(run, state.household!.timezone)}</Copy><Copy>{run.status === "cancelled" ? "Cancelled" : `${run.completed_tasks} of ${run.total_tasks} done`}</Copy>
       </Card></Pressable>} />
+    }</NewTaskBoard>
     <Modal visible={Boolean(state.runId)} animationType="slide" presentationStyle="pageSheet" supportedOrientations={["portrait", "landscape-left", "landscape-right"]} onRequestClose={() => runs.closeRun()}>
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
         {state.run ? <RunDetails key={`${state.runId}:${state.focusedTaskId ?? ""}`} snapshot={state.run} /> : <View style={[styles.content, { flex: 1 }]}><Action secondary label="Close run" onPress={() => runs.closeRun()} />

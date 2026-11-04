@@ -61,7 +61,8 @@ export function RuntimeProvider({ children, accountId, sessionId, restricted = f
       const displaySetting = await store.setting<boolean>(accountId, "keep-awake")
       if (cancelled) return
       controller = new BoardController(store, accountId, deviceId, api, randomUUID)
-      planner = new PlannerController(store.planner, accountId, deviceId, api, randomUUID, async () => { await controller?.refresh() })
+      planner = new PlannerController(store.planner, accountId, deviceId, api, randomUUID,
+        async () => { await Promise.all([controller?.refresh(), runs?.reloadAfterCreation()]) }, () => runs?.invalidateCreationReads())
       runs = new RunsController(store, accountId, api, controller, householdId => {
         const protection = kiosk.getSnapshot()
         return matchesIdentity() && !restricted && canSync && protection.ready && !protection.changing && !protection.record

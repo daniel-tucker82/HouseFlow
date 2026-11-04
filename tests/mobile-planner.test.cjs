@@ -46,6 +46,92 @@ function until(controller, predicate) {
   return new Promise(resolve => { const unsubscribe = controller.subscribe(() => { if (predicate(controller.getSnapshot())) { unsubscribe(); resolve() } }) })
 }
 
+const boardResult = () => ({ occurrence: { id: '11111111-1111-4111-8111-111111111111', household_id: 'h1', routine_id: null,
+  title: 'Saturday jobs', kind: 'manual', status: 'active', scheduled_for: '2026-11-04T01:00:00.000Z' } })
+const boardRequest = (id = 'board1') => ({ id, accountId: 'parent', householdId: 'h1', label: 'New task board: Saturday jobs',
+  body: { action: 'createTaskBoard', householdId: 'h1', creationId: id, title: 'Saturday jobs' }, state: 'pending', attempts: 0, nextAttemptMs: 0, error: null })
+
+test('B01 a board draft survives restart and is cleared atomically with its immutable submission', async t => {
+  const f = await fixture(t)
+  await f.local.planner.saveBoardDraft('parent', 'h1', 'Saturday jobs')
+  let local = await f.reopen()
+  assert.equal(await local.planner.boardDraft('parent', 'h1'), 'Saturday jobs')
+  assert.equal(await local.planner.boardDraft('someone-else', 'h1'), '')
+  await local.planner.enqueueCreation(boardRequest())
+  local = await f.reopen()
+  assert.equal(await local.planner.boardDraft('parent', 'h1'), '')
+  assert.deepEqual((await local.planner.creations('parent'))[0].body, boardRequest().body)
+  await assert.rejects(local.planner.enqueueCreation(boardRequest('duplicate')), /review/)
+  await local.planner.discardCreation('parent', 'board1')
+  assert.equal((await local.planner.creations('parent')).length, 1, 'uncertain submissions cannot be discarded')
+  assert.equal((await local.planner.get('parent', 'h1')).tasks[0].title, 'Pack bag')
+})
+
+test('B02 acknowledgement validates scope and commits its cached run before removing the request', async t => {
+  const f = await fixture(t), request = boardRequest()
+  await f.local.planner.enqueueCreation(request)
+  for (const response of [undefined, {}, { occurrence: { ...boardResult().occurrence, household_id: 'other' } }, { occurrence: { ...boardResult().occurrence, kind: 'routine' } }, { occurrence: { ...boardResult().occurrence, title: 'Wrong board' } }]) {
+    await assert.rejects(f.local.planner.acknowledgeCreation('parent', request.id, response), /did not match/)
+    assert.equal((await f.local.planner.creations('parent')).length, 1)
+  }
+  await f.adapter.execAsync("CREATE TRIGGER fail_run_cache BEFORE INSERT ON run_pages BEGIN SELECT RAISE(ABORT,'Disk full'); END;")
+  await assert.rejects(f.local.planner.acknowledgeCreation('parent', request.id, boardResult()), /Disk full/)
+  assert.equal((await f.local.planner.creations('parent')).length, 1)
+  assert.equal(await f.local.getRunPage('parent', 'h1', 'active'), null)
+  await f.adapter.execAsync('DROP TRIGGER fail_run_cache')
+  await f.local.planner.acknowledgeCreation('parent', request.id, boardResult())
+  const local = await f.reopen()
+  assert.deepEqual(await local.planner.creations('parent'), [])
+  assert.equal((await local.getRunPage('parent', 'h1', 'active')).items[0].id, boardResult().occurrence.id)
+  assert.equal(await local.getRunPage('someone-else', 'h1', 'active'), null)
+})
+
+test('B03 a delayed receipt preserves newer run data and cannot repopulate revoked parent caches', async t => {
+  const f = await fixture(t)
+  await f.local.planner.enqueueCreation(boardRequest())
+  const run = { ...boardResult().occurrence, title: 'Updated after creation', total_tasks: 3, completed_tasks: 3, status: 'completed' }
+  await f.local.cacheRunPage('parent', { householdId: 'h1', view: 'past', items: [run], nextCursor: null, fetchedAt: '2026-11-04T02:00:00Z' })
+  await f.local.planner.acknowledgeCreation('parent', 'board1', boardResult())
+  assert.equal((await f.local.getRunPage('parent', 'h1', 'past')).items[0].title, run.title)
+  assert.equal(await f.local.getRunPage('parent', 'h1', 'active'), null)
+  await f.local.planner.enqueueCreation(boardRequest('board2'))
+  await f.local.planner.saveBoardDraft('parent', 'h1', 'Private name')
+  await f.local.reconcileHouseholds('parent', [{ ...household, role: 'member' }])
+  await f.local.planner.acknowledgeCreation('parent', 'board2', boardResult())
+  assert.equal((await f.local.planner.creations('parent'))[0].state, 'rejected')
+  assert.equal(await f.local.setting('parent', 'planner-board-draft:h1'), null)
+  await assert.rejects(f.local.planner.saveBoardDraft('parent', 'h1', 'Denied'), /Parent access/)
+  assert.equal(await f.local.getRunPage('parent', 'h1', 'active'), null)
+})
+
+test('B04 board creation returns after the local save, recovers a lost reply, and invalidates stale reads before caching', { timeout: 5000 }, async t => {
+  const f = await fixture(t)
+  let release, submitted, controller
+  const sent = new Promise(resolve => { release = resolve })
+  controller = new PlannerController(f.local.planner, 'parent', 'device', {
+    planner: async () => snapshot(), request: async (_path, body) => { submitted = body; await sent; throw new Error('Reply lost') },
+  }, () => 'board1')
+  await controller.selectHousehold(household)
+  await assert.rejects(controller.create('createTaskBoard', { title: 'Saturday jobs' }, 'Board'), /Connect/)
+  controller.setConnectivity(true)
+  await controller.create('createTaskBoard', { title: ' Saturday jobs ' }, 'Board')
+  assert.equal((await f.local.planner.creations('parent'))[0].body.title, 'Saturday jobs')
+  release(); await until(controller, state => state.creations[0]?.attempts === 1)
+  controller.stop()
+  const local = await f.reopen(), events = []
+  await f.adapter.runAsync('UPDATE planner_creations SET next_attempt_ms=0')
+  const originalAck = local.planner.acknowledgeCreation.bind(local.planner)
+  local.planner.acknowledgeCreation = async (...args) => { events.push('acknowledge'); await originalAck(...args) }
+  controller = new PlannerController(local.planner, 'parent', 'device', {
+    planner: async () => snapshot(), request: async (_path, body) => { assert.deepEqual(body, submitted); return boardResult() },
+  }, () => 'unused', undefined, () => events.push('invalidate'))
+  t.after(() => controller.stop())
+  await controller.selectHousehold(household); controller.setConnectivity(true)
+  await until(controller, state => state.creations.length === 0)
+  assert.deepEqual(events, ['invalidate', 'acknowledge'])
+  assert.equal((await local.getRunPage('parent', 'h1', 'active')).items.length, 1)
+})
+
 test('P01 task edits and assignments survive restart, preserve time/canvas fields, and stay account scoped', async t => {
   const f = await fixture(t)
   await f.local.planner.enqueue('parent', 'h1', 'device', 'edit1', draft())

@@ -34,6 +34,16 @@ async function fixture(t) {
     change: (extra={}) => ({id:randomUUID(),accountId:'parent',householdId,deviceId,taskId,occurrenceId,memberId:'child',completed:true,deviceTimeMs:1000,...extra}),
     reopen: async () => { await db.tail; db.db.close(); db=new Database(file); local=new LocalStore(db); await local.initialize() } }
 }
+
+test('a one-off board draft must be finished before locking and cannot be written through kiosk mode', async t => {
+  const f = await fixture(t)
+  await f.local.planner.saveBoardDraft('parent', f.household.id, 'Saturday jobs')
+  await assert.rejects(f.local.kiosk.begin(f.kiosk), /drafts/)
+  await f.local.planner.saveBoardDraft('parent', f.household.id, '')
+  await f.local.kiosk.begin(f.kiosk)
+  assert.equal(await f.local.planner.boardDraft('parent', f.household.id), '')
+  await assert.rejects(f.local.planner.saveBoardDraft('parent', f.household.id, 'Hidden name'), /Parent access/)
+})
 test('K02 K03 activation and restricted caches commit together, survive restart, and fence late parent responses', async t => {
   const f=await fixture(t), other={...f.board,household:{...f.household,id:randomUUID()}}
   await f.local.cacheBoard('other-account',other)

@@ -4,6 +4,7 @@ import type { PlannerStore } from "../storage/planner-store"
 import { TransportError } from "../storage/sync-engine"
 import { scheduleForRoutine, validateRoutineSchedule, type RoutineScheduleDraft } from "../../../shared/routine-schedule"
 import type { Routine } from "../../../lib/types"
+import { boardCreationTitle } from "../../../shared/mobile/run-creation"
 
 interface PlannerApi {
   planner(householdId: string): Promise<PlannerSnapshot>
@@ -29,7 +30,8 @@ export class PlannerController {
   private optimistic = new Map<string, { id: string; draft: PlannerTaskDraft }>()
   private saves = new Set<Promise<void>>()
   constructor(private readonly store: PlannerStore, private readonly accountId: string, private readonly deviceId: string,
-    private readonly api: PlannerApi, private readonly uuid: () => string, private readonly onSynced?: () => Promise<void>) {}
+    private readonly api: PlannerApi, private readonly uuid: () => string, private readonly onSynced?: () => Promise<void>,
+    private readonly beforeCreationAcknowledged?: () => void) {}
   getSnapshot = () => this.state
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
   private update(patch: Partial<PlannerState>) {
@@ -98,11 +100,15 @@ export class PlannerController {
       await this.readLocal(); this.wake()
     }
   }
-  async create(action: "createRoutine" | "createTask" | "createOccurrence" | "saveRoutineSchedule", values: Record<string, unknown>, label: string, replacesId?: string) {
+  async create(action: "createRoutine" | "createTask" | "createOccurrence" | "saveRoutineSchedule" | "createTaskBoard", values: Record<string, unknown>, label: string, replacesId?: string) {
     const household = this.state.household
     if (!household || this.stopped) throw new Error("Choose a household you can manage.")
     if (this.state.busy) throw new Error("Another change is still saving.")
     if (action === "createOccurrence" && !this.state.online) throw new Error("Connect to start a routine.")
+    if (action === "createTaskBoard") {
+      if (!this.state.online) throw new Error("Connect to create a task board. Its name is saved on this device.")
+      values = { ...values, title: boardCreationTitle(values.title) }
+    }
     this.update({ busy: true })
     const id = this.uuid()
     const creation: PlannerCreation = { id, accountId: this.accountId, householdId: household.id, label,
@@ -151,8 +157,9 @@ export class PlannerController {
         if (!await this.store.allowed(this.accountId, creation.householdId)) continue
         if (!(await this.store.creations(this.accountId)).some(current => current.id === creation.id && current.state === "pending")) continue
         try {
-          const result = await this.api.request<{ routine?: Routine }>("/api/leader/flow", creation.body)
+          const result = await this.api.request<{ routine?: Routine; occurrence?: unknown }>("/api/leader/flow", creation.body)
           if (this.stopped) return
+          this.beforeCreationAcknowledged?.()
           await this.store.acknowledgeCreation(this.accountId, creation.id, result); changed = true; this.mutations++
         } catch (error) {
           if (this.stopped) return
@@ -198,7 +205,7 @@ export class PlannerController {
     await this.store.discard(this.accountId, edit, fresh); await this.readLocal()
   }
   async run<T>(action: string, values: Record<string, unknown> = {}): Promise<T> {
-    if (action === "createOccurrence") throw new Error("Routine starts must use a saved start request.")
+    if (action === "createOccurrence" || action === "createTaskBoard") throw new Error("Creating a run must use a saved request.")
     const household = this.state.household
     if (!household || !this.state.online) throw new Error("Connect to make this change.")
     if (this.state.busy) throw new Error("Another change is still saving.")

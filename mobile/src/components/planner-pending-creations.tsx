@@ -2,9 +2,9 @@ import { Alert, View } from "react-native"
 import { useBoard, usePlanner, useRuntime } from "../providers/runtime"
 import { Action, Copy } from "./ui"
 
-export function PlannerPendingCreations({ householdId, excludeSchedules = false }: { householdId?: string; excludeSchedules?: boolean }) {
+export function PlannerPendingCreations({ householdId, excludeSchedules = false, onlyBoards = false }: { householdId?: string; excludeSchedules?: boolean; onlyBoards?: boolean }) {
   const { planner } = useRuntime(), state = usePlanner(), board = useBoard()
-  const creations = state.creations.filter(item => (!householdId || item.householdId === householdId) && (!excludeSchedules || item.body.action !== "saveRoutineSchedule"))
+  const creations = state.creations.filter(item => (!householdId || item.householdId === householdId) && (!excludeSchedules || item.body.action !== "saveRoutineSchedule") && (!onlyBoards || item.body.action === "createTaskBoard"))
   function report(error: unknown) { Alert.alert("Unable to update", error instanceof Error ? error.message : "Please try again.") }
   return creations.map(item => <View key={item.id} style={{ gap: 12 }}>
     <Copy tone="label">{item.label}</Copy>
