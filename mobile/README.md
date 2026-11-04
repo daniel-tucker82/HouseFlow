@@ -7,12 +7,24 @@ The existing web application remains at the repository root.
 The first bundled iOS Release runtime check compiled successfully but failed
 before sign-in: the unsigned simulator binary reported Keychain error -34018
 (missing entitlement). The iOS workflow now enables local ad-hoc simulator
-signing and checks the built app's application-identifier entitlement before
+signing and checks the executable's embedded simulator application-identifier before
 testing. Its artifact also retains the simulator app ZIP and hash. This signing
 is for the simulator only, not TestFlight or App Store distribution. A separate
 iPad setup timeout prompted a five-minute cold-boot allowance and per-command
 timings/stage reporting. These fixes still require a successful hosted rerun.
 Failed-run evidence: `C:/Users/danie/.codex/tmp/cyntch-ios-evidence-41822109295`.
+
+The locally signed Release build in run `41832990843` (source `50e4173`)
+compiled successfully, but the pre-runtime check incorrectly required simulator
+entitlements in the macOS ad-hoc signature. Its signature plist was empty;
+Xcode generated `FAKETEAMID.com.cyntch.app` in `Cyntch.app-Simulated.xcent`
+and linked the simulator XML/DER entitlement sections. The workflow now extracts
+those sections from the actual executable using Apple's `segedit`, checks the
+application identifier, and retains both the embedded and signature entitlements.
+Signature verification remains required. This corrects the check; Keychain access
+and the device flows still require runtime verification. Failed-check artifact:
+`C:/Users/danie/.codex/tmp/cyntch-native-ios-41832990843.zip`, SHA-256
+`0c7141a81bcaffe1bb6de43a5b16bd8ccceff7f481f3bc2d3506629033b2a240`.
 
 Startup account-storage failures now replace the loading spinner with a readable,
 scrollable retry screen. Internal storage/SDK exception text is not shown on

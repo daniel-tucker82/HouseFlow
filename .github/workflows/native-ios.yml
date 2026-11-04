@@ -100,9 +100,22 @@ jobs:
           set -euo pipefail
           app="$RUNNER_TEMP/cyntch-derived/Build/Products/Release-iphonesimulator/Cyntch.app"
           codesign --verify --deep --strict "$app"
-          codesign -d --entitlements :- "$app" > "$RUNNER_TEMP/cyntch-ios-entitlements.plist"
+          codesign -d --entitlements :- "$app" > "$RUNNER_TEMP/cyntch-ios-signature-entitlements.plist"
+          # Simulator entitlements are linked into the executable; its macOS
+          # ad-hoc signature can legitimately have an empty entitlement plist.
+          # Inspect the built binary, not only Xcode's intermediate .xcent input.
+          executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Info.plist")
+          bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")
+          test -n "$executable"
+          test -n "$bundle_id"
+          xcrun segedit "$app/$executable" \
+            -extract __TEXT __entitlements "$RUNNER_TEMP/cyntch-ios-entitlements.plist" \
+            -extract __TEXT __ents_der "$RUNNER_TEMP/cyntch-ios-entitlements.der"
+          plutil -lint "$RUNNER_TEMP/cyntch-ios-entitlements.plist"
           app_id=$(/usr/libexec/PlistBuddy -c 'Print :application-identifier' "$RUNNER_TEMP/cyntch-ios-entitlements.plist")
-          test -n "$app_id"
+          # This workflow has no developer team; Xcode supplies its simulator ID.
+          test "$app_id" = "FAKETEAMID.$bundle_id"
+          test -s "$RUNNER_TEMP/cyntch-ios-entitlements.der"
           ditto -c -k --sequesterRsrc --keepParent "$app" "$RUNNER_TEMP/cyntch-ios-simulator.zip"
           shasum -a 256 "$RUNNER_TEMP/cyntch-ios-simulator.zip" > "$RUNNER_TEMP/cyntch-ios-simulator.sha256"
       - name: Install pinned simulator test runner
@@ -137,6 +150,8 @@ jobs:
             ${{ runner.temp }}/cyntch-ios-pods.log
             ${{ runner.temp }}/cyntch-ios.log
             ${{ runner.temp }}/cyntch-ios-entitlements.plist
+            ${{ runner.temp }}/cyntch-ios-entitlements.der
+            ${{ runner.temp }}/cyntch-ios-signature-entitlements.plist
             ${{ runner.temp }}/cyntch-ios-simulator.zip
             ${{ runner.temp }}/cyntch-ios-simulator.sha256
             ${{ runner.temp }}/cyntch-ios-smoke.log
