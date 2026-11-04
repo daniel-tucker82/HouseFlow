@@ -140,6 +140,9 @@ unsigned arm64 Simulator build passed in run `41810970540`, commit `4216998`.
 The downloaded compiler/test artifact has SHA-256
 `c822e7b640f44e97c89ac6c1f68cb4994e69e33b199cc75b8ba1bf20b36e52d2`.
 Its logs confirm all three test groups passed and `BUILD SUCCEEDED`.
+The subsequent run `41813668322` at `31e2621` also passed all 27 checks and the
+full Simulator compile. Its downloaded artifact was verified against SHA-256
+`53a5280f1c2cc172da29ae1ca5568057ac8a8fda4b18e53d7dc43c01f447d4bd`.
 The Security fixtures are removed on success and failure;
 they do not enroll biometric credentials or touch an existing account.
 Mobile lint and TypeScript passed after the adapter change.
@@ -180,8 +183,7 @@ Run `npm run build` first, then set
 and `CYNTCH_RECURRENCE_HTTP_TEST=true` before
 `node --test tests/integration/recurrence-worker.cjs`. The temporary server stops
 and the isolated schema is dropped after the test. This small-fixture check does
-not establish external scheduler cadence, load/p95 timing, real push delivery or
-the outstanding 30-second scheduler/45-second processing-budget alignment.
+not establish external scheduler cadence, load/p95 timing or real push delivery.
 Production rollout and enabling/verifying failure/recovery alerts remain open.
 The HTTP scenario, ten calendar/database recurrence checks, root lint and the
 production Next build passed on 2026-11-04. The deliberate late-transaction
@@ -191,6 +193,34 @@ Final HTTP evidence is
 `C:/Users/danie/AppData/Local/Temp/cyntch-recurrence-worker-a30eb3c5-8357-4e38-a805-ff74ddba2854.json`.
 No production scheduler settings, alert recipients or application deployment were
 changed. Documentation-only mobile edits no longer trigger the native iOS build.
+
+The handler now budgets 20 seconds for recurrence/database work and 25 seconds
+for its HTTP response, leaving headroom below cron-job.org's 30-second timeout.
+Both route aliases export a 60-second platform duration so already-started work
+retained with `after()` has time to settle. A response deadline returns uncached
+503; it never reports an unfinished provider batch as successful. Native billing
+and deletion retain their existing durable jobs/leases for retry. This does not
+make legacy web push durable or prove real provider latency/cancellation.
+
+`lib/scheduler-deadline.ts` bounds pool acquisition and each owned transaction.
+It uses transaction-local statement/lock/idle timeouts and discards interrupted
+connections, rather than merely abandoning a JavaScript query promise. Late pool
+checkouts are released, and a late callback cannot issue SQL on the released
+connection. Committed households survive; an interrupted household rolls back.
+Routine-column discovery is transactional, avoiding a successful cached ALTER
+before its transaction commits. No PostgreSQL 17-only setting is required.
+
+On 2026-11-04, the production HTTP test canceled a deliberate 35-second SQL
+stall in 5,104ms and stopped a six-household slow batch in 20,137ms. Both returned
+503 and recovered on the next request; recurrence events remained deduplicated.
+Evidence: `C:/Users/danie/AppData/Local/Temp/cyntch-recurrence-worker-98c3f3dc-2059-4de3-ab39-1500384caa44.json`.
+The three deadline tests also verified actual backend termination, late checkout
+cleanup, late callback rejection, transaction-local settings and aggregate query
+budgets. Billing/deletion worker checks passed, including a scaled-duration route
+test retaining the same unfinished billing batch after its response deadline.
+Root lint, production build and ten calendar/database recurrence checks passed.
+Production deployment, provider behavior, load/fairness and delivered monitoring
+alerts still require verification.
 
 ### Android optimized startup verification
 

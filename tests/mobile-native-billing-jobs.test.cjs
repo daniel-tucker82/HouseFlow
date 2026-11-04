@@ -247,13 +247,41 @@ test('existing household scheduler starts billing alongside recurrence work and 
   const callbacks = []
   const { GET } = load(['app/api/internal/recurrence/route.ts'], {
     'next/server': { NextResponse: { json: Response.json }, after: callback => callbacks.push(callback) },
-    '@clerk/nextjs/server': {}, '@/lib/schema-ensure': { ensureRoutineSchemaColumns: async () => {} },
+    '@clerk/nextjs/server': {},
     '@/lib/push': { dispatchPushForNotificationIds: async () => {} }, '@/lib/stripe-billing': {},
-    '@/lib/db': { db: { query: async () => { assert.equal(started, true); dbQueries++; return { rows: [] } } } },
+    '@/lib/db': { db: { connect: async () => Object.assign(new (require('node:events').EventEmitter)(), {
+      query: async () => { assert.equal(started, true); dbQueries++; return { rowCount: 1, rows: [] } }, release() {},
+    }) } },
     '@/lib/run-native-billing': { runNativeBilling: async () => { started = true; return { enabled: true, ok: false } } },
   })
   const result = await GET(new Request('http://localhost/api/cron', { headers: { authorization: 'Bearer fixture-cron' } }))
   const body = await result.json()
-  assert.equal(body.ok, false); assert.deepEqual(body.nativeBilling, { enabled: true, ok: false })
-  assert.ok(dbQueries >= 2); assert.equal(callbacks.length, 1); await callbacks[0]()
+  assert.equal(result.status, 503); assert.equal(body.ok, false); assert.deepEqual(body.nativeBilling, { enabled: true, ok: false })
+  assert.ok(dbQueries >= 2); assert.equal(callbacks.length, 2); await Promise.all(callbacks.map(callback => callback()))
+})
+
+test('scheduler response deadline reports failure while retaining the same unfinished durable billing batch', async t => {
+  const names = ['CRON_SECRET', 'NATIVE_BILLING_ENABLED', 'NATIVE_PUSH_ENABLED', 'STRIPE_SECRET_KEY', 'ACCOUNT_DELETION_PROCESSING_ENABLED']
+  const previous = Object.fromEntries(names.map(name => [name, process.env[name]]))
+  process.env.CRON_SECRET = 'fixture-cron'; process.env.NATIVE_BILLING_ENABLED = 'true'; process.env.NATIVE_PUSH_ENABLED = 'false'
+  process.env.ACCOUNT_DELETION_PROCESSING_ENABLED = 'false'; delete process.env.STRIPE_SECRET_KEY
+  t.after(() => { for (const name of names) { if (previous[name] === undefined) delete process.env[name]; else process.env[name] = previous[name] } })
+  const deadlines = load(['lib/scheduler-deadline.ts']), callbacks = []
+  let finish, calls = 0
+  const pending = new Promise(resolve => { finish = resolve })
+  const { GET } = load(['app/api/internal/recurrence/route.ts'], {
+    'next/server': { NextResponse: { json: Response.json }, after: callback => callbacks.push(callback) },
+    '@clerk/nextjs/server': {}, '@/lib/push': { dispatchPushForNotificationIds: async () => {} }, '@/lib/stripe-billing': {},
+    // Scale only durations; exercise the actual route, deadline and retention.
+    '@/lib/scheduler-deadline': { ...deadlines, SchedulerDeadline: class extends deadlines.SchedulerDeadline { constructor(ms) { super(ms / 100) } } },
+    '@/lib/db': { db: { connect: async () => Object.assign(new (require('node:events').EventEmitter)(), {
+      query: async () => ({ rowCount: 1, rows: [] }), release() {},
+    }) } },
+    '@/lib/run-native-billing': { runNativeBilling: () => { calls++; return pending } },
+  })
+  const response = await GET(new Request('http://localhost/api/cron', { headers: { authorization: 'Bearer fixture-cron' } }))
+  assert.equal(response.status, 503); assert.equal((await response.json()).deadlineExceeded, true)
+  assert.match(response.headers.get('cache-control'), /no-store/); assert.equal(callbacks.length, 2)
+  finish({ enabled: true, ok: true }); await Promise.all(callbacks.map(callback => callback()))
+  assert.equal(calls, 1, 'Response timeout must retain the existing durable batch, not launch another')
 })

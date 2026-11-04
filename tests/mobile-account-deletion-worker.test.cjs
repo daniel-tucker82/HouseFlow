@@ -73,14 +73,15 @@ test('household scheduler starts durable deletion work after authentication and 
  const callbacks=[];let calls=0,failRecurrence=false
  const {GET}=load(['app/api/internal/recurrence/route.ts'],{
   'next/server':{NextResponse:{json:Response.json},after:callback=>callbacks.push(callback)},'@clerk/nextjs/server':{},
-  '@/lib/schema-ensure':{ensureRoutineSchemaColumns:async()=>{assert.equal(calls>0,true);if(failRecurrence)throw Error('Recurrence unavailable')}},
   '@/lib/push':{dispatchPushForNotificationIds:async()=>{}},'@/lib/stripe-billing':{},
-  '@/lib/db':{db:{query:async()=>({rows:[]})}},
+  '@/lib/db':{db:{connect:async()=>Object.assign(new (require('node:events').EventEmitter)(),{
+   query:async()=>{assert.equal(calls>0,true);if(failRecurrence)throw Error('Recurrence unavailable');return {rowCount:1,rows:[]}},release(){},
+  })}},
   '@/lib/run-account-deletions':{runAccountDeletions:async()=>{calls++;return {enabled:true,ok:false,pending:1,failed:1}}},
  })
  assert.equal((await GET(new Request('http://localhost/api/cron'))).status,401);assert.equal(calls,0)
- const body=await(await GET(cron())).json();assert.equal(body.ok,false);assert.equal(body.accountDeletions.failed,1)
- assert.equal(callbacks.length,1);await callbacks[0]();assert.equal(calls,1,'after retains the same batch, not a second run')
- failRecurrence=true;await assert.rejects(GET(cron()),/Recurrence unavailable/)
- assert.equal(callbacks.length,2);await callbacks[1]();assert.equal(calls,2)
+ const response=await GET(cron()),body=await response.json();assert.equal(response.status,503);assert.equal(body.ok,false);assert.equal(body.accountDeletions.failed,1)
+ assert.equal(callbacks.length,2);await Promise.all(callbacks.map(callback=>callback()));assert.equal(calls,1,'after retains the same batch, not a second run')
+ failRecurrence=true;const failed=await GET(cron());assert.equal(failed.status,503);assert.equal((await failed.json()).ok,false)
+ assert.equal(callbacks.length,4);await Promise.all(callbacks.slice(2).map(callback=>callback()));assert.equal(calls,2)
 })

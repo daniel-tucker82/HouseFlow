@@ -114,9 +114,38 @@ test('the public cron endpoint advances closed-client tasks and recurrences, ded
   assert.deepEqual(await events(),observed,'A partial failure must not undo or duplicate committed events')
   await f.db.query('drop trigger fixture_scheduler_failure on household_billing;drop function cyntch_fixture_fail_scheduler()')
   result=await tick();assert.equal(result.response.status,200);assert.equal(result.body.ok,true);assert.equal(result.body.householdsFailed,0)
+
+  // A slow database statement must be canceled, roll back, and leave the next
+  // tick free to retry. This is actual HTTP/SQL, not a mocked timer promise.
+  await f.db.query(`create function cyntch_fixture_stall_scheduler() returns trigger language plpgsql as $$
+    begin if new.household_id='${f.shared}'::uuid then perform pg_sleep(35); end if; return new; end $$;
+    create trigger fixture_scheduler_stall before insert or update on household_billing for each row execute function cyntch_fixture_stall_scheduler()`)
+  const lastChecked=(await f.db.query('select last_scheduled_check_at from household_billing where household_id=$1',[f.shared])).rows[0].last_scheduled_check_at
+  result=await tick();assert.equal(result.response.status,503);assert.equal(result.body.householdsFailed,1)
+  assert.ok(durations.at(-1)<10_000,'A 35s SQL stall must fail before the 30s external timeout')
+  assert.deepEqual((await f.db.query('select last_scheduled_check_at from household_billing where household_id=$1',[f.shared])).rows[0].last_scheduled_check_at,lastChecked,'Interrupted work must roll back')
+  assert.deepEqual(await events(),observed)
+  await f.db.query('drop trigger fixture_scheduler_stall on household_billing;drop function cyntch_fixture_stall_scheduler()')
+  result=await tick();assert.equal(result.response.status,200);assert.equal(result.body.ok,true)
+  t.diagnostic('35-second SQL stall canceled; HTTP 503 within 10 seconds; rollback and retry verified')
+
+  // Individually valid statements must still share the batch deadline. Six
+  // households at 4.5s each exceed the recurrence budget even though each
+  // statement is below its own timeout. Cancel only the in-flight transaction.
+  for(let i=0;i<3;i++)await f.db.query("insert into households(id,name,leader_id) values($1,'Budget fixture',$2)",[randomUUID(),f.owner])
+  await f.db.query(`create function cyntch_fixture_slow_batch() returns trigger language plpgsql as $$
+    begin perform pg_sleep(4.5); return new; end $$;
+    create trigger fixture_batch_delay after insert or update on household_billing for each row execute function cyntch_fixture_slow_batch()`)
+  result=await tick();assert.equal(result.response.status,503);assert.equal(result.body.budgetExhausted,true)
+  assert.ok(durations.at(-1)>=19_000&&durations.at(-1)<27_000,'Aggregate work must stop at the 20s batch deadline')
+  assert.ok(result.body.householdsProcessed>0&&result.body.householdsProcessed<6)
+  assert.deepEqual(await events(),observed,'Committed recurrence notifications survive an interrupted later household')
+  await f.db.query('drop trigger fixture_batch_delay on household_billing;drop function cyntch_fixture_slow_batch()')
+  result=await tick();assert.equal(result.response.status,200);assert.equal(result.body.householdsProcessed,6)
+  t.diagnostic('Aggregate batch deadline, partial commits and next-tick recovery verified')
   const evidence={verified:true,scope:'production Next HTTP handler; localhost isolated PostgreSQL schema',client:'no browser or mobile client',
    authenticationRequired:true,realClock:true,timezone:'Australia/Sydney',activation:true,expiry:true,recurrence:true,supersededCompletion:true,
-   notifications:'durable native events; no remote delivery attempted',rollbackRetainsState:true,committedCountersOnly:true,retryDeduplication:true,partialFailureStatus:503,recoveryStatus:200,
+   notifications:'durable native events; no remote delivery attempted',rollbackRetainsState:true,committedCountersOnly:true,retryDeduplication:true,partialFailureStatus:503,recoveryStatus:200,stalledSqlCanceled:true,aggregateDeadline:true,
    lagMs:lag,requestDurationMs:durations,limitations:'Small isolated fixture; not a production scheduler cadence, p95/load, DST or physical push measurement'}
   const evidencePath=log.replace(/\.log$/,'.json');fs.writeFileSync(evidencePath,JSON.stringify(evidence,null,2)+'\n');t.diagnostic('Evidence: '+evidencePath)
  }finally{

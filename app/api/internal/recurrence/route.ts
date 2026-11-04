@@ -6,7 +6,7 @@ import { getHouseholdEntitlement } from "@/lib/entitlements"
 import { recordHouseholdUsage } from "@/lib/usage-controls"
 import { reconcileHouseholdSubscription } from "@/lib/stripe-billing"
 import { automaticGenerationAllowance, occurrenceAutomationAllowed, TASK_AUTOMATION_ALLOWED_SQL } from "@/lib/automation-entitlements"
-import { ensureRoutineSchemaColumns } from "@/lib/schema-ensure"
+import { SchedulerDeadline, SchedulerDeadlineExceeded, schedulerTransaction } from "@/lib/scheduler-deadline"
 import { parseExpiryRule, parseUnlockRule, resolveExpiryAt, resolveUnlockAt, type UnlockCombiner } from "@/lib/time-rules"
 import {
   anchorRecurrenceRule,
@@ -29,23 +29,6 @@ function authorizedByCronSecret(request: Request) {
   const bearerBuffer = Buffer.from(bearer)
   const expectedBuffer = Buffer.from(expected)
   return bearerBuffer.length === expectedBuffer.length && timingSafeEqual(bearerBuffer, expectedBuffer)
-}
-
-function isConnectionFailure(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error)
-  return /connection (?:terminated|error|closed)|ECONNRESET|EPIPE|ETIMEDOUT/i.test(message)
-}
-
-async function connectWithRetry() {
-  try {
-    return await db.connect()
-  } catch (error) {
-    if (!isConnectionFailure(error)) throw error
-    console.warn("[cron][recurrence] transient database connection failure; retrying once", {
-      error,
-    })
-    return db.connect()
-  }
 }
 
 function toFixedRuleFromInstant(
@@ -638,8 +621,10 @@ async function processActiveOccurrenceTimers(
   }
 }
 
+// Leave the external scheduler's 30s timeout headroom for network/response work.
+// after() retains already-started provider jobs, whose durable leases allow retry.
+export const maxDuration = 60
 export async function GET(request: Request) {
-  const deadline = Date.now() + 45000
   const secretConfigured = Boolean(process.env.CRON_SECRET?.trim())
   if (!secretConfigured) {
     console.error("[cron] rejected: CRON_SECRET is not configured")
@@ -649,6 +634,21 @@ export async function GET(request: Request) {
     console.warn("[cron] unauthorized (wrong Authorization bearer or CRON_SECRET mismatch)")
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
+  const responseDeadline = new SchedulerDeadline(25_000)
+  const work = runScheduledTasks(new SchedulerDeadline(20_000), responseDeadline)
+  after(async () => { await work.catch(() => {}) })
+  try {
+    return await responseDeadline.run(() => work)
+  } catch (error) {
+    const deadlineExceeded = error instanceof SchedulerDeadlineExceeded
+    console.error("[cron] processing needs retry", { deadlineExceeded })
+    return NextResponse.json({ ok: false, deadlineExceeded, error: "Scheduled processing needs retry" }, {
+      status: 503, headers: { "Cache-Control": "no-store" },
+    })
+  }
+}
+
+async function runScheduledTasks(deadline: SchedulerDeadline, responseDeadline: SchedulerDeadline) {
   if (process.env.NATIVE_PUSH_ENABLED === "true") {
     after(async () => { await runNativeNotifications().catch(() => {}) })
   }
@@ -659,14 +659,21 @@ export async function GET(request: Request) {
   const accountDeletions = process.env.ACCOUNT_DELETION_PROCESSING_ENABLED === "true" ? runAccountDeletions() : null
   if (accountDeletions) after(async () => { await accountDeletions })
 
-  await ensureRoutineSchemaColumns()
-  const households = await db.query<{ id: string; leader_id: string | null }>(
+  const households = await schedulerTransaction(db, deadline, async client => {
+    // Check the schema inside this bounded transaction. Do not cache an ALTER
+    // as successful before COMMIT, or acquire its table lock on every tick.
+    const column = await client.query(`select 1 from pg_attribute
+      where attrelid='routines'::regclass and attname='complete_older_occurrences_on_new' and not attisdropped`)
+    if (!column.rowCount) await client.query(`alter table routines
+      add column if not exists complete_older_occurrences_on_new boolean not null default false`)
+    return client.query<{ id: string; leader_id: string | null }>(
     `select h.id, h.leader_id
      from households h
      left join household_billing b on b.household_id = h.id
      order by b.last_scheduled_check_at asc nulls first, h.id
      limit 100`,
-  )
+    )
+  })
 
   console.info("[cron][recurrence] run start", {
     householdCount: households.rows.length,
@@ -679,39 +686,39 @@ export async function GET(request: Request) {
   let occurrencesProcessed = 0
   let tasksUnlocked = 0
   let tasksCompleted = 0
+  let budgetExhausted = false
 
   for (const household of households.rows) {
-    if (Date.now() >= deadline) break
+    if (deadline.remaining() < 1) { budgetExhausted = true; break }
     const started = Date.now()
-    let client: PoolClient | null = null
-    let destroyClient = false
     try {
-      client = await connectWithRetry()
-      await client.query("BEGIN")
-      const lock = await client.query("select pg_try_advisory_xact_lock(hashtextextended($1, 0)) as acquired", [household.id])
-      if (!lock.rows[0].acquired) { await client.query("ROLLBACK"); continue }
-      await client.query(`insert into household_billing (household_id, last_scheduled_check_at)
-        values ($1::uuid, now()) on conflict (household_id)
-        do update set last_scheduled_check_at = now()`, [household.id])
-      const entitlement = await getHouseholdEntitlement(client,household.id)
-      const before = await client.query(`select
-        (select count(*)::int from routine_occurrences where household_id=$1::uuid) as runs,
-        (select count(*)::int from tasks where household_id=$1::uuid) as tasks`,[household.id])
-      pushNotificationIds.push(...(await materializeDueRecurrences(client, household.id, household.leader_id ?? null)))
-      const timerResult = await processActiveOccurrenceTimers(
-        client,
-        household.id,
-        household.leader_id ?? null,
-      )
-      // Dispatch looks these candidates up in the committed notifications
-      // table. Keep that lookup even if COMMIT's acknowledgement is lost.
-      pushNotificationIds.push(...timerResult.notificationIds)
-      const after = await client.query(`select
-        (select count(*)::int from routine_occurrences where household_id=$1::uuid) as runs,
-        (select count(*)::int from tasks where household_id=$1::uuid) as tasks`,[household.id])
-      await recordHouseholdUsage(client,household.id,entitlement.tier,Date.now()-started,
-        Math.max(0,after.rows[0].runs-before.rows[0].runs),Math.max(0,after.rows[0].tasks-before.rows[0].tasks))
-      await client.query("COMMIT")
+      const timerResult = await schedulerTransaction(db, deadline, async client => {
+        const lock = await client.query("select pg_try_advisory_xact_lock(hashtextextended($1, 0)) as acquired", [household.id])
+        if (!lock.rows[0].acquired) return null
+        await client.query(`insert into household_billing (household_id, last_scheduled_check_at)
+          values ($1::uuid, now()) on conflict (household_id)
+          do update set last_scheduled_check_at = now()`, [household.id])
+        const entitlement = await getHouseholdEntitlement(client,household.id)
+        const before = await client.query(`select
+          (select count(*)::int from routine_occurrences where household_id=$1::uuid) as runs,
+          (select count(*)::int from tasks where household_id=$1::uuid) as tasks`,[household.id])
+        pushNotificationIds.push(...(await materializeDueRecurrences(client, household.id, household.leader_id ?? null)))
+        const timerResult = await processActiveOccurrenceTimers(
+          client,
+          household.id,
+          household.leader_id ?? null,
+        )
+        // Dispatch looks these candidates up in the committed notifications
+        // table. Keep that lookup even if COMMIT's acknowledgement is lost.
+        pushNotificationIds.push(...timerResult.notificationIds)
+        const after = await client.query(`select
+          (select count(*)::int from routine_occurrences where household_id=$1::uuid) as runs,
+          (select count(*)::int from tasks where household_id=$1::uuid) as tasks`,[household.id])
+        await recordHouseholdUsage(client,household.id,entitlement.tier,Date.now()-started,
+          Math.max(0,after.rows[0].runs-before.rows[0].runs),Math.max(0,after.rows[0].tasks-before.rows[0].tasks))
+        return timerResult
+      })
+      if (!timerResult) continue
       // Do not count uncommitted changes if usage recording, a deferred trigger
       // or COMMIT rejects this household.
       occurrencesProcessed += timerResult.occurrencesProcessed
@@ -719,46 +726,34 @@ export async function GET(request: Request) {
       tasksCompleted += timerResult.tasksCompleted
       householdsProcessed += 1
     } catch (error) {
-      destroyClient = isConnectionFailure(error)
-      if (client) {
-        try {
-          await client.query("ROLLBACK")
-        } catch (rollbackError) {
-          destroyClient = true
-          console.error("[cron][recurrence] rollback failed", {
-            householdId: household.id,
-            rollbackError,
-          })
-        }
-      }
+      if (error instanceof SchedulerDeadlineExceeded) budgetExhausted = true
       householdsFailed += 1
       console.error("[cron][recurrence] household materialization failed", {
         householdId: household.id,
         error,
       })
-    } finally {
-      client?.release(destroyClient)
     }
   }
 
   await dispatchPushForNotificationIds(pushNotificationIds)
   // Reconcile missed Stripe deliveries independently of event ordering; never create charges.
-  if (process.env.STRIPE_SECRET_KEY && Date.now() < deadline) {
-    const due = await db.query(`select household_id from household_billing where stripe_customer_id is not null
+  if (process.env.STRIPE_SECRET_KEY && deadline.remaining() > 0) {
+    const due = await schedulerTransaction(db, deadline, client => client.query(`select household_id from household_billing where stripe_customer_id is not null
       and (last_reconciled_at is null or last_reconciled_at < now() - interval '1 hour')
-      order by last_reconciled_at nulls first limit 5`)
+      order by last_reconciled_at nulls first limit 5`))
     for (const row of due.rows) {
-      if (Date.now() >= deadline) break
+      if (deadline.remaining() < 1) break
       await reconcileHouseholdSubscription(row.household_id).catch(() => console.warn("Scheduled billing reconciliation needs retry",{householdId:row.household_id}))
     }
   }
-  await db.query(`delete from application_rate_limits where (bucket_key,window_start) in
-    (select bucket_key,window_start from application_rate_limits where window_start < now()-interval '1 day' limit 1000)`)
+  await schedulerTransaction(db, responseDeadline, client => client.query(`delete from application_rate_limits where (bucket_key,window_start) in
+    (select bucket_key,window_start from application_rate_limits where window_start < now()-interval '1 day' limit 1000)`))
 
   const billingResult = await nativeBilling
   const deletionResult = await accountDeletions
   const body = {
-    ok: householdsFailed === 0 && billingResult?.ok !== false && deletionResult?.ok !== false,
+    ok: !budgetExhausted && householdsFailed === 0 && billingResult?.ok !== false && deletionResult?.ok !== false,
+    budgetExhausted,
     ...(billingResult ? { nativeBilling: billingResult } : {}),
     ...(deletionResult ? { accountDeletions: deletionResult } : {}),
     householdsProcessed,
