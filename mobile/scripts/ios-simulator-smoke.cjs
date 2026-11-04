@@ -8,11 +8,19 @@ const { inspectScreenshotOrientations } = require('./device-screenshot-evidence.
 if (process.platform !== 'darwin' || process.env.GITHUB_ACTIONS !== 'true') {
   throw new Error('Run this verification on the macOS GitHub Actions host.')
 }
+if (process.argv.length !== 5) throw new Error('Expected simulator app, Maestro executable and output directory.')
 const [appPath, maestro, output] = process.argv.slice(2).map(value => path.resolve(value))
 if (!appPath || !maestro || !output || !fs.existsSync(path.join(appPath, 'main.jsbundle'))) {
   throw new Error('A compiled simulator app with bundled JavaScript is required.')
 }
 fs.mkdirSync(output, { recursive: true })
+// Keep the installed Xcode command reference beside the runtime evidence.
+const help = spawnSync('xcrun', ['simctl', 'help', 'ui'], { encoding: 'utf8', timeout: 30_000 })
+const helpText = `${help.stdout ?? ''}\n${help.stderr ?? ''}`
+fs.writeFileSync(path.join(output, 'simctl-ui-help.txt'), helpText)
+if (help.error || help.status !== 0 || !helpText.includes('content_size')) {
+  throw new Error('The installed simulator must support querying and setting Dynamic Type.')
+}
 const command = (executable, args, timeout = 60_000) => {
   const label = `${executable} ${args.slice(0, 2).join(' ')}`, start = Date.now()
   console.log(`Starting ${label} (timeout ${timeout / 1000}s)`)
@@ -34,7 +42,7 @@ const devices = [
   available.find(device => device.name === 'iPhone 17') ?? available.find(device => device.name.startsWith('iPhone')),
   available.find(device => device.name === 'iPad (A16)') ?? available.find(device => device.name.startsWith('iPad')),
 ]
-const report = { source: process.env.GITHUB_SHA, configuration: 'Release with local simulator signing', runtime: runtime.name, devices: [] }
+const report = { source: process.env.GITHUB_SHA, configuration: 'Release with local simulator signing', runtime: runtime.name, devices: [], passed: false }
 const save = () => fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify(report, null, 2))
 let failed = false
 for (const [index, template] of devices.entries()) {
@@ -43,7 +51,7 @@ for (const [index, template] of devices.entries()) {
   const label = index === 0 ? 'iphone' : 'ipad'
   const folder = path.join(output, label)
   fs.mkdirSync(folder, { recursive: true })
-  const result = { family: label, model: template.name, type, passed: false, cleaned: false }
+  const result = { family: label, model: template.name, type, runs: [], passed: false, cleaned: false }
   report.devices.push(result)
   save()
   const stage = name => { result.stage = name; save() }
@@ -62,15 +70,42 @@ for (const [index, template] of devices.entries()) {
     simctl('ui', ownedDevice, 'appearance', 'light')
     stage('install')
     simctl('install', ownedDevice, appPath)
-    stage('test-flow')
-    const run = spawnSync(maestro, [
-      '--device', ownedDevice, 'test', '--format', 'junit', '--output', path.join(folder, 'report.xml'),
-      '--test-output-dir', folder, '--debug-output', folder, path.resolve('.maestro/signed-out.yaml'),
-    ], { stdio: 'inherit', timeout: 300_000, env: process.env })
-    result.exitCode = run.status
-    result.orientationEvidence = inspectScreenshotOrientations(folder)
-    if (run.error || run.status !== 0) throw new Error(`Simulator flow failed (${run.error?.code ?? run.status}).`)
-    if (!result.orientationEvidence.passed) throw new Error('Screenshots do not prove both requested orientations.')
+    for (const contentSize of ['large', 'accessibility-extra-large']) {
+      const caseFolder = path.join(folder, contentSize === 'large' ? 'default-text' : 'large-text')
+      fs.mkdirSync(caseFolder, { recursive: true })
+      const textResult = { contentSize, passed: false }
+      result.runs.push(textResult)
+      stage(`text-size:${contentSize}`)
+      try {
+        simctl('ui', ownedDevice, 'content_size', contentSize)
+        textResult.actualContentSize = simctl('ui', ownedDevice, 'content_size').trim()
+        if (textResult.actualContentSize.toLowerCase() !== contentSize) {
+          throw new Error('The requested Dynamic Type size was not applied.')
+        }
+        stage(`test-flow:${contentSize}`)
+        const log = fs.openSync(path.join(caseFolder, 'maestro.log'), 'w')
+        let run
+        try {
+          run = spawnSync(maestro, [
+            '--device', ownedDevice, 'test', '--format', 'junit', '--output', path.join(caseFolder, 'report.xml'),
+            '--test-output-dir', caseFolder, '--debug-output', caseFolder, path.resolve('.maestro/signed-out.yaml'),
+          ], { stdio: ['ignore', log, log], timeout: 300_000, env: process.env })
+        } finally { fs.closeSync(log) }
+        console.log(fs.readFileSync(path.join(caseFolder, 'maestro.log'), 'utf8'))
+        textResult.exitCode = run.status
+        textResult.orientationEvidence = inspectScreenshotOrientations(caseFolder)
+        if (run.error || run.status !== 0) throw new Error(`Simulator flow failed (${run.error?.code ?? run.status}).`)
+        if (!textResult.orientationEvidence.passed) throw new Error('Screenshots do not prove both requested orientations.')
+        textResult.passed = true
+      } catch (error) {
+        textResult.error = error.message
+        console.error(`${template.name}, ${contentSize}: ${error.message}`)
+      } finally {
+        try { simctl('io', ownedDevice, 'screenshot', path.join(caseFolder, 'last-screen.png')) } catch { /* Retain other case evidence. */ }
+        save()
+      }
+    }
+    if (result.runs.some(run => !run.passed)) throw new Error('Simulator flow failed at one or more text sizes.')
     result.passed = true
     stage('completed')
   } catch (error) {
@@ -81,7 +116,7 @@ for (const [index, template] of devices.entries()) {
     if (ownedDevice && /^[0-9a-f-]{36}$/i.test(ownedDevice)) {
       try { simctl('io', ownedDevice, 'screenshot', path.join(folder, 'last-screen.png')) } catch { /* Device may not have booted. */ }
       try {
-        const logs = command('xcrun', ['simctl', 'spawn', ownedDevice, 'log', 'show', '--style', 'compact', '--last', '5m', '--predicate', 'process == "Cyntch"'], 30_000)
+        const logs = command('xcrun', ['simctl', 'spawn', ownedDevice, 'log', 'show', '--style', 'compact', '--last', '15m', '--predicate', 'process == "Cyntch"'], 30_000)
         fs.writeFileSync(path.join(folder, 'application.log'), logs)
       } catch { /* Maestro evidence and the flow result still remain available. */ }
       try { simctl('shutdown', ownedDevice) } catch { /* It may already be shut down. */ }
@@ -91,4 +126,6 @@ for (const [index, template] of devices.entries()) {
     save()
   }
 }
+report.passed = !failed
+save()
 if (failed) process.exitCode = 1

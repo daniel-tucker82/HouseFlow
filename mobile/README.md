@@ -4,6 +4,15 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
+The iOS runner now repeats the signed-out phone/tablet journey at default Dynamic
+Type (`large`) and `accessibility-extra-large`. It checks the simulator's actual
+setting before each case, retains the installed `simctl ui` help, and saves each
+case's screenshots, orientation checks and test log separately. One failed case
+does not suppress the remaining text size or device. Local runner-control checks
+cover timeout isolation, setting mismatch, screenshot/cleanup failures and host
+guards; mobile lint/types pass. Actual enlarged-text device execution is still
+pending, so these checks do not yet establish readable iOS layouts.
+
 The Android workflow also runs the optimized APK on an API 24 (Android 7)
 Nexus 5 emulator, matching the current native minimum SDK. The compatibility
 script uses Android's UIAutomator hierarchy and ADB input rather than assuming
@@ -42,7 +51,9 @@ signing and checks the executable's embedded simulator application-identifier be
 testing. Its artifact also retains the simulator app ZIP and hash. This signing
 is for the simulator only, not TestFlight or App Store distribution. A separate
 iPad setup timeout prompted a five-minute cold-boot allowance and per-command
-timings/stage reporting. These fixes still require a successful hosted rerun.
+timings/stage reporting. Run `41839062482` (source `c88394d`) has now compiled and
+passed the embedded-entitlement/signature checks; its iPhone/iPad runtime results
+are still pending. Successful signing alone does not establish Keychain recovery.
 Failed-run evidence: `C:/Users/danie/.codex/tmp/cyntch-ios-evidence-41822109295`.
 
 The locally signed Release build in run `41832990843` (source `50e4173`)
