@@ -74,7 +74,9 @@ export function NotificationSessionProvider({ children, fallback }: PropsWithChi
       await signOutRef.current({ sessionId: session.sessionId })
     })
     queue.current = work.catch(cause => { setError(cause instanceof Error ? cause.message : "Sign-out needs another attempt.") })
-    await queue.current
+    // Keep the serial queue recoverable, but let callers stop their next action
+    // (for example, parent recovery sign-in) when durable sign-out failed.
+    await work
   }
 
   if (error) return <View style={styles.center} accessibilityRole="alert"><Copy>{error}</Copy><Action label="Try again" onPress={() => { setError(null); setAttempt(value => value + 1) }} />{fallback}</View>

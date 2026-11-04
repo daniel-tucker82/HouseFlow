@@ -4,6 +4,18 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
+Normal sign-in and kiosk parent recovery now share one presentation outside the
+notification-session loading gate. A session change can replace application
+content while the native auth view remains mounted until Clerk dismisses it.
+Parent recovery uses Android's Activity overlay and the iOS sheet, opens after
+successful sign-out in the same action, and retains the kiosk restriction until
+the existing recovery checks succeed. Failed durable sign-out now rejects to the
+caller instead of allowing the next recovery action to proceed. The 26 existing
+kiosk/PIN/notification-session checks and mobile lint/types pass; these checks
+cover the underlying durable boundaries, not native presentation. Native normal
+sign-in and parent-recovery confirmation remain required. This follows Clerk's
+[auth view lifecycle guidance](https://clerk.com/docs/reference/expo/native-components/auth-view#render-in-a-modal).
+
 Manual Android/iOS workflow dispatches can now supply `fixture_url` and
 `fixture_email` to add native email-code sign-in, household/task loading,
 portrait/landscape and session persistence after restart. Both inputs are required

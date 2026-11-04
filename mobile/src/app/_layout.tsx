@@ -20,37 +20,23 @@ import { AccountDeletionRecoveryActions } from "../components/account-deletion-r
 import { AccountDeletionRecoveryFallback } from "../components/account-deletion-recovery-fallback"
 import { AccountCleanupNotice } from "../components/account-cleanup-notice"
 
-function Application() {
+function Application({ onSignIn }: { onSignIn: () => void }) {
   const { isLoaded, isSignedIn, userId, sessionId } = useAuth({ treatPendingAsSignedOut: false })
-  const [authOpen, setAuthOpen] = useState(false)
   const [recoveryOpen,setRecoveryOpen] = useState(false)
   const colors = usePalette()
   const { fontScale } = useWindowDimensions(), largeText = fontScale > 1.4
-  const androidAuthOpen = Platform.OS === "android" && authOpen
-  useEffect(() => {
-    if (!androidAuthOpen) return
-    // The Activity gives the keyboard and Clerk's inner navigation first use
-    // of Back. The fallback closes the root sign-in screen.
-    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
-      setAuthOpen(false)
-      return true
-    })
-    return () => subscription.remove()
-  }, [androidAuthOpen])
   const kiosk = useKiosk(), { signOut } = useNotificationSession()
   const {state:deletion} = useAccountDeletionRecovery()
   if (!kiosk.state.ready || kiosk.state.changing) return <View style={{ flex: 1, backgroundColor: colors.background }}><Loading label={kiosk.state.changing ? "Protecting this device…" : "Checking this device…"} />
     {kiosk.state.error ? <View style={styles.content}><Copy>{kiosk.state.error}</Copy><Action label="Try again" onPress={() => void kiosk.controller.start()} /></View> : null}</View>
   const accepted = Boolean(userId && deletion.deletedAccounts.includes(userId))
-  if (kiosk.state.record && kiosk.state.record.intent !== "unlock" && !(accepted && kiosk.state.record.kiosk.accountId === userId)) return <KioskScreen />
+  if (kiosk.state.record && kiosk.state.record.intent !== "unlock" && !(accepted && kiosk.state.record.kiosk.accountId === userId)) return <KioskScreen onParentSignIn={onSignIn} />
   if (isSignedIn && userId && (accepted || (deletion.record?.accountId === userId && deletion.record.submitted))) return <AccountDeletionRecoveryActions />
   return <>
-    <View style={{ flex: 1 }} pointerEvents={androidAuthOpen ? "none" : "auto"}
-      importantForAccessibility={androidAuthOpen ? "no-hide-descendants" : "auto"}>
     {kiosk.state.record ? <SafeAreaView edges={["top", "left", "right"]} style={{ backgroundColor: colors.soft }}><View style={{ padding: 16, gap: 8 }}>
       <Copy>Parent controls are unlocked on this device. {kiosk.state.online ? "Finishing sync…" : "Connect to finish syncing the unlock."}</Copy>
       {kiosk.state.error ? <Copy style={{ color: colors.danger }}>{kiosk.state.error}</Copy> : null}
-      {kiosk.state.record.blocked || sessionId !== kiosk.state.record.kiosk.sessionId ? <Action label="Recover with parent sign-in" onPress={() => void kiosk.controller.beginRecovery().then(() => signOut()).catch(cause => Alert.alert("Parent sign-in needed", cause instanceof Error ? cause.message : "Connect and try again."))} /> : null}
+      {kiosk.state.record.blocked || sessionId !== kiosk.state.record.kiosk.sessionId ? <Action label="Recover with parent sign-in" onPress={() => void kiosk.controller.beginRecovery().then(() => signOut()).then(onSignIn).catch(cause => Alert.alert("Parent sign-in needed", cause instanceof Error ? cause.message : "Connect and try again."))} /> : null}
     </View></SafeAreaView> : null}
     {!isLoaded ? <Loading label="Opening Cyntch…" /> : isSignedIn && userId && sessionId ? <RuntimeProvider key={`${userId}:${sessionId}:${Boolean(kiosk.state.record)}`} accountId={userId} sessionId={sessionId} canSync={!kiosk.state.record}>
       <Tabs screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: colors.background },
@@ -72,7 +58,7 @@ function Application() {
         <Copy tone="label" style={{ color: colors.primary, letterSpacing: 2 }}>CYNTCH</Copy>
         <Copy tone={largeText ? "heading" : "title"}>A little more together.</Copy>
         {!largeText ? <Copy tone="muted">Family routines, shared tasks and small wins. All in one place.</Copy> : null}
-        <Action label="Sign in or create an account" onPress={() => setAuthOpen(true)} />
+        <Action label="Sign in or create an account" onPress={onSignIn} />
         {largeText ? <Copy tone="muted">Family routines, shared tasks and small wins. All in one place.</Copy> : null}
         <Copy tone="muted">Children can use a parent’s device or the family tablet. They don’t need an email address.</Copy>
         <AccountCleanupNotice />
@@ -80,23 +66,45 @@ function Application() {
       </View>
       </ScrollView>
     </SafeAreaView>}
+    <Modal visible={recoveryOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setRecoveryOpen(false)}><AccountDeletionStatusView onClose={() => setRecoveryOpen(false)} /></Modal>
+  </>
+}
+
+function ApplicationWithSignIn() {
+  const [authOpen, setAuthOpen] = useState(false)
+  const colors = usePalette()
+  const androidAuthOpen = Platform.OS === "android" && authOpen
+  useEffect(() => {
+    if (!androidAuthOpen) return
+    // The Activity gives the keyboard and Clerk's inner navigation first use
+    // of Back. The fallback closes the root sign-in screen.
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      setAuthOpen(false)
+      return true
+    })
+    return () => subscription.remove()
+  }, [androidAuthOpen])
+  return <View style={{ flex: 1 }}>
+    <View style={{ flex: 1 }} pointerEvents={androidAuthOpen ? "none" : "auto"}
+      importantForAccessibility={androidAuthOpen ? "no-hide-descendants" : "auto"}>
+      <NotificationSessionProvider fallback={<AccountDeletionRecoveryFallback />}>
+        <Application onSignIn={() => setAuthOpen(true)} />
+      </NotificationSessionProvider>
     </View>
-    {/* Keep auth mounted across session changes until Clerk finishes its flow.
-        Android's native screen shares the Activity keyboard/back dispatcher;
-        the React Native dialog otherwise closes auth on keyboard dismissal. */}
+    {/* The session gate and kiosk recovery can unmount Application while Clerk
+        finishes sign-in. Keep the native flow here until its own dismissal. */}
     {Platform.OS === "android" ? androidAuthOpen ? <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.surface }]}>
       <AuthView onDismiss={() => setAuthOpen(false)} />
     </View> : null : <Modal visible={authOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setAuthOpen(false)}>
       <AuthView onDismiss={() => setAuthOpen(false)} />
     </Modal>}
-    <Modal visible={recoveryOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setRecoveryOpen(false)}><AccountDeletionStatusView onClose={() => setRecoveryOpen(false)} /></Modal>
-  </>
+  </View>
 }
 
 export default function RootLayout() {
   const key = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY
   return <SafeAreaProvider><StatusBar style="auto" /><AccountDeletionRecoveryProvider>{key ? <ClerkProvider publishableKey={key} tokenCache={tokenCache} __experimental_resourceCache={nativeClerkResourceCache}>
     <AccountDeletionIdentityRecovery />
-    <KioskProvider><NotificationSessionProvider fallback={<AccountDeletionRecoveryFallback />}><Application /></NotificationSessionProvider></KioskProvider>
+    <KioskProvider><ApplicationWithSignIn /></KioskProvider>
   </ClerkProvider> : <View style={styles.center}><Copy tone="heading">Cyntch setup is incomplete</Copy><Copy>This build is missing its sign-in configuration.</Copy></View>}</AccountDeletionRecoveryProvider></SafeAreaProvider>
 }

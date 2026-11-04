@@ -1,5 +1,4 @@
 import { useAuth } from "@clerk/expo"
-import { AuthView } from "@clerk/expo/native-components"
 import { useState } from "react"
 import { Alert, Modal, ScrollView, View } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
@@ -11,10 +10,10 @@ import { Action, Copy, styles, usePalette } from "./ui"
 import { ParentPinInput } from "./kiosk-settings"
 import BoardScreen from "./board-screen"
 
-export function KioskScreen() {
+export function KioskScreen({ onParentSignIn }: { onParentSignIn: () => void }) {
   const { controller, state } = useKiosk(), { userId, sessionId, isSignedIn } = useAuth({ treatPendingAsSignedOut: false })
   const { signOut } = useNotificationSession(), colors = usePalette()
-  const [pinOpen, setPinOpen] = useState(false), [pin, setPin] = useState(""), [error, setError] = useState<string | null>(null), [busy, setBusy] = useState(false), [authOpen, setAuthOpen] = useState(false)
+  const [pinOpen, setPinOpen] = useState(false), [pin, setPin] = useState(""), [error, setError] = useState<string | null>(null), [busy, setBusy] = useState(false)
   const record = state.record
   if (!record) return null
   const kiosk = record.kiosk
@@ -32,7 +31,7 @@ export function KioskScreen() {
     try {
       await controller.beginRecovery(); closePin()
       if (isSignedIn) await signOut()
-      else setAuthOpen(true)
+      onParentSignIn()
     } catch (cause) { Alert.alert("Parent sign-in needed", cause instanceof Error ? cause.message : "Connect and try again.") }
   }
   return <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -54,6 +53,5 @@ export function KioskScreen() {
         <Action secondary label="Back to family tasks" disabled={busy} onPress={closePin} />
       </ScrollView></SafeAreaView>
     </Modal>
-    <Modal visible={authOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setAuthOpen(false)}><AuthView onDismiss={() => setAuthOpen(false)} /></Modal>
   </View>
 }
