@@ -68,7 +68,11 @@ an incorrect test label (`Email address`; Android displayed `Enter your email`).
 The retained phone screenshot also exposes a genuine defect: the Continue
 button is compressed and clipped in landscape, with no scrollable form. The
 same non-scrolling auth scaffold remains in the published Clerk Android UI
-1.4.1 sources; no dependency upgrade or layout fix has been applied yet.
+1.4.1 sources. A pinned source patch now adds scrolling and keyboard insets to
+the native auth scaffold; `vendor/clerk-android-ui` records its reproducible
+build and upstream license. It preserves the 1.3.0 authentication/API versions.
+Prebuild, lint and typecheck pass; compilation and native runtime verification
+of the replacement remain pending.
 
 The shared flow now selects Clerk's published native field/action identifiers
 on both platforms and requires the complete Continue control and its text to be

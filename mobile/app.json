@@ -34,6 +34,7 @@
       "@clerk/expo-native-components",
       "./plugins/with-android-font-scale",
       "./plugins/with-clerk-module-map",
+      "./plugins/with-clerk-auth-scroll",
       [
         "expo-build-properties",
         {

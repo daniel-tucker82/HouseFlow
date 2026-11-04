@@ -1,0 +1,110 @@
+import java.security.MessageDigest
+
+// Build the published 1.3.0 UI sources with one layout patch. Keep the upstream
+// Kotlin compiler and dependency versions; do not replace authentication logic.
+plugins {
+  id 'com.android.library' version '9.2.1'
+  id 'org.jetbrains.kotlin.android' version '2.4.21'
+  id 'org.jetbrains.kotlin.plugin.compose' version '2.4.21'
+  id 'org.jetbrains.kotlin.plugin.serialization' version '2.4.21'
+}
+
+group = 'com.clerk'
+version = '1.3.0'
+
+configurations {
+  upstreamSources { canBeConsumed = false; transitive = false }
+  upstreamResources { canBeConsumed = false; transitive = false }
+}
+// These two artifacts are inputs, not a dependency on this replacement project.
+[configurations.upstreamSources, configurations.upstreamResources].each {
+  it.resolutionStrategy.useGlobalDependencySubstitutionRules = false
+}
+
+def generated = layout.buildDirectory.dir('generated/upstream')
+def prepareClerkUi = tasks.register('prepareClerkUi') {
+  inputs.files(configurations.upstreamSources, configurations.upstreamResources)
+  inputs.file('auth-scroll.before.txt')
+  inputs.file('auth-scroll.after.txt')
+  outputs.dir(generated)
+  doLast {
+    def sources = configurations.upstreamSources.singleFile
+    def resources = configurations.upstreamResources.singleFile
+    [
+      (sources): '8dade3976b0271ba52e5918cabd0355aae0b7495d0df35ed919b83e8afcbbb3c',
+      (resources): 'c82d4af7c233a0c4a58da47e0d51686c6a52f4399b7b3de449fbd0f16145818e',
+    ].each { artifact, expected ->
+      def actual = MessageDigest.getInstance('SHA-256').digest(artifact.bytes).encodeHex().toString()
+      if (actual != expected) throw new GradleException("Unexpected Clerk source/resource artifact: ${artifact.name}")
+    }
+    def target = generated.get().asFile
+    // Sync only this task's generated directory; no working sources are removed.
+    sync {
+      into target
+      from(zipTree(sources)) { include '**/*.kt'; into 'kotlin' }
+      from(zipTree(resources)) { include 'res/**', 'AndroidManifest.xml', 'proguard.txt' }
+    }
+    def scaffold = new File(target, 'kotlin/com/clerk/ui/core/scaffold/ClerkThemedAuthScaffold.kt')
+    def original = scaffold.getText('UTF-8').replace('\r\n', '\n')
+    def before = file('auth-scroll.before.txt').getText('UTF-8').replace('\r\n', '\n').trim()
+    def after = file('auth-scroll.after.txt').getText('UTF-8').replace('\r\n', '\n').trim()
+    if (original.count(before) != 1) throw new GradleException('Clerk auth scaffold changed; review the scroll patch.')
+    def patched = original.replace(before, after).replace(
+      'import androidx.compose.foundation.BorderStroke',
+      'import androidx.compose.foundation.rememberScrollState\n' +
+      'import androidx.compose.foundation.verticalScroll\n' +
+      'import androidx.compose.foundation.layout.consumeWindowInsets\n' +
+      'import androidx.compose.foundation.layout.imePadding\n' +
+      'import androidx.compose.foundation.BorderStroke')
+    scaffold.setText(patched, 'UTF-8')
+    logger.lifecycle('[Cyntch] Applied pinned Clerk 1.3.0 auth scrolling patch')
+  }
+}
+
+android {
+  namespace 'com.clerk.ui'
+  compileSdk 36
+  defaultConfig {
+    minSdk 24
+    consumerProguardFiles generated.map { it.file('proguard.txt') }
+  }
+  buildFeatures { compose = true }
+  sourceSets {
+    main {
+      java.srcDir generated.map { it.dir('kotlin') }
+      res.srcDir generated.map { it.dir('res') }
+      manifest.srcFile generated.map { it.file('AndroidManifest.xml') }
+      assets.srcDir 'assets'
+    }
+  }
+}
+kotlin { jvmToolchain(17) }
+tasks.named('preBuild').configure { dependsOn prepareClerkUi }
+
+dependencies {
+  upstreamSources 'com.clerk:clerk-android-ui:1.3.0:sources@jar'
+  upstreamResources 'com.clerk:clerk-android-ui:1.3.0@aar'
+
+  // These mirror the published 1.3.0 POM and source/ui/build.gradle.kts.
+  api 'com.clerk:clerk-android-api:1.3.0'
+  api 'com.clerk:clerk-android-telemetry:1.1.2'
+  implementation platform('androidx.compose:compose-bom:2026.06.01')
+  implementation 'androidx.activity:activity-compose:1.13.0'
+  implementation 'androidx.appcompat:appcompat:1.8.0'
+  implementation 'androidx.compose.foundation:foundation'
+  implementation 'org.jetbrains.compose.material:material-icons-core:1.7.3'
+  implementation 'androidx.compose.runtime:runtime'
+  implementation 'androidx.lifecycle:lifecycle-runtime-compose:2.10.0'
+  implementation 'androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0'
+  implementation 'androidx.lifecycle:lifecycle-viewmodel-navigation3:2.10.0'
+  implementation 'androidx.navigation3:navigation3-runtime:1.1.7'
+  implementation 'androidx.navigation3:navigation3-ui:1.1.7'
+  implementation 'androidx.compose.ui:ui'
+  implementation 'io.coil-kt.coil3:coil-compose:3.5.0'
+  implementation 'io.coil-kt.coil3:coil-network-okhttp:3.5.0'
+  implementation 'com.googlecode.libphonenumber:libphonenumber:9.0.41'
+  implementation 'org.jetbrains.kotlinx:kotlinx-collections-immutable:0.5.2'
+  implementation 'androidx.compose.material3:material3:1.4.0'
+  implementation 'com.materialkolor:material-kolor:4.1.1'
+  compileOnly 'androidx.compose.ui:ui-tooling-preview-android:1.12.1'
+}

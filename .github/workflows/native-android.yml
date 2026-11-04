@@ -64,6 +64,9 @@ jobs:
           set -euo pipefail
           java -version
           chmod +x gradlew
+          ./gradlew :cyntch-clerk-ui:assembleRelease --no-daemon --max-workers=2 \
+            -Dorg.gradle.jvmargs='-Xmx3072m -XX:MaxMetaspaceSize=512m -XX:ActiveProcessorCount=2' \
+            2>&1 | tee "$RUNNER_TEMP/cyntch-clerk-ui-build.log"
           ./gradlew :app:assembleRelease --no-daemon --max-workers=2 \
             -Dorg.gradle.jvmargs='-Xmx3072m -XX:MaxMetaspaceSize=512m -XX:ActiveProcessorCount=2' \
             -PreactNativeArchitectures=x86_64 \
@@ -143,8 +146,10 @@ jobs:
           path: |
             ${{ runner.temp }}/cyntch-android-prebuild.log
             ${{ runner.temp }}/cyntch-android-build.log
+            ${{ runner.temp }}/cyntch-clerk-ui-build.log
             ${{ runner.temp }}/cyntch-android-apk/
             ${{ runner.temp }}/cyntch-android-smoke/
             mobile/android/app/build/outputs/mapping/release/mapping.txt
+            mobile/vendor/clerk-android-ui/build/generated/upstream/kotlin/com/clerk/ui/core/scaffold/ClerkThemedAuthScaffold.kt
           if-no-files-found: warn
           retention-days: 7
