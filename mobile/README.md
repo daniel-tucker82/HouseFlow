@@ -58,11 +58,34 @@ retaining the local Expo module's Android and Swift sources. Update the allowlis
 if mobile code gains another external source dependency. EAS regenerates native
 app projects through the existing config plugins.
 
-`.github/workflows/native-ios.yml` provides a separate unsigned arm64 Simulator
-compilation check on the mobile development branch, using a standard macOS 26
-runner and Xcode 26.6. It requires no account, signing or backend credentials and
-retains compiler logs. It verifies native compilation, not sign-in, purchases,
-push delivery or store readiness. EAS remains the signing/distribution path.
+`.github/workflows/native-ios.yml` provides unsigned arm64 Simulator verification
+on the mobile development branch, using a standard macOS 26 runner and Xcode
+26.6. EAS remains the signing/distribution path.
+
+The last verified Debug compilation is run `41818248579`, source `9cadf3b`:
+all 27 native persistence/biometric/Keychain checks and the full compile passed.
+The downloaded artifact is
+`C:/Users/danie/.codex/tmp/cyntch-native-ios-41818248579.zip`, SHA-256
+`67afa58ceff4027b617834f7694634ced8f50f86282b16d98caf05c9e128028a`.
+That run did not launch the application.
+
+The workflow now builds the **Release** Simulator configuration and requires its
+bundled `main.jsbundle` before runtime checks. It installs the pinned Maestro
+2.12.1 archive after checking its SHA-256, then creates its own disposable iPhone
+and iPad simulators using the newest installed runtime with both device types.
+`scripts/ios-simulator-smoke.cjs` runs `.maestro/signed-out.yaml` separately on
+each, retains JUnit results, screenshots and app logs, and shuts down/removes
+only the simulators it created, including after a failed flow.
+
+The flow checks signed-out welcome text, portrait/landscape controls, opening
+Clerk's native email sign-in form in both orientations, and a clean return to
+the welcome screen after restarting. It uses Cyntch's public development Clerk
+identifier, grants no device permissions and never submits login credentials.
+The application API is a reserved `.invalid` address, so these checks cannot
+exercise production household data. No Metro server or signing account is used.
+The first execution of these runtime checks is pending; adding the flow is not
+evidence that it passes. They do not cover authenticated journeys, real device
+performance, purchases, delivered pushes or store readiness.
 
 RevenueCat's React Native SDK is pinned to `10.16.0`. The first Mac check
 (`41796637009`, commit `152b698`) generated the iOS project but stopped at pod

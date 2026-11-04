@@ -1,4 +1,4 @@
-name: Native iOS compilation
+name: Native iOS verification
 
 on:
   push:
@@ -32,6 +32,11 @@ jobs:
       CI: '1'
       EXPO_NO_DOTENV: '1'
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      # Public development identifier, not an authentication credential.
+      # Signed-out tests never submit credentials or contact the production API.
+      EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ZW1lcmdpbmctdG9hZC05OC5jbGVyay5hY2NvdW50cy5kZXYk
+      EXPO_PUBLIC_API_URL: https://cyntch-simulator.invalid
+      MAESTRO_CLI_NO_ANALYTICS: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -71,14 +76,14 @@ jobs:
         run: |
           set -o pipefail
           pod install 2>&1 | tee "$RUNNER_TEMP/cyntch-ios-pods.log"
-      - name: Compile the unsigned simulator app
+      - name: Compile the unsigned release simulator app
         run: |
           set -o pipefail
           xcodebuild -version
           xcodebuild \
             -workspace ios/Cyntch.xcworkspace \
             -scheme Cyntch \
-            -configuration Debug \
+            -configuration Release \
             -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath "$RUNNER_TEMP/cyntch-derived" \
@@ -88,6 +93,26 @@ jobs:
             COMPILER_INDEX_STORE_ENABLE=NO \
             ONLY_ACTIVE_ARCH=YES ARCHS=arm64 \
             build 2>&1 | tee "$RUNNER_TEMP/cyntch-ios.log"
+          test -s "$RUNNER_TEMP/cyntch-derived/Build/Products/Release-iphonesimulator/Cyntch.app/main.jsbundle"
+      - name: Install pinned simulator test runner
+        run: |
+          set -euo pipefail
+          java -version
+          curl --fail --location --retry 3 \
+            https://github.com/mobile-dev-inc/Maestro/releases/download/cli-2.12.1/maestro.zip \
+            -o "$RUNNER_TEMP/maestro.zip"
+          printf '%s  %s\n' '54dbb0716425626604973cbb374c585ca30272375d9ce15177a1152765ddd9d7' "$RUNNER_TEMP/maestro.zip" | shasum -a 256 -c -
+          unzip -q "$RUNNER_TEMP/maestro.zip" -d "$RUNNER_TEMP/maestro-cli"
+          "$RUNNER_TEMP/maestro-cli/maestro/bin/maestro" --version
+      - name: Verify iPhone and iPad startup and native sign-in
+        timeout-minutes: 15
+        run: |
+          set -o pipefail
+          node scripts/ios-simulator-smoke.cjs \
+            "$RUNNER_TEMP/cyntch-derived/Build/Products/Release-iphonesimulator/Cyntch.app" \
+            "$RUNNER_TEMP/maestro-cli/maestro/bin/maestro" \
+            "$RUNNER_TEMP/cyntch-ios-smoke" \
+            2>&1 | tee "$RUNNER_TEMP/cyntch-ios-smoke.log"
       - name: Retain compiler evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -100,6 +125,8 @@ jobs:
             ${{ runner.temp }}/cyntch-ios-prebuild.log
             ${{ runner.temp }}/cyntch-ios-pods.log
             ${{ runner.temp }}/cyntch-ios.log
+            ${{ runner.temp }}/cyntch-ios-smoke.log
+            ${{ runner.temp }}/cyntch-ios-smoke/
             ${{ runner.temp }}/cyntch-native.xcresult
             mobile/ios/Podfile.lock
             mobile/ios/Podfile

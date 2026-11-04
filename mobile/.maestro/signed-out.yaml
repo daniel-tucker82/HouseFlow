@@ -1,0 +1,32 @@
+appId: com.cyntch.app
+name: Signed-out startup, rotation and native authentication
+---
+- launchApp:
+    permissions:
+      all: deny
+- setOrientation: PORTRAIT
+- extendedWaitUntil:
+    visible: "Sign in or create an account"
+    timeout: 60000
+- assertVisible: "A little more together."
+- takeScreenshot: welcome-portrait
+- setOrientation: LANDSCAPE_LEFT
+- assertVisible: "Sign in or create an account"
+- takeScreenshot: welcome-landscape
+- tapOn: "Sign in or create an account"
+- extendedWaitUntil:
+    visible: "Email address"
+    timeout: 60000
+- takeScreenshot: native-sign-in-landscape
+- setOrientation: PORTRAIT
+- assertVisible: "Email address"
+- takeScreenshot: native-sign-in-portrait
+- stopApp
+- launchApp:
+    permissions:
+      all: deny
+- extendedWaitUntil:
+    visible: "Sign in or create an account"
+    timeout: 60000
+- assertVisible: "A little more together."
+- takeScreenshot: welcome-after-restart
