@@ -155,5 +155,7 @@ jobs:
             mobile/android/app/build/outputs/mapping/release/mapping.txt
             mobile/android/settings.gradle
             mobile/vendor/clerk-android-ui/build/generated/upstream/kotlin/com/clerk/ui/core/scaffold/ClerkThemedAuthScaffold.kt
+            mobile/vendor/clerk-android-ui/build/generated/upstream/kotlin/com/clerk/ui/core/button/social/ClerkSocialButton.kt
+            mobile/vendor/clerk-android-ui/build/generated/upstream/kotlin/com/clerk/ui/core/button/standard/ClerkButton.kt
           if-no-files-found: warn
           retention-days: 7

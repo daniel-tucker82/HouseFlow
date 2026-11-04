@@ -10,13 +10,14 @@ const required = {
   'native-sign-in-landscape.png': 'landscape',
   'welcome-after-restart.png': 'portrait',
 }
-function inspectScreenshotOrientations(directory) {
+function inspectScreenshotOrientations(directory, additionalRequired = {}) {
+  const expected = { ...required, ...additionalRequired }
   const screenshots = []
   const walk = folder => {
     for (const entry of fs.readdirSync(folder, { withFileTypes: true })) {
       const file = path.join(folder, entry.name)
       if (entry.isDirectory()) walk(file)
-      else if (required[entry.name]) {
+      else if (expected[entry.name]) {
         const bytes = fs.readFileSync(file)
         if (bytes.length < 24 || bytes.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a'
           || bytes.subarray(12, 16).toString('ascii') !== 'IHDR') {
@@ -25,12 +26,12 @@ function inspectScreenshotOrientations(directory) {
         const width = bytes.readUInt32BE(16), height = bytes.readUInt32BE(20)
         const orientation = width > height ? 'landscape' : width < height ? 'portrait' : 'square'
         screenshots.push({ file: path.relative(directory, file), width, height, orientation,
-          expected: required[entry.name], passed: orientation === required[entry.name] })
+          expected: expected[entry.name], passed: orientation === expected[entry.name] })
       }
     }
   }
   walk(directory)
-  const missing = Object.keys(required).filter(name => !screenshots.some(item => path.basename(item.file) === name))
+  const missing = Object.keys(expected).filter(name => !screenshots.some(item => path.basename(item.file) === name))
   return { passed: missing.length === 0 && screenshots.every(item => item.passed), missing, screenshots }
 }
 

@@ -34,6 +34,17 @@ env:
 - assertVisible:
     id: "clerk.auth.start.continue"
 - takeScreenshot: native-sign-in-portrait
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - scrollUntilVisible:
+          element: "Continue with Google"
+          direction: DOWN
+          timeout: 10000
+          visibilityPercentage: 100
+          centerElement: true
+      - takeScreenshot: native-social-sign-in-portrait
 - setOrientation: ${LANDSCAPE_ORIENTATION}
 - scrollUntilVisible:
     element:
@@ -50,6 +61,17 @@ env:
 - assertVisible:
     id: "clerk.auth.start.continue"
 - takeScreenshot: native-sign-in-landscape
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - scrollUntilVisible:
+          element: "Continue with Google"
+          direction: DOWN
+          timeout: 10000
+          visibilityPercentage: 100
+          centerElement: true
+      - takeScreenshot: native-social-sign-in-landscape
 - setOrientation: ${PORTRAIT_ORIENTATION}
 - stopApp
 - launchApp:

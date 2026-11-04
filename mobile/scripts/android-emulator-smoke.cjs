@@ -61,7 +61,10 @@ try {
       } finally { fs.closeSync(log) }
       console.log(fs.readFileSync(path.join(folder, 'maestro.log'), 'utf8'))
       result.exitCode = run.status
-      result.orientationEvidence = inspectScreenshotOrientations(folder)
+      result.orientationEvidence = inspectScreenshotOrientations(folder, {
+        'native-social-sign-in-portrait.png': 'portrait',
+        'native-social-sign-in-landscape.png': 'landscape',
+      })
       if (run.error || run.status !== 0) throw new Error(`Android flow failed (${run.error?.code ?? run.status}).`)
       if (!result.orientationEvidence.passed) throw new Error('Screenshots do not prove both requested orientations.')
       result.passed = true

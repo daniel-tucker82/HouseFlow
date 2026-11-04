@@ -1,6 +1,6 @@
 import java.security.MessageDigest
 
-// Build the published 1.3.0 UI sources with one layout patch. Keep the upstream
+// Build the published 1.3.0 UI sources with layout patches. Keep the upstream
 // Kotlin compiler and dependency versions; do not replace authentication logic.
 plugins {
   id 'com.android.library' version '9.2.1'
@@ -62,7 +62,22 @@ def prepareClerkUi = tasks.register('prepareClerkUi') {
       'import androidx.compose.foundation.layout.imePadding\n' +
       'import androidx.compose.foundation.BorderStroke')
     scaffold.setText(patched, 'UTF-8')
-    logger.lifecycle('[Cyntch] Applied pinned Clerk 1.3.0 auth scrolling patch')
+    // Fixed button heights clip scaled text plus the upstream content padding.
+    // Preserve the minimum target, allowing the measured content to grow.
+    [
+      ['social/ClerkSocialButton.kt', '.height(dp48)', '.heightIn(min = dp48)', 2],
+      ['standard/ClerkButton.kt', 'Modifier.height(tokens.height)', 'Modifier.heightIn(min = tokens.height)', 1],
+    ].each { patch ->
+      def button = new File(target, "kotlin/com/clerk/ui/core/button/${patch[0]}")
+      def buttonSource = button.getText('UTF-8').replace('\r\n', '\n')
+      def heightImport = 'import androidx.compose.foundation.layout.height\n'
+      if (buttonSource.count(patch[1]) != patch[3] || buttonSource.count(heightImport) != 1) {
+        throw new GradleException("Clerk button changed; review text sizing patch: ${patch[0]}")
+      }
+      button.setText(buttonSource.replace(patch[1], patch[2]).replace(
+        heightImport, 'import androidx.compose.foundation.layout.heightIn\n'), 'UTF-8')
+    }
+    logger.lifecycle('[Cyntch] Applied pinned Clerk 1.3.0 auth scrolling and button text sizing patches')
   }
 }
 

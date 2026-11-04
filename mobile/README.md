@@ -18,6 +18,13 @@ success remains unverified until rerun. Artifact SHA-256:
 APK SHA-256: `9ecef772c25fd8081721f11a7c9272d0cf05d633a06af0d5e9503abd265d1529`.
 Evidence: `C:/Users/danie/.codex/tmp/cyntch-android-evidence-41836733823`.
 
+Visual review of that run found another defect despite the tablet flow passing:
+the Google button's fixed 48dp height clipped its label at 1.6x text. The pinned
+UI patch now lets social and standard button heights grow above their existing
+minimum. Android tests also require separate Google-button screenshots in both
+orientations. This change still needs native compilation and visual verification;
+automated element visibility alone does not establish that text is uncut.
+
 The first bundled iOS Release runtime check compiled successfully but failed
 before sign-in: the unsigned simulator binary reported Keychain error -34018
 (missing entitlement). The iOS workflow now enables local ad-hoc simulator
