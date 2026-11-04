@@ -22,6 +22,57 @@ Clerk's native sign-in components require a development build, not Expo Go.
 Generated `android/` and `ios/` directories are ignored. Configure native behavior
 through `app.json` and config plugins rather than editing generated projects.
 
+### Cloud builds and native iOS compilation
+
+Run EAS commands from this `mobile` directory. `eas.json` defines:
+
+| Profile | Intended artifact | EAS environment |
+| --- | --- | --- |
+| `development` | Android/iOS development client for devices | `development` |
+| `development-simulator` | iOS development client for Simulator | `development` |
+| `preview` | Internal release-like device build | `preview` |
+| `preview-simulator` | Release-like iOS Simulator build | `preview` |
+| `production` | Google Play/App Store build | `production` |
+
+The profiles pin Node 22.23.3 and use EAS remote version management; production
+builds increment their platform build number. Store submission is a separate
+release step. Link the correct Expo account/project with `npx eas-cli@latest init`
+after signing in; reuse an existing Cyntch project if one is present. No project
+identifier has been invented or committed.
+
+Set `EXPO_PUBLIC_API_URL` and `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` in each selected
+EAS environment. The pre-install hook rejects missing sign-in configuration,
+test keys in production, and non-HTTPS preview/production API URLs. Development
+profiles also allow the local emulator/loopback addresses. These checks do not
+establish that the API and Clerk instance match; verify sign-in against the
+selected backend. Local `.env` files and signing credentials are not uploaded.
+
+For example, `npx eas-cli@latest build --platform ios --profile development-simulator`
+starts an unsigned Simulator build once the project and environment are linked.
+Device/store builds additionally need the appropriate signing and push-provider
+configuration. Preserve the existing `com.cyntch.app` identifiers.
+
+The root `.easignore` uploads `mobile`, `shared`, and the three package-free
+calendar/type utilities in `lib`. It excludes generated app projects while
+retaining the local Expo module's Android and Swift sources. Update the allowlist
+if mobile code gains another external source dependency. EAS regenerates native
+app projects through the existing config plugins.
+
+`.github/workflows/native-ios.yml` provides a separate unsigned arm64 Simulator
+compilation check on the mobile development branch, using a standard macOS 26
+runner and Xcode 26.6. It requires no account, signing or backend credentials and
+retains compiler logs. It verifies native compilation, not sign-in, purchases,
+push delivery or store readiness. EAS remains the signing/distribution path.
+
+Local validation used EAS CLI 27.4.1's profile resolver and actual Git archive
+copy implementation. The 138-file archive installed from its lockfile and
+exported Android/iOS Hermes bundles without the web app's dependencies. Native
+configuration introspection and iOS module discovery succeeded. Windows rejects
+iOS Prebuild before project generation; native compilation must run on the Mac
+runner or EAS. At setup, both the Expo CLI and browser were signed out, so no
+EAS cloud build was started. Evidence:
+`C:/Users/danie/.codex/tmp/cyntch-eas-archive-evidence.json`.
+
 On Windows with long paths disabled, the verified local emulator build uses
 CMake 3.31.6 from the Android SDK and Expo's object-path limit. Run from the
 canonical repository path: mixing a mapped drive with canonical dependency paths

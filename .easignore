@@ -1,0 +1,49 @@
+# EAS reads this at the Git root and replaces every .gitignore for uploads.
+# The web app has a separate install. Upload only native source and its shared
+# contracts/calendar utilities, preserving their repository-relative paths.
+/*
+!/mobile
+!/shared
+!/lib
+/lib/*
+!/lib/recurrence.ts
+!/lib/time-rules.ts
+!/lib/types.ts
+
+# Continuous Native Generation: EAS regenerates the app projects. The local
+# Expo module's android/ and ios/ source folders must remain in the archive.
+/mobile/android
+/mobile/ios
+
+# Local dependencies, build products, caches and development configuration.
+node_modules
+.git
+.expo
+.gradle
+.kotlin
+.cxx
+build
+dist
+dist-verification
+web-build
+coverage
+.env*
+.vercel
+.clerk
+.DS_Store
+*.tsbuildinfo
+expo-env.d.ts
+*.log
+*.orig.*
+
+# Supply signing and service configuration through EAS credentials/environment.
+credentials.json
+google-services.json
+GoogleService-Info.plist
+*.jks
+*.keystore
+*.p8
+*.p12
+*.key
+*.pem
+*.mobileprovision

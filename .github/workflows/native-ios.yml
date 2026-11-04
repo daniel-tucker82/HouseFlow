@@ -1,0 +1,77 @@
+name: Native iOS compilation
+
+on:
+  push:
+    branches: [codex/native-mobile-apps]
+    paths:
+      - mobile/**
+      - shared/**
+      - lib/recurrence.ts
+      - lib/time-rules.ts
+      - lib/types.ts
+      - .github/workflows/native-ios.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compile:
+    runs-on: macos-26
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: mobile
+        shell: bash
+    env:
+      CI: '1'
+      EXPO_NO_DOTENV: '1'
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22.23.3'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Generate the native iOS project
+        run: npx expo prebuild --platform ios --no-install
+      - name: Install native dependencies
+        working-directory: mobile/ios
+        run: pod install
+      - name: Compile the unsigned simulator app
+        run: |
+          set -o pipefail
+          xcodebuild -version
+          xcodebuild \
+            -workspace ios/Cyntch.xcworkspace \
+            -scheme Cyntch \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/cyntch-derived" \
+            -resultBundlePath "$RUNNER_TEMP/cyntch-native.xcresult" \
+            -jobs 2 \
+            CODE_SIGNING_ALLOWED=NO \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            ONLY_ACTIVE_ARCH=YES ARCHS=arm64 \
+            build 2>&1 | tee "$RUNNER_TEMP/cyntch-ios.log"
+      - name: Retain compiler evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-ios-compilation
+          path: |
+            ${{ runner.temp }}/cyntch-ios.log
+            ${{ runner.temp }}/cyntch-native.xcresult
+            mobile/ios/Podfile.lock
+          if-no-files-found: warn
+          retention-days: 7
