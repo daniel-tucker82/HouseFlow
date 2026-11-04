@@ -3,12 +3,13 @@ import { normalizeRole } from "@/lib/household-authz"
 import type { BoardTask, HouseholdMember, HouseholdSummary } from "@/shared/mobile/contracts"
 import type { RunPage, RunSnapshot, RunSummary, RunView } from "@/shared/mobile/runs"
 import { isCalendarDate } from "@/shared/scheduling"
+import { OCCURRENCE_DISPLAY_TITLE_SQL } from "@/lib/occurrence-display"
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const active = `(ro.status='active' and (not exists (select 1 from occurrence_tasks x where x.occurrence_id=ro.id)
   or exists (select 1 from occurrence_tasks x where x.occurrence_id=ro.id and x.status<>'completed')))`
 const summary = `select ro.id,ro.routine_id,ro.kind,
-  case when ro.title is not null and ro.title !~* '^Recurrence - [a-z0-9-]+$' then ro.title else coalesce(r.name,'Routine') end as title,
+  ${OCCURRENCE_DISPLAY_TITLE_SQL} as title,
   to_char(ro.scheduled_for at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as scheduled_for,
   case when ro.status='active' and counts.total_tasks>0 and counts.completed_tasks=counts.total_tasks then 'completed' else ro.status::text end as status,
   counts.total_tasks,counts.completed_tasks

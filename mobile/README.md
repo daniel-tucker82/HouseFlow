@@ -2276,3 +2276,35 @@ through the native confirmation; final edit queue and draft counts were zero.
 Device font, orientation and connectivity were restored and the emulator stopped.
 The final session's ANR/crash event query was empty. This does not resolve the
 earlier ANR or replace physical iOS/Android and release-build performance tests.
+
+### Consistent routine names in Today and Runs
+
+The member board (web and native Today), run list and run details now share a
+display-name rule. An unnamed routine run or an internal recurrence title uses
+its routine's name. Explicit run titles are preserved, including named one-off
+boards that start with “Recurrence -”. Empty titles have readable fallbacks.
+Routine lookups require the same household, including when an old reference is
+inconsistent. This changes display data only; stored titles and recurrence keys
+are not rewritten and no database migration is needed. Existing offline caches
+receive the corrected name on their next successful refresh.
+
+Native task checkboxes and detail controls include the board name in their
+accessibility labels, matching the visible subtitle. Searching by routine name
+now works for these previously unnamed or internally named runs as well.
+
+Verification: 47 database/API, run-history, board-filter and SQLite/controller
+tests passed, followed by the final database case with an explicitly inaccessible
+foreign household. That case covers web/native name parity, manual and automatic
+runs, blank/missing names, legacy recurrence identifiers, preserved custom titles,
+template renaming, household boundaries and unchanged stored titles. Root lint,
+types and the production web build passed. Native lint/type/export results and
+runtime evidence are recorded in
+`C:/Users/danie/.codex/tmp/cyntch-board-names-runtime.json`.
+
+Android API 36 checks verified the “Evening reset” name in Today and Runs, routine
+search online and offline, and names in both the visible text and accessibility
+tree. The durable board cache contains the corrected names in its server and
+display snapshots. No task edits were queued; no unfinished drafts remained.
+Search and network settings were restored, the emulator was stopped, and the
+session's ANR/crash event query was empty. Physical screen-reader use, iOS device
+behavior and the broader release requirements still require verification.

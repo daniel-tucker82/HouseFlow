@@ -56,6 +56,7 @@ test('run history pages accurately, retains microsecond ordering, isolates house
     loaded._compile(code, filename); return loaded.exports
   }
   mocks['@/shared/scheduling'] = load('shared/scheduling.ts', true)
+  mocks['@/lib/occurrence-display'] = load('lib/occurrence-display.ts')
   mocks['@/lib/mobile-runs'] = load('lib/mobile-runs.ts')
   mocks['@/lib/native-kiosk-guard'] = require('./helpers/native-kiosk.cjs').loadNativeKiosk(mocks)
   const route = load('app/api/mobile/runs/route.ts')

@@ -26,7 +26,7 @@ export function BoardTaskRow({ task, canEdit, memberNames, saving, needsAttentio
   const locked = task.status === "locked"
   const explanation = taskWaitingLabel(task, timezone)
   const metadataMessage = task.metadata_sync === "rejected" ? "Task edit needs attention" : task.metadata_sync === "pending" ? "Task edit waiting to sync" : null
-  const label = `${task.title}${memberNames ? `, ${memberNames}` : ""}${explanation ? `, ${explanation}` : ""}${needsAttention ? ", saved change needs attention" : saving ? ", saved on this device, waiting to sync" : ""}${metadataMessage ? `, ${metadataMessage}` : ""}`
+  const label = `${task.title}${task.occurrence_title ? `, ${task.occurrence_title}` : ""}${memberNames ? `, ${memberNames}` : ""}${explanation ? `, ${explanation}` : ""}${needsAttention ? ", saved change needs attention" : saving ? ", saved on this device, waiting to sync" : ""}${metadataMessage ? `, ${metadataMessage}` : ""}`
   const check = <View style={[boardStyles.check, { borderColor: complete ? colors.primary : colors.border, backgroundColor: complete ? colors.primary : colors.background }]}>
       {complete ? <Check size={23} color={colors.onPrimary} strokeWidth={3} /> : locked ? <LockKeyhole size={18} color={colors.muted} /> : null}
     </View>

@@ -7,6 +7,7 @@ import { createUnlockNotifications } from "@/lib/notifications"
 import { dispatchPushForNotificationIds } from "@/lib/push"
 import type { AppRole, Household, Routine, Task } from "@/lib/types"
 import { ensureCurrentUserRecord } from "@/lib/user-sync"
+import { OCCURRENCE_DISPLAY_TITLE_SQL } from "@/lib/occurrence-display"
 
 type HouseholdMembership = {
   role: AppRole
@@ -343,7 +344,7 @@ export async function getHouseholdMemberViewData(
   const tasksResult = await db.query(
     `select t.id,
             ot.occurrence_id,
-            ro.title as occurrence_title,
+            ${OCCURRENCE_DISPLAY_TITLE_SQL} as occurrence_title,
             ro.kind as occurrence_kind,
             t.title,
             t.description,
@@ -360,6 +361,7 @@ export async function getHouseholdMemberViewData(
      from occurrence_tasks ot
      join routine_occurrences ro on ro.id = ot.occurrence_id
      join tasks t on t.id = ot.task_id
+     left join routines r on r.id = ro.routine_id and r.household_id = ro.household_id
      left join task_assignees ta on ta.task_id = t.id
      where ro.household_id = $1
        and ro.status = 'active'
@@ -369,7 +371,7 @@ export async function getHouseholdMemberViewData(
          where ot_incomplete.occurrence_id = ot.occurrence_id
            and ot_incomplete.status <> 'completed'
        )
-     group by t.id, ot.occurrence_id, ro.title, ro.kind, t.title, t.description, t.is_reward, ot.status, ot.status_version, t.created_at
+     group by t.id, ot.occurrence_id, ro.title, ro.kind, r.name, t.title, t.description, t.is_reward, ot.status, ot.status_version, t.created_at
      order by t.created_at asc`,
     [householdId],
   )
