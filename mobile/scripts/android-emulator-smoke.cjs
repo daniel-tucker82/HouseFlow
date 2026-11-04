@@ -1,16 +1,18 @@
-// Signed-out verification on a disposable Actions emulator only. The action
-// owns emulator startup/cleanup; no account or production API is used here.
+// Verification on a disposable Actions emulator only. Default flows stay signed
+// out; explicit fixture inputs add development-only sign-in and household checks.
 const fs = require('node:fs')
 const path = require('node:path')
 const { createHash } = require('node:crypto')
 const { execFileSync, spawnSync } = require('node:child_process')
 const { androidOrientationParameters, inspectScreenshotOrientations } = require('./device-screenshot-evidence.cjs')
+const { authFixture, runAuthenticatedSmoke } = require('./native-auth-smoke.cjs')
 
 if (process.platform !== 'linux' || process.env.GITHUB_ACTIONS !== 'true') {
   throw new Error('Run this verification on the Linux GitHub Actions host.')
 }
 if (process.argv.length !== 5) throw new Error('Expected APK, Maestro executable and output directory.')
 const [apk, maestro, output] = process.argv.slice(2).map(value => path.resolve(value))
+const fixture = authFixture()
 if (!fs.existsSync(apk) || !fs.existsSync(maestro)) throw new Error('Compiled APK and Maestro are required.')
 fs.mkdirSync(output, { recursive: true })
 const serial = 'emulator-5554'
@@ -78,6 +80,12 @@ try {
       console.error(`Text scale ${fontScale}: ${error.message}`)
     }
   }
+  if (fixture) {
+    adb('shell', 'settings', 'put', 'system', 'font_scale', '1')
+    if (Number(adb('shell', 'settings', 'get', 'system', 'font_scale').trim()) !== 1) throw new Error('Default text size was not restored for authenticated verification.')
+    report.authentication = runAuthenticatedSmoke({ maestro, device: serial, output: path.join(output, 'authenticated'), orientations: report.orientations, fixture })
+  }
+  if (report.authentication && !report.authentication.passed) throw new Error(report.authentication.error)
   if (report.runs.some(result => !result.passed)) throw new Error('Android native flow failed at one or more text sizes.')
   report.passed = true
 } catch (error) {

@@ -1,0 +1,63 @@
+appId: com.cyntch.app
+name: Native sign-in opens the household and preserves the session
+---
+- launchApp:
+    clearState: true
+    permissions:
+      all: deny
+- setOrientation: ${PORTRAIT_ORIENTATION}
+- extendedWaitUntil:
+    visible: "CYNTCH"
+    timeout: 60000
+- scrollUntilVisible:
+    element: "Sign in or create an account"
+    direction: DOWN
+    visibilityPercentage: 100
+- tapOn: "Sign in or create an account"
+- extendedWaitUntil:
+    visible:
+      id: "clerk.auth.start.identifier"
+    timeout: 60000
+- tapOn:
+    id: "clerk.auth.start.identifier"
+- inputText: ${TEST_EMAIL}
+- hideKeyboard
+- scrollUntilVisible:
+    element: "Continue"
+    direction: DOWN
+    visibilityPercentage: 100
+    centerElement: true
+- tapOn:
+    id: "clerk.auth.start.continue"
+- extendedWaitUntil:
+    visible: "Use another method"
+    timeout: 60000
+- tapOn: "Use another method"
+- tapOn: ".*Email.*code.*"
+- extendedWaitUntil:
+    visible: "Check your email"
+    timeout: 60000
+- tapOn:
+    id: "clerk.auth.signIn.code"
+    optional: true
+# Clerk's reserved development test address uses this code without email.
+- inputText: "424242"
+- extendedWaitUntil:
+    visible: "Cyntch emulator family"
+    timeout: 60000
+- assertVisible: "^Pack school bag for tomorrow.*"
+- takeScreenshot: authenticated-board-portrait
+- setOrientation: ${LANDSCAPE_ORIENTATION}
+- assertVisible: "Cyntch emulator family"
+- assertVisible: "^Pack school bag for tomorrow.*"
+- takeScreenshot: authenticated-board-landscape
+- setOrientation: ${PORTRAIT_ORIENTATION}
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: "Cyntch emulator family"
+    timeout: 60000
+- assertVisible: "^Pack school bag for tomorrow.*"
+- assertNotVisible: "Sign in or create an account"
+- takeScreenshot: authenticated-board-after-restart
+- stopApp

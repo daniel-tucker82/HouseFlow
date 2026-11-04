@@ -65,8 +65,8 @@ function screenshotDimensions(bytes) {
     width: swapsAxes ? pixelHeight : pixelWidth, height: swapsAxes ? pixelWidth : pixelHeight }
 }
 
-function inspectScreenshotOrientations(directory, additionalRequired = {}) {
-  const expected = { ...required, ...additionalRequired }
+function inspectScreenshotOrientations(directory, additionalRequired = {}, { includeStartup = true } = {}) {
+  const expected = { ...(includeStartup ? required : {}), ...additionalRequired }
   const screenshots = []
   const walk = folder => {
     for (const entry of fs.readdirSync(folder, { withFileTypes: true })) {

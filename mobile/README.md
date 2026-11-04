@@ -4,6 +4,34 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
+Manual Android/iOS workflow dispatches can now supply `fixture_url` and
+`fixture_email` to add native email-code sign-in, household/task loading,
+portrait/landscape and session persistence after restart. Both inputs are required
+together. The URL must be the temporary HTTPS tunnel to an isolated development
+backend; the identity must be an existing `cyntch-native-*+clerk_test@example.com`
+profile in the fixed development Clerk instance. Ordinary push runs stay signed
+out. No provider secret or password is sent to Actions. The additional flow runs
+once per device after the two text-size cases, with separate reports and three
+required screenshots; it does not replace the earlier checks or establish offline,
+billing or push coverage. Actual native execution of this new flow is pending.
+
+The unchanged backend at `79abb8f` was built in a separate worktree and verified
+through both local HTTP and a temporary HTTPS tunnel: real development email-code
+sign-in, authenticated household/task loading, server time and rejection of
+signed-out access. Each preflight session was revoked. Test data lives in the local
+`cyntch_mobile_test` database; provider delivery remains disabled. Bind this local
+production server to `localhost`: binding to `127.0.0.1` caused repeated internal
+Clerk rewrites to `localhost`, making requests loop. No application auth changes
+were required. Evidence: `C:/Users/danie/.codex/tmp/cyntch-native-http-preflight-https.json`.
+
+Android run `41855537547` (`b3cfb66`) now proves API 24 landscape dismissal: the
+Close control is within the app's bounds and tapping it returns to the welcome
+screen. Installation, portrait/landscape and force-stop/relaunch passed. Its newer
+phone/tablet keyboard checks failed; this build predates `3f77f19`'s keyboard
+corrections. Evidence: `C:/Users/danie/.codex/tmp/cyntch-android-evidence-41855537547`;
+artifact SHA-256 `f4c6fac9ce2d3f8a9cc5678f9b990a2313784881440abedacc5a22f73ba77a90`;
+APK SHA-256 `144292eacbbf3fe360b8302720919523a2890249a23f88556d80727be90f9e2c`.
+
 iOS run `41855537525` never obtained a Mac runner. GitHub's annotations report
 hosted-runner acquisition failure and macOS arm64 capacity constraints; no code
 or device check ran. The workflow now defaults to the standard
@@ -12,7 +40,8 @@ same selected pool, compile for the actual host architecture and verify that
 the compiled executable contains it. Architecture-specific queue groups preserve
 already queued work while allowing the other pool to run. Xcode 26.6, signed
 Release builds, both text sizes and the separate iOS 17 phone/tablet checks
-remain required. Intel execution is pending. See GitHub's
+remain required. Intel run `41860511228` acquired a host and is compiling; device
+results remain pending. See GitHub's
 [standard Mac runner labels](https://github.blog/changelog/2026-02-26-macos-26-is-now-generally-available-for-github-hosted-runners/)
 and [installed Xcode versions](https://github.com/actions/runner-images/blob/main/images/macos/macos-26-Readme.md).
 Failure evidence: `C:/Users/danie/.codex/tmp/cyntch-ios-41855537525-runner-annotations.json`.

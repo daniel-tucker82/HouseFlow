@@ -1,15 +1,17 @@
-// Runs only on the disposable macOS Actions host. No accounts, credentials,
-// production API or local developer simulators are used by this signed-out flow.
+// Runs only on the disposable macOS Actions host. Default flows stay signed out;
+// explicit fixture inputs add development-only sign-in and household checks.
 const fs = require('node:fs')
 const path = require('node:path')
 const { execFileSync, spawnSync } = require('node:child_process')
 const { inspectScreenshotOrientations } = require('./device-screenshot-evidence.cjs')
+const { authFixture, runAuthenticatedSmoke } = require('./native-auth-smoke.cjs')
 
 if (process.platform !== 'darwin' || process.env.GITHUB_ACTIONS !== 'true') {
   throw new Error('Run this verification on the macOS GitHub Actions host.')
 }
 if (process.argv.length !== 5) throw new Error('Expected simulator app, Maestro executable and output directory.')
 const [appPath, maestro, output] = process.argv.slice(2).map(value => path.resolve(value))
+const fixture = authFixture()
 if (!appPath || !maestro || !output || !fs.existsSync(path.join(appPath, 'main.jsbundle'))) {
   throw new Error('A compiled simulator app with bundled JavaScript is required.')
 }
@@ -143,6 +145,14 @@ for (const [index, template] of devices.entries()) {
         save()
       }
     }
+    if (fixture) {
+      stage('authenticated-household')
+      simctl('ui', ownedDevice, 'content_size', 'large')
+      if (simctl('ui', ownedDevice, 'content_size').trim().toLowerCase() !== 'large') throw new Error('Default text size was not restored for authenticated verification.')
+      result.authentication = runAuthenticatedSmoke({ maestro, device: ownedDevice, output: path.join(folder, 'authenticated'),
+        orientations: { portrait: 'PORTRAIT', landscape: 'LANDSCAPE_LEFT' }, fixture })
+    }
+    if (result.authentication && !result.authentication.passed) throw new Error(result.authentication.error)
     if (result.runs.some(run => !run.passed)) throw new Error('Simulator flow failed at one or more text sizes.')
     result.passed = true
     stage('completed')
