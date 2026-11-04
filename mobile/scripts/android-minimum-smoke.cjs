@@ -23,9 +23,10 @@ const report = {
   stages: [], passed: false,
 }
 let owned = false, currentSize
-const adb = (...args) => execFileSync('adb', ['-s', serial, ...args], {
-  encoding: 'utf8', timeout: 30_000, maxBuffer: 16 * 1024 * 1024,
+const adbCommand = (args, timeout = 30_000) => execFileSync('adb', ['-s', serial, ...args], {
+  encoding: 'utf8', timeout, maxBuffer: 16 * 1024 * 1024,
 })
+const adb = (...args) => adbCommand(args)
 const sleep = () => new Promise(resolve => setTimeout(resolve, 750))
 const stage = name => {
   report.stages.push({ name, at: new Date().toISOString() })
@@ -118,7 +119,9 @@ async function main() {
     report.displaySize = adb('shell', 'wm', 'size').trim()
     report.displayDensity = adb('shell', 'wm', 'density').trim()
     stage('install')
-    if (!/Success/.test(adb('install', '-r', apk))) throw new Error('APK installation was not acknowledged.')
+    // Installing the optimized APK can exceed a normal shell command's budget
+    // on the old emulator. Observe this one install; never relaunch it on timeout.
+    if (!/Success/.test(adbCommand(['install', '-r', apk], 120_000))) throw new Error('APK installation was not acknowledged.')
     adb('logcat', '-c')
     adb('shell', 'settings', 'put', 'system', 'accelerometer_rotation', '0')
     adb('shell', 'settings', 'put', 'system', 'font_scale', '1.0')

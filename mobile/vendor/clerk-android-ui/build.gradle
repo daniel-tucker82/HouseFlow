@@ -64,6 +64,21 @@ def prepareClerkUi = tasks.register('prepareClerkUi') {
       'import androidx.compose.foundation.layout.widthIn\n' +
       'import androidx.compose.foundation.BorderStroke')
     scaffold.setText(patched, 'UTF-8')
+    // The fixed development footer already reserves bottom space. Consume it
+    // so the inner form's IME padding uses the larger inset, not their sum.
+    // Otherwise the phone's landscape scroll viewport can collapse to zero.
+    def footer = new File(target, 'kotlin/com/clerk/ui/core/footer/DevelopmentModeWarning.kt')
+    def footerSource = footer.getText('UTF-8').replace('\r\n', '\n')
+    def footerPadding = 'Modifier.padding(bottom = metrics.height)'
+    def footerImport = 'import androidx.compose.foundation.layout.BoxScope\n'
+    if (footerSource.count(footerPadding) != 1 || footerSource.count(footerImport) != 1) {
+      throw new GradleException('Clerk development footer changed; review keyboard inset consumption.')
+    }
+    footer.setText(footerSource.replace(footerPadding,
+      'Modifier.padding(bottom = metrics.height).consumeWindowInsets(PaddingValues(bottom = metrics.height))')
+      .replace(footerImport, footerImport +
+        'import androidx.compose.foundation.layout.PaddingValues\n' +
+        'import androidx.compose.foundation.layout.consumeWindowInsets\n'), 'UTF-8')
     // The upstream header pads only the status bar. A side navigation bar in
     // landscape can then cover Close/Back (observed on the API 24 emulator).
     def topBar = new File(target, 'kotlin/com/clerk/ui/core/appbar/ClerkTopAppbar.kt')

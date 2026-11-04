@@ -29,7 +29,34 @@ requires software-keyboard keys in portrait and landscape, checks that the entry
 survives rotation in both directions, and reaches Continue after keyboard
 dismissal. Three additional screenshots are required for each case; the earlier
 signed-out screenshots cannot satisfy this coverage. YAML, runner syntax and
-mobile lint/types pass. Actual device execution of this new journey is pending.
+mobile lint/types pass. The first native results and required corrections follow.
+
+The first keyboard run, Android `41851280065` (source `62c043f`), compiled and
+passed all four baseline phone/tablet journeys, but failed every keyboard case.
+The enlarged phone's hierarchy shows a 770px form container after the fixed
+development footer, with the top bar and keyboard consuming its remaining
+height. The footer patch now consumes its reserved bottom inset, so IME padding
+uses overlapping space once. On the tablet, keyboard dismissal returned to the
+welcome screen: the React Native dialog forwards Back to its close handler.
+Android auth now renders above the app in the Activity, with the underlying
+content hidden from accessibility and pointer input. Clerk stays mounted across
+session changes until its completion/dismissal callback, and root Back returns
+to welcome. The iOS sheet remains at that same independent presentation level.
+
+The keyboard flow clears only its disposable app state before each case; the
+earlier enlarged-tablet failure appended to an identifier retained by Clerk.
+Rotation, keyboard visibility, retained input and Continue assertions remain,
+with an added Android root-Back screenshot. The first phone case also encountered
+an offline emulator transport during launch; no automatic test restart hides
+that failure. The minimum-API stage timed out during its single APK install
+after 30 seconds, before any app check. That install now has a bounded 120-second
+observation budget without retrying it. Actual Gradle source preparation passed,
+with exactly five of 219 upstream Kotlin files changed; mobile lint/types,
+runner syntax and YAML parsing pass. Native proof of these corrections remains
+pending. Artifact SHA-256:
+`f25e6bd1d55341d177be5b392d7ed89f1e5d956c1fafe1cc0db8a2fe2ad9031e`;
+APK SHA-256: `113b32bbcc226ad13551ee803e3b33cd7ce53b14d7726b3553490ec683625161`.
+Evidence: `C:/Users/danie/.codex/tmp/cyntch-android-evidence-41851280065`.
 
 Android run `41841090786` (source `70f2ef4`) passed the signed-out startup,
 rotation, native sign-in and restart journeys on Pixel 6 and Pixel Tablet at

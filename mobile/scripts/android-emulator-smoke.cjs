@@ -68,6 +68,7 @@ try {
         'native-keyboard-portrait.png': 'portrait',
         'native-keyboard-landscape.png': 'landscape',
         'native-keyboard-dismissed-landscape.png': 'landscape',
+        'welcome-after-back-portrait.png': 'portrait',
       })
       if (run.error || run.status !== 0) throw new Error(`Android flow failed (${run.error?.code ?? run.status}).`)
       if (!result.orientationEvidence.passed) throw new Error('Screenshots do not prove both requested orientations.')

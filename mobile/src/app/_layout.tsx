@@ -4,8 +4,8 @@ import { tokenCache } from "@clerk/expo/token-cache"
 import { nativeClerkResourceCache } from "../services/native-clerk-offline-cache"
 import { Tabs } from "expo-router"
 import { StatusBar } from "expo-status-bar"
-import { useState } from "react"
-import { Alert, Modal, ScrollView, useWindowDimensions, View } from "react-native"
+import { useEffect, useState } from "react"
+import { Alert, BackHandler, Modal, Platform, ScrollView, StyleSheet, useWindowDimensions, View } from "react-native"
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context"
 import { CircleCheck, History, ListChecks, Settings, Users } from "lucide-react-native"
 import { Action, Copy, Loading, styles, usePalette } from "../components/ui"
@@ -26,6 +26,17 @@ function Application() {
   const [recoveryOpen,setRecoveryOpen] = useState(false)
   const colors = usePalette()
   const { fontScale } = useWindowDimensions(), largeText = fontScale > 1.4
+  const androidAuthOpen = Platform.OS === "android" && authOpen
+  useEffect(() => {
+    if (!androidAuthOpen) return
+    // The Activity gives the keyboard and Clerk's inner navigation first use
+    // of Back. The fallback closes the root sign-in screen.
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      setAuthOpen(false)
+      return true
+    })
+    return () => subscription.remove()
+  }, [androidAuthOpen])
   const kiosk = useKiosk(), { signOut } = useNotificationSession()
   const {state:deletion} = useAccountDeletionRecovery()
   if (!kiosk.state.ready || kiosk.state.changing) return <View style={{ flex: 1, backgroundColor: colors.background }}><Loading label={kiosk.state.changing ? "Protecting this device…" : "Checking this device…"} />
@@ -34,6 +45,8 @@ function Application() {
   if (kiosk.state.record && kiosk.state.record.intent !== "unlock" && !(accepted && kiosk.state.record.kiosk.accountId === userId)) return <KioskScreen />
   if (isSignedIn && userId && (accepted || (deletion.record?.accountId === userId && deletion.record.submitted))) return <AccountDeletionRecoveryActions />
   return <>
+    <View style={{ flex: 1 }} pointerEvents={androidAuthOpen ? "none" : "auto"}
+      importantForAccessibility={androidAuthOpen ? "no-hide-descendants" : "auto"}>
     {kiosk.state.record ? <SafeAreaView edges={["top", "left", "right"]} style={{ backgroundColor: colors.soft }}><View style={{ padding: 16, gap: 8 }}>
       <Copy>Parent controls are unlocked on this device. {kiosk.state.online ? "Finishing sync…" : "Connect to finish syncing the unlock."}</Copy>
       {kiosk.state.error ? <Copy style={{ color: colors.danger }}>{kiosk.state.error}</Copy> : null}
@@ -67,9 +80,15 @@ function Application() {
       </View>
       </ScrollView>
     </SafeAreaView>}
-    <Modal visible={authOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setAuthOpen(false)}>
+    </View>
+    {/* Keep auth mounted across session changes until Clerk finishes its flow.
+        Android's native screen shares the Activity keyboard/back dispatcher;
+        the React Native dialog otherwise closes auth on keyboard dismissal. */}
+    {Platform.OS === "android" ? androidAuthOpen ? <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.surface }]}>
       <AuthView onDismiss={() => setAuthOpen(false)} />
-    </Modal>
+    </View> : null : <Modal visible={authOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setAuthOpen(false)}>
+      <AuthView onDismiss={() => setAuthOpen(false)} />
+    </Modal>}
     <Modal visible={recoveryOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setRecoveryOpen(false)}><AccountDeletionStatusView onClose={() => setRecoveryOpen(false)} /></Modal>
   </>
 }

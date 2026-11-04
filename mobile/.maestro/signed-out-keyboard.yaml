@@ -5,6 +5,8 @@ env:
   LANDSCAPE_ORIENTATION: ${LANDSCAPE_ORIENTATION || "LANDSCAPE_LEFT"}
 ---
 - launchApp:
+    # Each case starts with its own empty form; Clerk retains identifiers.
+    clearState: true
     permissions:
       all: deny
 - setOrientation: ${PORTRAIT_ORIENTATION}
@@ -68,4 +70,16 @@ env:
 - assertVisible:
     id: "clerk.auth.start.identifier"
     text: 'layout-check@example\.invalid'
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - back
+      - scrollUntilVisible:
+          element: "Sign in or create an account"
+          direction: DOWN
+          timeout: 10000
+          visibilityPercentage: 100
+      - assertVisible: "Sign in or create an account"
+      - takeScreenshot: welcome-after-back-portrait
 - stopApp
