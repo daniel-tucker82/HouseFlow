@@ -30,19 +30,31 @@ const command = (executable, args, timeout = 60_000) => {
 }
 const simctl = (...args) => command('xcrun', ['simctl', ...args])
 const inventory = JSON.parse(simctl('list', '--json'))
+fs.writeFileSync(path.join(output, 'simulator-inventory.json'), JSON.stringify(inventory, null, 2))
+const requestedRuntime = process.env.CYNTCH_IOS_TEST_RUNTIME
+if (requestedRuntime && requestedRuntime !== '17.0') throw new Error('The configured minimum-iOS check requires exactly iOS 17.0.')
 const candidates = inventory.runtimes.filter(runtime => runtime.isAvailable && runtime.identifier.includes('.iOS-'))
   .sort((left, right) => right.version.localeCompare(left.version, 'en', { numeric: true }))
 const runtime = candidates.find(item => {
+  if (requestedRuntime) return item.version === requestedRuntime
   const devices = (inventory.devices[item.identifier] ?? []).filter(device => device.isAvailable)
   return devices.some(device => device.name.startsWith('iPhone')) && devices.some(device => device.name.startsWith('iPad'))
 })
-if (!runtime) throw new Error('An installed iOS runtime with both phone and tablet device types is required.')
-const available = inventory.devices[runtime.identifier].filter(device => device.isAvailable)
-const devices = [
+if (!runtime) throw new Error(requestedRuntime ? 'The required iOS 17.0 runtime is not available; do not substitute a newer OS.'
+  : 'An installed iOS runtime with both phone and tablet device types is required.')
+const available = (inventory.devices[runtime.identifier] ?? []).filter(device => device.isAvailable)
+// A newly imported runtime need not have any pre-created simulator instances.
+// Select device types supported at the original iOS 17 release instead.
+const devices = requestedRuntime ? ['iPhone 15', 'iPad (10th generation)'].map(name => {
+  const type = inventory.devicetypes.find(item => item.name === name)
+  if (!type) throw new Error(`Required minimum-iOS device type is missing: ${name}`)
+  return { name, deviceTypeIdentifier: type.identifier }
+}) : [
   available.find(device => device.name === 'iPhone 17') ?? available.find(device => device.name.startsWith('iPhone')),
   available.find(device => device.name === 'iPad (A16)') ?? available.find(device => device.name.startsWith('iPad')),
 ]
-const report = { source: process.env.GITHUB_SHA, configuration: 'Release with local simulator signing', runtime: runtime.name, devices: [], passed: false }
+const report = { source: process.env.GITHUB_SHA, configuration: 'Release with local simulator signing', runtime: runtime.name,
+  runtimeVersion: runtime.version, requestedRuntime: requestedRuntime ?? 'latest installed', devices: [], passed: false }
 const save = () => fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify(report, null, 2))
 let failed = false
 for (const [index, template] of devices.entries()) {

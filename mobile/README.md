@@ -4,6 +4,17 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
+The iOS workflow now has a separate minimum-OS job using the same compiled app
+artifact from that workflow run, with its ZIP hash and signature checked again.
+The built app's `MinimumOSVersion` is 17.0. The job requests Apple's original
+iOS 17.0 simulator runtime and runs the phone/tablet suite on iPhone 15 and
+iPad (10th generation), including both text sizes. It requires exactly 17.0 and
+the named device types; unavailable downloads or runtimes fail explicitly.
+It can still collect minimum-OS evidence if the current-OS device stage fails
+after a usable app was compiled. Actual runtime download and device execution
+remain pending. Apple's download/import procedure is documented in
+[additional Xcode components](https://developer.apple.com/documentation/xcode/downloading-and-installing-additional-xcode-components).
+
 The current phone/tablet suite also includes an independent keyboard journey at
 each text size. It types a reserved `.invalid` address without submitting it,
 requires software-keyboard keys in portrait and landscape, checks that the entry
@@ -59,7 +70,7 @@ installation, welcome/native sign-in in both orientations, and force-stop/relaun
 retaining screenshots, UI hierarchy, logcat and an APK hash. This added check is
 awaiting hosted execution; it does not establish authenticated-workflow or
 performance coverage on the minimum OS. The Clerk iOS dependency requires iOS 17;
-minimum-iOS runtime verification remains separate outstanding work.
+the new minimum-iOS job still needs successful runtime verification.
 
 Android run `41836733823` (source `0d257f0`) compiled the patched Clerk UI and
 optimized application successfully; dependency insight confirms the bridge uses
