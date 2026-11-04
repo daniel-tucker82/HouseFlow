@@ -23,6 +23,7 @@ const report = {
   configuration: 'Release, minified, x86_64, development signing only',
   apkSha256: createHash('sha256').update(fs.readFileSync(apk)).digest('hex'),
   serial,
+  runs: [],
   passed: false,
 }
 try {
@@ -37,21 +38,39 @@ try {
   report.orientations = androidOrientationParameters(report.displaySize)
   adb('install', '-r', apk)
   adb('logcat', '-c')
-  const log = fs.openSync(path.join(output, 'maestro.log'), 'w')
-  let run
-  try {
-    run = spawnSync(maestro, [
-      '--device', serial, 'test', '--format', 'junit', '--output', path.join(output, 'report.xml'),
-      '-e', `PORTRAIT_ORIENTATION=${report.orientations.portrait}`,
-      '-e', `LANDSCAPE_ORIENTATION=${report.orientations.landscape}`,
-      '--test-output-dir', output, '--debug-output', output, path.resolve('.maestro/signed-out.yaml'),
-    ], { stdio: ['ignore', log, log], timeout: 300_000, env: process.env })
-  } finally { fs.closeSync(log) }
-  console.log(fs.readFileSync(path.join(output, 'maestro.log'), 'utf8'))
-  report.exitCode = run.status
-  report.orientationEvidence = inspectScreenshotOrientations(output)
-  if (run.error || run.status !== 0) throw new Error(`Android flow failed (${run.error?.code ?? run.status}).`)
-  if (!report.orientationEvidence.passed) throw new Error('Screenshots do not prove both requested orientations.')
+  for (const fontScale of [1, 1.6]) {
+    const folder = path.join(output, fontScale === 1 ? 'default-text' : 'large-text')
+    fs.mkdirSync(folder, { recursive: true })
+    const result = { fontScale, passed: false }
+    report.runs.push(result)
+    fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify(report, null, 2))
+    try {
+      // This is the disposable emulator verified above, not the user's device.
+      adb('shell', 'settings', 'put', 'system', 'font_scale', String(fontScale))
+      const actual = Number(adb('shell', 'settings', 'get', 'system', 'font_scale').trim())
+      if (actual !== fontScale) throw new Error('The requested system text scale was not applied.')
+      const log = fs.openSync(path.join(folder, 'maestro.log'), 'w')
+      let run
+      try {
+        run = spawnSync(maestro, [
+          '--device', serial, 'test', '--format', 'junit', '--output', path.join(folder, 'report.xml'),
+          '-e', `PORTRAIT_ORIENTATION=${report.orientations.portrait}`,
+          '-e', `LANDSCAPE_ORIENTATION=${report.orientations.landscape}`,
+          '--test-output-dir', folder, '--debug-output', folder, path.resolve('.maestro/signed-out.yaml'),
+        ], { stdio: ['ignore', log, log], timeout: 300_000, env: process.env })
+      } finally { fs.closeSync(log) }
+      console.log(fs.readFileSync(path.join(folder, 'maestro.log'), 'utf8'))
+      result.exitCode = run.status
+      result.orientationEvidence = inspectScreenshotOrientations(folder)
+      if (run.error || run.status !== 0) throw new Error(`Android flow failed (${run.error?.code ?? run.status}).`)
+      if (!result.orientationEvidence.passed) throw new Error('Screenshots do not prove both requested orientations.')
+      result.passed = true
+    } catch (error) {
+      result.error = error.message
+      console.error(`Text scale ${fontScale}: ${error.message}`)
+    }
+  }
+  if (report.runs.some(result => !result.passed)) throw new Error('Android native flow failed at one or more text sizes.')
   report.passed = true
 } catch (error) {
   report.error = error.message

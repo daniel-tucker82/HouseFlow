@@ -55,7 +55,9 @@ The `Native Android verification` Actions workflow builds a minified x86_64
 Release APK with bundled JavaScript and the generated development signing key.
 It then runs the shared signed-out Maestro journey on separate Android API 36
 Pixel 6 and Pixel Tablet emulators, including rotation, opening native sign-in
-and restarting the app. The tablet run still executes if the phone flow fails.
+and restarting the app, at both default and 1.6× system text size. Each text size
+has separate logs, screenshots and results, and is attempted even if the other
+fails. The tablet run still executes if the phone flow fails.
 The build uses Cyntch's public development Clerk identifier and a reserved
 `.invalid` API address; it never submits sign-in credentials or reaches the
 production API. The APK is for this emulator verification, not store submission.
