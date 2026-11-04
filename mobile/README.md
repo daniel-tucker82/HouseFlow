@@ -89,7 +89,7 @@ against synthetic Swift fixtures before generating the app. These checks cover
 target/other accounts, unidentified sessions, authentication attempts, malformed
 caches and the restricted bridge payload. They do not read the Keychain and do
 not verify account erasure, SDK concurrency, biometric keys or device behavior.
-The added Swift checks still require their first Mac execution.
+All ten Swift checks passed on the Mac runner in run `41802152555`.
 
 The subsequent Mac run (`41798029428`, commit `c1b9d77`) installed pods but failed
 Clang dependency scanning: React Native flattened both `ClerkExpo` and
@@ -97,8 +97,37 @@ Clang dependency scanning: React Native flattened both `ClerkExpo` and
 umbrella headers conflict. The adapter now depends on `ClerkExpo 0.4.3` and
 imports that bridge's already-built ClerkKit package from the shared products
 directory, instead of declaring a second `spm_dependency`. Native compilation
-of this correction remains to be verified. The compiler artifact is retained at
-`C:/Users/danie/.codex/tmp/cyntch-native-ios-41798029428.zip`.
+of this correction exposed a second path issue in run `41802152555`: the RN hook
+updates aggregate configurations but leaves this dependent pod pointing at
+`ClerkExpo/ClerkExpo.modulemap`. The SDK 58 `with-clerk-module-map` config plugin
+corrects only the adapter's configurations after the RN hook, and only while
+ClerkExpo is built into the shared directory. Its insertion was checked against
+the official SDK 58 Podfile, including repeated generation and rejection of an
+incompatible template. Full compilation with this correction remains pending.
+The original artifacts are retained locally as
+`cyntch-native-ios-41798029428.zip` and `cyntch-native-ios-41802152555.zip` in
+`C:/Users/danie/.codex/tmp`.
+
+### Android optimized startup verification
+
+The first x86_64 release APK compiled with R8 enabled but crashed before the app
+opened: Room 2.6.1 creates `androidx.work.impl.WorkDatabase_Impl` through reflection,
+and R8 removed its no-argument constructor. The optimizer's usage report confirms
+the removal. `expo-build-properties` now preserves that exact constructor through
+`extraProguardRules`; generated native files are not edited by hand. WorkManager
+2.10.5 already supplies constructor rules for its input mergers and workers.
+The corrected APK still requires compilation and startup verification.
+
+The initial 1.5 GiB Gradle heap failed during optimization. The successful first
+APK used a 3 GiB heap, 512 MiB metaspace, two active processors and one Gradle
+worker, with Metro and the emulator stopped during compilation. It uses the
+local test signing key and development Clerk instance, so it is not a store
+artifact. Its HTTPS endpoint temporarily forwards to the isolated local API;
+the original mobile environment file was restored after bundling. The first
+APK and R8 reports are `cyntch-release-first.apk` and
+`cyntch-release-first-r8.zip` in the local evidence directory. The captured
+failure is `cyntch-release-first-crash.log`. This distinct release crash does
+not explain or resolve the earlier development-client blank screen or ANRs.
 
 Local validation used EAS CLI 27.4.1's profile resolver and actual Git archive
 copy implementation. The 138-file archive installed from its lockfile and

@@ -32,7 +32,16 @@
       ["expo-notifications", { "color": "#23685b" }],
       "expo-background-task",
       "@clerk/expo-native-components",
-      "./plugins/with-android-font-scale"
+      "./plugins/with-android-font-scale",
+      "./plugins/with-clerk-module-map",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "extraProguardRules": "# Room 2.6.1 creates WorkManager's database through reflection.\n# AGP 9 full-mode R8 does not retain its constructor through Room's class-only rule.\n-keep class androidx.work.impl.WorkDatabase_Impl { public <init>(); }"
+          }
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
