@@ -135,7 +135,7 @@ jobs:
           bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")
           test -n "$executable"
           test -n "$bundle_id"
-          xcrun lipo -verify_arch "$(uname -m)" "$app/$executable"
+          xcrun lipo "$app/$executable" -verify_arch "$(uname -m)"
           xcrun segedit "$app/$executable" \
             -extract __TEXT __entitlements "$RUNNER_TEMP/cyntch-ios-entitlements.plist" \
             -extract __TEXT __ents_der "$RUNNER_TEMP/cyntch-ios-entitlements.der"
@@ -243,7 +243,7 @@ jobs:
           app="$RUNNER_TEMP/cyntch-ios-minimum-app/Cyntch.app"
           codesign --verify --deep --strict "$app"
           executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Info.plist")
-          xcrun lipo -verify_arch "$(uname -m)" "$app/$executable"
+          xcrun lipo "$app/$executable" -verify_arch "$(uname -m)"
           test "$('/usr/libexec/PlistBuddy' -c 'Print :MinimumOSVersion' "$app/Info.plist")" = '17.0'
       - name: Install the original iOS 17 runtime from Apple
         timeout-minutes: 20

@@ -4,6 +4,14 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
+iOS Intel run `41860511228` (`79abb8f`) compiled the optimized simulator app and
+passed `codesign --verify --deep --strict`, then stopped at the architecture
+check: `lipo -verify_arch` consumed the following executable path as another
+architecture. Both current/minimum-OS checks now put the executable before
+`-verify_arch`. This preserves the architecture and embedded-entitlement checks;
+it does not establish device success. The corrected workflow needs another
+native run. Evidence: `C:/Users/danie/.codex/tmp/cyntch-ios-41860511228-job.log`.
+
 Cyntch's 16 modal presentations now use the system reduced-motion preference.
 One root provider reads the setting at startup, listens for changes and refreshes
 it when the app returns to the foreground. Until a successful read, or if a read
