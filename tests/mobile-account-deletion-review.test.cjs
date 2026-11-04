@@ -41,6 +41,7 @@ async function fixture(t){
 test('account deletion review enumerates impact without exposing unrelated family or provider data',{skip:!connectionString},async t=>{
  const f=await fixture(t),before=await f.db.query('select (select count(*) from users) users,(select count(*) from households) households,(select count(*) from tasks) tasks')
  const review=await f.read(),own=review.households.find(h=>h.id===f.own),shared=review.households.find(h=>h.id===f.shared)
+ assert.deepEqual(load('mobile/src/services/account-deletion-review.ts',{}).parseAccountDeletionReview(JSON.parse(JSON.stringify(review)),f.scope),review,'The native consent screen accepts the complete real SQL review')
  assert.equal(review.households.length,2);assert.equal(shared.ownership,null)
  assert.equal(own.ownership.otherAccounts,2);assert.equal(own.ownership.profilesWithoutSignIn,1)
  assert.deepEqual(own.ownership.possibleSuccessors,[{id:'user_supervisor',name:'Other parent',role:'supervisor'}])

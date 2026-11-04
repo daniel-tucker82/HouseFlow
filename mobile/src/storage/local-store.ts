@@ -7,6 +7,7 @@ import { NotificationInbox } from "./notification-inbox"
 import { NotificationHistoryStore } from "./notification-history-store"
 import { BillingStore } from "./billing-store"
 import { AccountDeletionStore } from "./account-deletion-store"
+import { AccountDeletionLocalStore } from "./account-deletion-local"
 import { KioskStore, kioskRestriction, requireKioskParentAccess } from "./kiosk-store"
 import { restrictKioskBoard } from "../../../shared/mobile/kiosk"
 import { mergeRunPages, runView, summarizeRun, type RunPage, type RunSnapshot, type RunSummary, type RunView } from "../../../shared/mobile/runs"
@@ -90,7 +91,8 @@ export class LocalStore {
   readonly kiosk: KioskStore
   readonly billing: BillingStore
   readonly accountDeletion: AccountDeletionStore
-  constructor(private readonly database: LocalDatabase) { this.planner = new PlannerStore(database); this.notifications = new NotificationStore(database); this.notificationSessions = new NotificationSessionStore(database); this.notificationInbox = new NotificationInbox(database); this.notificationHistory = new NotificationHistoryStore(database); this.kiosk = new KioskStore(database); this.billing = new BillingStore(database); this.accountDeletion = new AccountDeletionStore(database) }
+  readonly deletedAccounts: AccountDeletionLocalStore
+  constructor(private readonly database: LocalDatabase) { this.planner = new PlannerStore(database); this.notifications = new NotificationStore(database); this.notificationSessions = new NotificationSessionStore(database); this.notificationInbox = new NotificationInbox(database); this.notificationHistory = new NotificationHistoryStore(database); this.kiosk = new KioskStore(database); this.billing = new BillingStore(database); this.accountDeletion = new AccountDeletionStore(database); this.deletedAccounts = new AccountDeletionLocalStore(database) }
 
   async initialize() {
     await this.database.execAsync(`
@@ -130,7 +132,6 @@ export class LocalStore {
         account_id TEXT NOT NULL, household_id TEXT NOT NULL, view TEXT NOT NULL, data TEXT NOT NULL,
         PRIMARY KEY(account_id,household_id,view)
       );
-      PRAGMA user_version = 12;
     `)
     await this.kiosk.initialize()
     await this.planner.initialize()
@@ -140,6 +141,8 @@ export class LocalStore {
     await this.notificationHistory.initialize()
     await this.billing.initialize()
     await this.accountDeletion.initialize()
+    await this.deletedAccounts.initialize()
+    await this.database.execAsync("PRAGMA user_version = 13;")
   }
 
   async getBoard(accountId: string, householdId: string, connection: SqlConnection = this.database) {

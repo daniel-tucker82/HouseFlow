@@ -8,8 +8,10 @@ import { NotificationSettingsCard } from "../components/notification-settings"
 import { useNotificationSession } from "../providers/notification-session"
 import { KioskSettingsCard } from "../components/kiosk-settings"
 import { BillingSettingsCard } from "../components/billing-settings"
+import { useRouter } from "expo-router"
 
 export default function SettingsScreen() {
+  const router = useRouter()
   const { signOut } = useNotificationSession()
   const { controller, planner, history: historyController, keepAwake, setKeepAwake } = useRuntime()
   const state = useBoard()
@@ -23,6 +25,7 @@ export default function SettingsScreen() {
   return <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1, backgroundColor: colors.background }}><ScrollView contentContainerStyle={styles.content}>
     <Copy tone="title">Settings</Copy>
     <Card><View style={styles.row}><UserButton /><View style={{ flex: 1 }}><Copy tone="heading">Your account</Copy><Copy tone="muted">Manage your profile and sign-in details.</Copy></View></View></Card>
+    <Action secondary label="Review account deletion" onPress={() => router.navigate("/account-deletion")} />
     <BillingSettingsCard />
     <Card><Copy tone="heading">This device</Copy><View style={styles.row}><View style={{ flex: 1, gap: 4 }}><Copy>Keep the display awake</Copy><Copy tone="muted">While Cyntch is open. You can still lock the screen yourself.</Copy></View>
       <Switch accessibilityLabel="Keep the display awake while Cyntch is open" value={keepAwake} onValueChange={value => void setKeepAwake(value).catch(report)} trackColor={{ true: colors.primary }} />

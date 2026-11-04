@@ -1,6 +1,7 @@
 import type { LocalDatabase, SqlConnection } from "./local-store"
 import { retryDelayMs } from "../../../shared/mobile/sync-policy"
 import { kioskRestriction } from "./kiosk-store"
+import { initializeAccountDeletionFence, isLocallyDeletedAccount } from "./account-deletion-local"
 
 export interface NotificationSession { accountId: string; sessionId: string }
 export interface PendingNotificationRevocation extends NotificationSession { attempts: number; nextAttemptMs: number }
@@ -9,7 +10,8 @@ interface SessionRow { account_id: string; session_id: string; revoked: number; 
 /** Sign-out fences are separate from the signed-in account's task outbox. */
 export class NotificationSessionStore {
   constructor(private readonly db: LocalDatabase) {}
-  initialize() {
+  async initialize() {
+    await initializeAccountDeletionFence(this.db)
     return this.db.execAsync(`CREATE TABLE IF NOT EXISTS notification_sessions (
       session_id TEXT PRIMARY KEY, account_id TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0,
       pending INTEGER NOT NULL DEFAULT 0, attempts INTEGER NOT NULL DEFAULT 0, next_attempt_ms INTEGER NOT NULL DEFAULT 0);
@@ -31,6 +33,7 @@ export class NotificationSessionStore {
   async activate(session: NotificationSession | null) {
     let changed = false, allowed = true
     await this.db.withExclusiveTransactionAsync(async tx => {
+      if (session && await isLocallyDeletedAccount(tx,session.accountId)) { allowed = false; return }
       const current = await tx.getFirstAsync<SessionRow>("SELECT * FROM notification_sessions WHERE revoked=0")
       if (session && current?.account_id === session.accountId && current.session_id === session.sessionId) return
       if (session) {
@@ -56,6 +59,7 @@ export class NotificationSessionStore {
   }
   async close(session: NotificationSession) {
     await this.db.withExclusiveTransactionAsync(async tx => {
+      if (await isLocallyDeletedAccount(tx,session.accountId)) return
       const active = await tx.getFirstAsync<SessionRow>("SELECT * FROM notification_sessions WHERE account_id=? AND session_id=? AND revoked=0", session.accountId, session.sessionId)
       await tx.runAsync(`INSERT INTO notification_sessions(session_id,account_id,revoked,pending) VALUES(?,?,1,1)
         ON CONFLICT(session_id) DO UPDATE SET revoked=1,pending=1,next_attempt_ms=0 WHERE account_id=excluded.account_id`, session.sessionId, session.accountId)

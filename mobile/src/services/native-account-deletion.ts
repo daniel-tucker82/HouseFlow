@@ -7,6 +7,9 @@ import { AccountDeletionDrafts } from "./account-deletion-drafts"
 import { AccountDeletionWithdrawalApi } from "./account-deletion-withdrawal"
 import { AccountDeletionSubmissionApi } from "./account-deletion-submission"
 import type { AccountDeletionStore } from "../storage/account-deletion-store"
+import { AccountDeletionRecoveryController } from "./account-deletion-recovery"
+import { openLocalStore, nativeKioskVault } from "../storage/native-store"
+import { resetNativeNotificationSession, waitForNativeNotification } from "./notification-native-session"
 
 const options = { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }
 export const nativeAccountDeletionVault = new AccountDeletionVault({
@@ -29,4 +32,17 @@ export function nativeAccountDeletionWithdrawalApi() {
 
 export function nativeAccountDeletionSubmissionApi() {
   return new AccountDeletionSubmissionApi(process.env.EXPO_PUBLIC_API_URL ?? "https://www.cyntch.com",(url,init) => expoFetch(url,init),__DEV__)
+}
+
+let recoveryController: Promise<AccountDeletionRecoveryController> | undefined
+export function nativeAccountDeletionRecovery() {
+  return recoveryController ??= openLocalStore().then(store => new AccountDeletionRecoveryController(nativeAccountDeletionVault,
+    nativeAccountDeletionDrafts(store.accountDeletion),nativeAccountDeletionStatusApi(),async record => {
+      await store.deletedAccounts.eraseAccepted(record)
+      for (const kioskId of await store.deletedAccounts.pendingKioskKeys(record.accountId)) {
+        await nativeKioskVault.remove(kioskId)
+        await store.deletedAccounts.acknowledgeKioskKey(record.accountId,record.requestId,kioskId)
+      }
+      await waitForNativeNotification(resetNativeNotificationSession(store.notificationSessions))
+    },() => store.deletedAccounts.accounts())).catch(error => { recoveryController = undefined;throw error })
 }

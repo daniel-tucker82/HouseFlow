@@ -5,6 +5,7 @@ import type { RunPage, RunSnapshot, RunView } from "../../../shared/mobile/runs"
 import type { NativeNotificationDevice, NotificationSettingsOperation, NotificationSettingsSnapshot } from "../../../shared/mobile/notification-settings"
 import type { NotificationHistoryAction, NotificationHistoryPage, NotificationHistoryScope, NotificationHistorySource } from "../../../shared/mobile/notification-history"
 import type { AccountDeletionReview } from "../../../shared/mobile/account-deletion"
+import { parseAccountDeletionReview } from "./account-deletion-review"
 import { parseNativeKioskSession, type NativeKioskOperation, type NativeKioskResult } from "../../../shared/mobile/kiosk"
 import { isWebBillingCancellationUrl, type NativeBillingAction, type NativeBillingScope, type NativeBillingSetup, type NativeBillingStatus, type NativeBillingStore, type WebBillingCancellation } from "../../../shared/mobile/billing"
 
@@ -53,13 +54,7 @@ export class MobileApi implements SyncTransport {
 
   async accountDeletionReview(): Promise<AccountDeletionReview> {
     const review = await this.request<AccountDeletionReview>("/api/mobile/account-deletion", undefined, await this.notificationHeaders())
-    if (review.accountId !== this.accountId || review.sessionId !== this.sessionId || review.deviceId !== this.deviceId) {
-      throw new Error("This account review belongs to a different account, device or sign-in. Reopen account settings.")
-    }
-    if (!/^[a-f0-9]{64}$/.test(review.revision) || !Number.isFinite(Date.parse(review.reviewedAt)) || !Array.isArray(review.households)) {
-      throw new Error("Cyntch returned an incomplete account review. Please try again.")
-    }
-    return review
+    return parseAccountDeletionReview(review,{accountId:this.accountId,sessionId:this.sessionId ?? "",deviceId:this.deviceId})
   }
 
   private validateBilling<T extends NativeBillingScope>(result: T, householdId: string): T {

@@ -1570,3 +1570,64 @@ sign-in credentials and erased account data; its evidence is
 `C:/Users/danie/AppData/Local/Temp/cyntch-deletion-status-2e54b466-a4f8-4c24-ac51-671d70572887.json`.
 No production migration, provider mutation or deployment was performed for this
 submission boundary.
+
+### Native deletion review, recovery and local erasure
+
+Settings now opens a native account-deletion review. The screen validates the
+complete review response, shows authored-content counts, requires an explicit
+ownership choice for each owned household and separate account/subscription
+consents, and presents a final native confirmation dialog. Saved choices remain
+bound to their original account, request, session and review. A stale or partial
+review cannot enable submission. Wider screens use two columns; rotation keeps
+the current choices. Store-management links remain available in recovery.
+
+The submission/withdrawal hook uses Clerk's custom reverification interface with
+native factor selection and password, email/phone code, TOTP, backup-code and
+passkey handling. A changed session or unmounted screen cannot complete an old
+verification. Completion and cancellation settle once. Credentials are fetched
+again for the verified retry and the server remains the authority. These factor
+paths still need real Clerk/device verification; successful compilation is not
+evidence that every factor is configured or supported by the installed native
+bridge. Enterprise SSO reverification is not implemented.
+
+Recovery is initialized outside the signed-in runtime. A submitted request gates
+that account's normal screens until acceptance or authenticated withdrawal is
+resolved. Accepted requests resume local cleanup after restart without resending
+deletion. Status checks use the original anonymous recovery capability. Receipt
+persistence precedes erasure, and late responses cannot replace another saved
+request, regress completion or remove manual Apple instructions. Sign-in loading
+and notification-session errors offer read-only status access when the device is
+not kiosk-locked. Kiosk protection wins over an uncertain deletion attempt; only
+confirmed acceptance can release the deleted account's own lock.
+
+Local database version 13 adds a permanent minimal deleted-account marker.
+Erasure and the write fence commit together across all 17 account-scoped tables.
+SQLite triggers reject delayed inserts and account reassignment after deletion,
+including kiosk and deletion-intent JSON records. Other accounts, installation
+identity and the separate recovery key survive. The exact deleted kiosk key ID
+is retained until keychain removal succeeds. Native notification cleanup uses its
+existing serialized queue and durable generation; a stalled OS call does not hold
+the recovery controls indefinitely. This is logical app-data cleanup, not
+forensic storage erasure.
+
+Verification on 2026-11-04: 478 general checks passed with no skips or
+cancellations. The final focused run passed 40 checks, including real SQLite
+restart/interruption tests, real PostgreSQL review parsing, notification cleanup
+and kiosk protection. Root/mobile lint and TypeScript passed. Android and iOS
+Hermes exports passed. On the existing Android emulator, the live local review
+rendered, submission stayed disabled until all choices/consents were selected,
+the landscape overflow found during inspection was fixed, and selections
+survived rotation to portrait. The final confirmation was opened and cancelled;
+the test household remained usable. Screenshots and UI hierarchy evidence are
+under `C:/Users/danie/.codex/tmp/cyntch-deletion-*.png` and
+`C:/Users/danie/.codex/tmp/cyntch-deletion-*.xml`.
+
+**Keep submission disabled.** Remaining release work includes scope-safe native
+billing/identity SDK cache cleanup, the unresolved single-slot recovery edge,
+Clerk's alternate self-deletion path and out-of-band deletion handling, durable
+worker scheduling, provider purchase-proof/re-creation safeguards, and real
+provider/OS deletion and reverification tests. The new device-cleanup checkpoint
+currently covers app SQLite data, kiosk credentials and native notifications;
+it does not yet prove erasure of every provider SDK cache. No production
+migration, provider deletion, submission enablement or deployment was performed
+for this UI integration.

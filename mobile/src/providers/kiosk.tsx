@@ -8,9 +8,11 @@ import { MobileApi } from "../services/api"
 import { getDeviceId, getInstallationSecret, nativeKioskVault, openLocalStore } from "../storage/native-store"
 import { resetNativeNotificationSession } from "../services/notification-native-session"
 import { Action, Copy, Loading, styles } from "../components/ui"
+import { useAccountDeletionRecovery } from "./account-deletion-recovery"
 
 const Context = createContext<KioskController | null>(null)
 export function KioskProvider({ children }: PropsWithChildren) {
+  const {state:deletion} = useAccountDeletionRecovery()
   const { userId, sessionId, isSignedIn, getToken } = useAuth({ treatPendingAsSignedOut: false })
   const identity = isSignedIn && userId && sessionId ? { accountId: userId, sessionId } : null
   const identityRef = useRef<KioskIdentity | null>(identity), tokenRef = useRef(getToken)
@@ -45,6 +47,10 @@ export function KioskProvider({ children }: PropsWithChildren) {
     return () => { cancelled = true; subscription?.(); network?.remove(); app?.remove(); current?.stop() }
   }, [attempt])
   useEffect(() => { controller?.setIdentity(identityRef.current) }, [controller, userId, sessionId, isSignedIn])
+  useEffect(() => {
+    const accountId = controller?.getSnapshot().record?.kiosk.accountId
+    if (accountId && deletion.deletedAccounts.includes(accountId)) void controller?.start()
+  },[controller,deletion.deletedAccounts])
   if (error) return <View style={styles.center}><Copy>{error}</Copy><Action label="Try again" onPress={() => { setError(null); setAttempt(value => value + 1) }} /></View>
   if (!controller) return <Loading label="Checking this device…" />
   return <Context value={controller}>{children}</Context>

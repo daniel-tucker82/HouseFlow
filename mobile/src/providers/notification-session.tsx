@@ -1,6 +1,6 @@
 import { useAuth } from "@clerk/expo"
 import * as Network from "expo-network"
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type PropsWithChildren } from "react"
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type PropsWithChildren, type ReactNode } from "react"
 import { AppState, View } from "react-native"
 import { Action, Copy, Loading, styles } from "../components/ui"
 import { NotificationSessionController, notificationRevocationTransport } from "../services/notification-session-controller"
@@ -10,7 +10,7 @@ import { getDeviceId, getInstallationSecret, openLocalStore } from "../storage/n
 const NotificationSessionContext = createContext<{ signOut: () => Promise<void>; isSessionActive: (accountId: string, sessionId: string) => boolean } | null>(null)
 
 /** Lives outside the signed-in runtime so offline sign-outs can finish later. */
-export function NotificationSessionProvider({ children }: PropsWithChildren) {
+export function NotificationSessionProvider({ children, fallback }: PropsWithChildren<{fallback?: ReactNode}>) {
   const { isLoaded, isSignedIn, userId, sessionId, signOut } = useAuth({ treatPendingAsSignedOut: false })
   const identity = isLoaded ? isSignedIn && userId && sessionId ? `${userId}:${sessionId}` : "signed-out" : null
   const [ready, setReady] = useState<string | null>(null)
@@ -77,8 +77,8 @@ export function NotificationSessionProvider({ children }: PropsWithChildren) {
     await queue.current
   }
 
-  if (error) return <View style={styles.center} accessibilityRole="alert"><Copy>{error}</Copy><Action label="Try again" onPress={() => { setError(null); setAttempt(value => value + 1) }} /></View>
-  if (!identity || ready !== identity) return <Loading label="Opening Cyntch…" />
+  if (error) return <View style={styles.center} accessibilityRole="alert"><Copy>{error}</Copy><Action label="Try again" onPress={() => { setError(null); setAttempt(value => value + 1) }} />{fallback}</View>
+  if (!identity || ready !== identity) return <View style={{flex:1}}><Loading label="Opening Cyntch…" />{fallback}</View>
   return <NotificationSessionContext value={{ signOut: leave, isSessionActive }}>{children}</NotificationSessionContext>
 }
 
