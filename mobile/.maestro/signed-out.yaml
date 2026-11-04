@@ -23,14 +23,16 @@ env:
       id: "clerk.auth.start.identifier"
     timeout: 60000
 # Verify the complete action is reachable, including when the form needs scrolling.
-# A visible field alone did not catch the clipped landscape Continue button.
+# Compose can expose an ID's full screen bounds even when its scroll parent clips
+# the label. Scroll to the rendered text, then also require the expected action ID.
 - scrollUntilVisible:
-    element:
-      id: "clerk.auth.start.continue"
+    element: "Continue"
     direction: DOWN
     timeout: 10000
     visibilityPercentage: 100
-- assertVisible: "Continue"
+    centerElement: true
+- assertVisible:
+    id: "clerk.auth.start.continue"
 - takeScreenshot: native-sign-in-portrait
 - setOrientation: ${LANDSCAPE_ORIENTATION}
 - scrollUntilVisible:
@@ -40,12 +42,13 @@ env:
     timeout: 10000
     visibilityPercentage: 100
 - scrollUntilVisible:
-    element:
-      id: "clerk.auth.start.continue"
+    element: "Continue"
     direction: DOWN
     timeout: 10000
     visibilityPercentage: 100
-- assertVisible: "Continue"
+    centerElement: true
+- assertVisible:
+    id: "clerk.auth.start.continue"
 - takeScreenshot: native-sign-in-landscape
 - setOrientation: ${PORTRAIT_ORIENTATION}
 - stopApp

@@ -4,6 +4,20 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
+Android run `41836733823` (source `0d257f0`) compiled the patched Clerk UI and
+optimized application successfully; dependency insight confirms the bridge uses
+`:cyntch-clerk-ui`. Both tablet text sizes and the phone's 1.6x text flow passed,
+including actual portrait/landscape screenshot checks. The phone's default-text
+flow failed because Maestro considered the Continue ID's full bounds visible
+inside the screen even though its scroll parent clipped the label. The hierarchy
+shows a scrollable parent ending at y=707 and the button extending to y=810;
+the test performed zero scrolls before its text assertion failed. The flow now
+scrolls to the rendered label and also requires the action ID. Default-text phone
+success remains unverified until rerun. Artifact SHA-256:
+`f6368dddd4f19a889dd7c9f68bd6239afaddbfe74c6cf1065e3f14257e6d0bfa`;
+APK SHA-256: `9ecef772c25fd8081721f11a7c9272d0cf05d633a06af0d5e9503abd265d1529`.
+Evidence: `C:/Users/danie/.codex/tmp/cyntch-android-evidence-41836733823`.
+
 The first bundled iOS Release runtime check compiled successfully but failed
 before sign-in: the unsigned simulator binary reported Keychain error -34018
 (missing entitlement). The iOS workflow now enables local ad-hoc simulator
