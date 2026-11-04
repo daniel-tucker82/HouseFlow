@@ -26,6 +26,8 @@ export interface BoardTask {
   description: string | null
   is_reward: boolean
   status: TaskState
+  /** Older saved boards may not include the creation time. */
+  created_at?: string
   /** Decimal server revision; absent only in caches/responses from older releases. */
   status_version?: string
   assignee_ids: string[]

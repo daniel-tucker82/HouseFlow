@@ -1978,3 +1978,57 @@ not conclusive proof of the original freeze's cause or resolution. Release-like
 startup, memory-pressure and rotation checks on physical devices remain required.
 The emulator was closed after testing, with its font, rotation and connectivity
 settings restored and application data retained.
+
+### Today filters, task details and device display choices
+
+Today now offers To do, Ready, Completed and All filters, combined with task/run
+name search and the existing person selection. Ready tasks appear before completed
+and waiting tasks; prerequisite depth and creation order preserve the web board's
+ordering, with a stable fallback for older cached boards. Unassigned tasks appear
+under the household leader. Opening a task's details does not toggle it. Details
+show its notes, assignment, availability, expiry and current state, and follow
+live changes without losing the selected task when a status filter hides its row.
+
+Parents can choose which members appear and whose tasks are editable on this
+device, independently for each account and household. Preferences save in SQLite,
+work offline and survive restarting the app. An explicit empty edit selection
+means view-only. Removed member IDs do not silently expand the display to everyone.
+Unreadable preferences require an explicit retry or reset. Role loss, household
+removal and kiosk activation prevent late preference writes; kiosk settings remain
+separate and authoritative. These ordinary display choices are not a parental
+lock: use kiosk mode to protect access to the controls.
+
+Landscape moves the family selector and display settings to a scrollable sidebar,
+combines the title/count and provides an expandable search field. Large text can
+use a single-column layout with scrolling controls. Rejected saved changes are
+identified as needing attention in task rows and details, rather than described
+as still waiting to upload. The shared row preserves the existing Runs interaction.
+
+Verification on 4 November 2026: all 546 general regression tests passed without
+failures, skips or cancellations. The five new board-view tests cover combined
+filters, deep/cyclic prerequisite ordering, legacy caches, role/kiosk restrictions,
+real SQLite restart and write rollback, account/household isolation, retained
+pending completions and revoked access. Root/mobile lint and TypeScript checks
+passed, as did Android and iOS Hermes exports.
+
+On the Android `medium_phone` emulator, checks covered Ready/Completed/All filters,
+search with the keyboard, retained search through rotation, hiding landscape
+search, task notes, hardware Back, disabled completion in both read-only views,
+preferences after force-stop/relaunch, offline preference saving, and font scales
+1.5 and 1.8. At 1.8 in landscape, controls and tasks remain reachable by scrolling;
+the opening viewport does not show the task list immediately. The standard-size
+landscape opening viewport shows a complete task. Details remain open and readable
+when rotating back to portrait. Preferences were restored to everyone, font scale
+to 1.0, rotation/connectivity settings restored, and the emulator stopped cleanly.
+
+Captures and the case record are in
+`C:/Users/danie/.codex/tmp/cyntch-board-view-runtime.json`, including
+`cyntch-board-landscape-final.png`, `cyntch-board-final-portrait.png` and
+`cyntch-board-largest-font-tasks.png` in the same directory. Development-client
+startup was slow; these checks do not resolve the prior startup/ANR investigation
+or establish physical-device performance, screen-reader support or iOS runtime
+readiness. No production deployment, database migration or signed build was made.
+
+Full functional coverage is still incomplete. In particular, the web canvas's
+creation/editing of one-off task boards still needs an equivalent native workflow;
+native Runs currently displays existing boards and supports their rename/removal.

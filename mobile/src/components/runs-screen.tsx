@@ -53,7 +53,7 @@ function RunDetails({ snapshot }: { snapshot: RunSnapshot }) {
   const tasks = snapshot.tasks.filter(task => memberId === "all" || task.assignee_ids.includes(memberId))
   const focused = tasks.find(task => task.id === state.focusedTaskId)
   const pending = new Map(board.pending.filter(change => change.householdId === snapshot.household.id && change.occurrenceId === snapshot.run.id).map(change => [change.taskId, change]))
-  const taskRow = (task: BoardTask) => <BoardTaskRow task={task} timezone={snapshot.household.timezone} saving={pending.has(task.id)}
+  const taskRow = (task: BoardTask) => <BoardTaskRow task={task} timezone={snapshot.household.timezone} saving={pending.has(task.id)} needsAttention={pending.get(task.id)?.state === "rejected"}
     memberNames={snapshot.members.filter(member => task.assignee_ids.includes(member.id)).map(member => member.name).join(", ")}
     canEdit={!managing && snapshot.run.status !== "cancelled" && (snapshot.household.role !== "member" || task.assignee_ids.includes(controller.accountId))}
     onPress={() => void runs.setCompleted(task, memberId !== "all" ? memberId : snapshot.household.role === "member" ? controller.accountId : task.assignee_ids[0] ?? controller.accountId, task.status !== "completed").catch(report)} />

@@ -11,6 +11,7 @@ import { AccountDeletionLocalStore } from "./account-deletion-local"
 import { BillingIdentityStore } from "./billing-identity-store"
 import { KioskStore, kioskRestriction, requireKioskParentAccess } from "./kiosk-store"
 import { restrictKioskBoard } from "../../../shared/mobile/kiosk"
+import { parseBoardDisplay, type BoardDisplayPreferences } from "../../../shared/mobile/board-view"
 import { mergeRunPages, runView, summarizeRun, type RunPage, type RunSnapshot, type RunSummary, type RunView } from "../../../shared/mobile/runs"
 
 export type SqlValue = string | number | null
@@ -348,6 +349,7 @@ export class LocalStore {
         await transaction.runAsync("DELETE FROM board_snapshots WHERE account_id = ? AND household_id = ?", accountId, householdId)
         await transaction.runAsync("DELETE FROM run_snapshots WHERE account_id = ? AND household_id = ?", accountId, householdId)
         await transaction.runAsync("DELETE FROM run_pages WHERE account_id = ? AND household_id = ?", accountId, householdId)
+        await transaction.runAsync("DELETE FROM device_settings WHERE account_id = ? AND setting_key = ?", accountId, `board-display:${householdId}`)
         // Keep the user's unsent intent for explicit review; never keep sending it after revocation.
         await transaction.runAsync(`UPDATE pending_completions SET state = 'rejected', error = ?
           WHERE account_id = ? AND household_id = ?`, "Access to this household has been removed. This saved change cannot sync.", accountId, householdId)
@@ -465,6 +467,29 @@ export class LocalStore {
     const row = await this.database.getFirstAsync<{ data: string }>(
       "SELECT data FROM device_settings WHERE account_id = ? AND setting_key = ?", accountId, key)
     return row ? JSON.parse(row.data) as T : null
+  }
+
+  async boardDisplay(accountId: string, householdId: string) {
+    return parseBoardDisplay(await this.setting(accountId, `board-display:${householdId}`))
+  }
+
+  async saveBoardDisplay(accountId: string, householdId: string, input: BoardDisplayPreferences) {
+    const preferences = parseBoardDisplay(input)
+    let saved = preferences
+    await this.database.withExclusiveTransactionAsync(async tx => {
+      await requireKioskParentAccess(tx)
+      const cached = await this.getCachedBoard(accountId, householdId, tx)
+      if (!cached || cached.server.household.role === "member" || await this.isHouseholdRevoked(accountId, householdId, tx)) throw new Error("Parent access to this household is required to change its display.")
+      const valid = new Set(cached.server.members.map(member => member.id))
+      const visible = preferences.visibleMemberIds?.filter(id => valid.has(id)) ?? null
+      if (visible && !visible.length) throw new Error("Choose at least one household member to display.")
+      const visibleSet = new Set(visible ?? valid)
+      saved = { ...preferences, visibleMemberIds: visible,
+        editableMemberIds: preferences.editableMemberIds?.filter(id => visibleSet.has(id)) ?? null }
+      await tx.runAsync(`INSERT INTO device_settings(account_id, setting_key, data) VALUES (?, ?, ?)
+        ON CONFLICT(account_id, setting_key) DO UPDATE SET data = excluded.data`, accountId, `board-display:${householdId}`, JSON.stringify(saved))
+    })
+    return saved
   }
 
   async saveSetting(accountId: string, key: string, value: unknown) {
