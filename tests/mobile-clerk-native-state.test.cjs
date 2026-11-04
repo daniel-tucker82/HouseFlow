@@ -4,15 +4,17 @@ function load(files,mocks={}){const loaded=new Module(__filename,module);loaded.
 const deferred=()=>{let resolve;const promise=new Promise(done=>{resolve=done});return {promise,resolve}}
 function fixture(){
  const calls=[],state={ready:true,hasAccount:false,hasUnidentifiedSession:false,hasAuthenticationSnapshot:false,format:1}
+ const persisted={...state}
  let loaded=true,deleted=true,available=true
  const clerk={loaded:true,user:{id:'user_b'},client:{sessions:[{id:'sess_b',user:{id:'user_b'}}],signIn:{id:null},signUp:{id:null},reload:async()=>{calls.push('reload-js')}}}
  const bridge={getAuthFlowState:async()=>({isLoaded:loaded}),refreshClient:async()=>{calls.push('refresh')}}
- const inspector={inspectAccount:async accountId=>{calls.push(['inspect',accountId]);return {...state,privatePayload:'never expose this'}}}
+ const inspector={inspectAccount:async accountId=>{calls.push(['inspect',accountId]);return {...state,privatePayload:'never expose this'}},
+  inspectPersistence:async accountId=>{calls.push(['persisted',accountId]);return {...persisted,privatePayload:'never expose this'}}}
  const api=load(['mobile/modules/cyntch-clerk-state/index.ts','mobile/src/services/native-clerk-deletion.ts'],{
   expo:{requireOptionalNativeModule:name=>available?(name==='ClerkExpo'?bridge:name==='CyntchClerkState'?inspector:null):null},
   '@clerk/expo':{getClerkInstance:()=>clerk},'../storage/native-store':{openLocalStore:async()=>({deletedAccounts:{isDeleted:async()=>deleted}})},
  })
- return {api,calls,state,clerk,bridge,inspector,setLoaded:value=>{loaded=value},setDeleted:value=>{deleted=value},setAvailable:value=>{available=value}}
+ return {api,calls,state,persisted,clerk,bridge,inspector,setLoaded:value=>{loaded=value},setDeleted:value=>{deleted=value},setAvailable:value=>{available=value}}
 }
 test('an absent or loading native bridge never becomes evidence that an account was erased',async()=>{
  const f=fixture();f.setAvailable(false);await assert.rejects(f.api.inspectNativeClerkAccount('user_a'),/could not be verified/)
@@ -44,7 +46,30 @@ test('the JS client must also have retired the deleted account and its unscoped 
 })
 test('verifying a deleted account preserves another signed-in account and never clears a shared credential',async()=>{
  const f=fixture(),before=JSON.stringify(f.clerk);await f.api.verifyNativeClerkDeletion('user_a')
- assert.equal(JSON.stringify(f.clerk),before);assert.deepEqual(f.calls,['refresh',['inspect','user_a'],'reload-js',['inspect','user_a']])
+ assert.equal(JSON.stringify(f.clerk),before);assert.deepEqual(f.calls,['refresh',['inspect','user_a'],'reload-js',['persisted','user_a'],['inspect','user_a']])
+})
+
+test('an absent, incompatible or unreadable persisted-profile inspector cannot establish cleanup',async()=>{
+ const f=fixture();f.inspector.inspectPersistence=undefined
+ await assert.rejects(f.api.verifyNativeClerkDeletion('user_a'),/still being verified/)
+ f.inspector.inspectPersistence=async()=>({...f.persisted,format:2})
+ await assert.rejects(f.api.inspectNativeClerkPersistence('user_a'),/could not be verified/)
+ f.inspector.inspectPersistence=async()=>{throw Error('private cached account data')}
+ await assert.rejects(f.api.inspectNativeClerkPersistence('user_a'),error=>!error.message.includes('private'))
+ f.setLoaded(false);let inspected=false;f.inspector.inspectPersistence=async()=>{inspected=true;return f.persisted}
+ await assert.rejects(f.api.inspectNativeClerkPersistence('user_a'),/could not be verified/);assert.equal(inspected,false)
+ f.setLoaded(true);f.inspector.inspectPersistence=async()=>{f.setLoaded(false);return f.persisted}
+ await assert.rejects(f.api.inspectNativeClerkPersistence('user_a'),/could not be verified/)
+})
+
+test('a cleared memory client cannot hide an older disk profile, ambiguous session or authentication snapshot',async()=>{
+ for(const key of ['hasAccount','hasUnidentifiedSession','hasAuthenticationSnapshot','ready']){
+  const f=fixture();f.persisted[key]=key!=='ready'
+  await assert.rejects(f.api.verifyNativeClerkDeletion('user_a'),/still being verified/)
+  assert.deepEqual(f.calls,['refresh',['inspect','user_a'],'reload-js',['persisted','user_a']])
+  f.persisted[key]=key==='ready';await f.api.verifyNativeClerkDeletion('user_a')
+ }
+ const f=fixture();assert.deepEqual(await f.api.inspectNativeClerkPersistence('user_a'),f.persisted)
 })
 
 test('native-to-JS propagation is refreshed explicitly, and both clients are rechecked afterward',async()=>{

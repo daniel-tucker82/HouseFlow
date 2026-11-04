@@ -10,6 +10,14 @@ class CyntchClerkStateModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("CyntchClerkState")
 
+    // AsyncFunction runs storage work off the JavaScript/UI thread.
+    AsyncFunction("inspectPersistence") { accountId: String ->
+      require(accountId.matches(Regex("^user_[A-Za-z0-9_-]{1,200}$")))
+      val context = appContext.reactContext
+      if (context == null || !Clerk.isInitialized.value) ClerkPersistenceInspection.verdict(false)
+      else ClerkPersistenceReader.inspect(context, accountId)
+    }
+
     AsyncFunction("inspectAccount") { accountId: String ->
       require(accountId.matches(Regex("^user_[A-Za-z0-9_-]{1,200}$")))
       val client = Clerk.clientFlow.value

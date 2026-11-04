@@ -1833,6 +1833,66 @@ preserving the signed-in account (`cyntch-clerk-native-runtime-refresh-evidence.
 Final Android and iOS Hermes exports passed in
 `C:/Users/danie/.codex/tmp/cyntch-clerk-native-export-final`.
 
+### Verify the persisted native Clerk profile separately
+
+Deletion recovery now also calls `inspectPersistence` after the native/JavaScript
+refresh and before its final in-memory identity check. A retained profile,
+unidentified session, sign-in/sign-up snapshot, malformed result, storage error
+or older native build without this method keeps local cleanup incomplete and
+retains the saved receipt. Ordinary task saves and startup without an accepted
+deletion receipt do not perform this inspection.
+
+The adapter is deliberately tied to the installed SDK formats. Android's
+dependency is now constrained to exactly 1.3.0, matching the existing exact iOS
+ClerkKit 1.6.2 pin. Review the adapter when updating either SDK. Sources inspected:
+the [published Android 1.3.0 sources](https://repo.maven.apache.org/maven2/com/clerk/clerk-android-api/1.3.0/clerk-android-api-1.3.0-sources.jar)
+(`StorageHelper`, `StorageCipher`, `CachedClerkState`, `ClientStateStore`) and
+[ClerkKit's identity store](https://github.com/clerk/clerk-ios/blob/1.6.2/Sources/ClerkKit/Identity/ClerkIdentityStore.swift),
+[storage configuration](https://github.com/clerk/clerk-ios/blob/1.6.2/Sources/ClerkKit/Dependencies/DependencyContainer.swift)
+and [keychain adapter](https://github.com/clerk/clerk-ios/blob/1.6.2/Sources/ClerkKit/Storage/Keychain/SystemKeychain.swift).
+
+Android reads the actual preferences XML and its recovery backup, not the
+SharedPreferences memory view. It decrypts only the cached profile with the
+existing Android Keystore key, without creating keys, migrating or writing data.
+Legacy plaintext profiles are also inspected. Both files are reread to reject a
+snapshot that changes during inspection; reads are bounded. An older account in
+the backup still prevents success. Invalid XML, external entities, duplicate
+cache entries and unexpected client fields cannot establish erasure.
+
+iOS reads the configured `cachedClient` keychain items and, when a shared access
+group is configured, both the app-local and legacy services. It handles current
+wrapped and older bare client snapshots and rejects inconsistent rereads. The
+keychain work runs outside the main actor. Neither platform exposes cached
+profiles, tokens or other account identifiers to JavaScript; only verdict flags
+cross the bridge. Neither platform changes another account or a shared token.
+
+This supersedes the earlier limitation about observing loaded clients only.
+It proves only a point-in-time profile-cache observation. Biometric credentials,
+late SDK callbacks, shared device credentials, out-of-band deletion and complete
+provider deletion/restart tests remain separate release requirements. **Keep
+deletion submission disabled.** iOS native compilation and device execution are
+still unverified; an iOS JavaScript export cannot establish either.
+
+Verification: 31 JavaScript recovery/cache tests and eight Android native unit
+tests passed, along with root/mobile lint, mobile TypeScript, Android APK build
+and Android/iOS Hermes exports. The native tests include stale backup profiles,
+read/decryption failures, concurrent storage changes, unknown sessions, corrupt
+XML/JSON and other-account preservation. Run the native tests with
+`:cyntch-clerk-state:testDebugUnitTest` from the generated Android project using
+the toolchain settings at the top of this README. Evidence is under
+`C:/Users/danie/.codex/tmp/cyntch-clerk-persistence-*`.
+
+The rebuilt APK also passed actual Android emulator inspection of its encrypted
+profile: the existing account was present, an absent account was absent, and the
+in-memory client agreed. The same checks passed after force-stopping the app and
+reopening with Wi-Fi/mobile data disabled; the household's original two tasks
+remained available. The three read-only inspection calls together took 33 ms
+online and 19 ms after the offline restart in these samples, not a release-device
+performance guarantee. Evidence: `cyntch-clerk-persistence-runtime.json`,
+`cyntch-clerk-persistence-runtime-offline.json` and the offline UI tree
+`cyntch-live-1793774079544.xml`. No account was deleted, no credential was reset,
+and network settings were restored after testing.
+
 ### Processing accepted deletions in scheduled batches
 
 `runAccountDeletions()` connects the durable PostgreSQL coordinator to the real

@@ -1,5 +1,5 @@
 import { getClerkInstance } from "@clerk/expo"
-import { inspectNativeClerkAccount } from "../../modules/cyntch-clerk-state"
+import { inspectNativeClerkAccount, inspectNativeClerkPersistence } from "../../modules/cyntch-clerk-state"
 import { openLocalStore } from "../storage/native-store"
 
 let tail: Promise<unknown> = Promise.resolve()
@@ -20,6 +20,8 @@ export async function verifyNativeClerkDeletion(accountId: string, timeoutMs = 8
     // the supported JS refresh rather than mistaking propagation lag for a
     // completed cleanup, then recheck native state after that network boundary.
     await clerk.client.reload()
+    const persisted = await inspectNativeClerkPersistence(accountId)
+    if (!persisted.ready || persisted.hasAccount || persisted.hasUnidentifiedSession || persisted.hasAuthenticationSnapshot) throw incomplete()
     const settledNative = await inspectNativeClerkAccount(accountId)
     if (!settledNative.ready || settledNative.hasAccount || settledNative.hasUnidentifiedSession || settledNative.hasAuthenticationSnapshot) throw incomplete()
     const client = clerk.client
