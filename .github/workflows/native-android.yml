@@ -61,6 +61,15 @@ jobs:
           npx expo prebuild --platform android --no-install 2>&1 | tee "$RUNNER_TEMP/cyntch-android-prebuild.log"
           grep -Fq 'includeBuild("../vendor/clerk-android-ui")' android/settings.gradle
           grep -Fq 'name = "cyntch-clerk-ui"' android/settings.gradle
+      - name: Restore Gradle dependencies and compiled task cache
+        # Run after prebuild so cache keys and wrapper validation include the
+        # generated project. Use GitHub's basic cache, with no Build Scan upload.
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          cache-provider: basic
+          cache-read-only: ${{ github.ref != 'refs/heads/codex/native-mobile-apps' }}
+          dependency-graph: disabled
+          build-scan-publish: false
       - name: Compile optimized emulator APK with test signing
         id: compile
         working-directory: mobile/android
@@ -68,11 +77,11 @@ jobs:
           set -euo pipefail
           java -version
           chmod +x gradlew
-          ./gradlew -p ../vendor/clerk-android-ui assembleRelease --no-daemon --max-workers=2 \
+          ./gradlew -p ../vendor/clerk-android-ui assembleRelease --build-cache --no-daemon --max-workers=2 \
             -Dorg.gradle.jvmargs='-Xmx3072m -XX:MaxMetaspaceSize=512m -XX:ActiveProcessorCount=2' \
             2>&1 | tee "$RUNNER_TEMP/cyntch-clerk-ui-build.log"
           ./gradlew :app:dependencyInsight --dependency clerk --configuration releaseRuntimeClasspath \
-            :app:assembleRelease --no-daemon --max-workers=2 \
+            :app:assembleRelease --build-cache --no-daemon --max-workers=2 \
             -Dorg.gradle.jvmargs='-Xmx3072m -XX:MaxMetaspaceSize=512m -XX:ActiveProcessorCount=2' \
             -PreactNativeArchitectures=x86_64 \
             -Pandroid.enableMinifyInReleaseBuilds=true \

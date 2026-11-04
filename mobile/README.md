@@ -4,6 +4,14 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
+Android CI uses the pinned Gradle setup action's basic GitHub cache after
+prebuild, with task caching enabled for both native builds. Generated Gradle
+files participate in its key and wrapper validation. The workflow still builds
+the requested revision, hashes its APK and runs every device stage. Build Scans
+and dependency uploads are disabled. First-cache population and any reduction
+in compilation time still need hosted evidence. See
+[Gradle's basic cache documentation](https://github.com/gradle/actions/blob/v6.4.1/docs/setup-gradle.md#basic-caching).
+
 The iOS workflow now has a separate minimum-OS job using the same compiled app
 artifact from that workflow run, with its ZIP hash and signature checked again.
 The built app's `MinimumOSVersion` is 17.0. The job requests Apple's original
