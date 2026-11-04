@@ -72,6 +72,15 @@ env:
           visibilityPercentage: 100
           centerElement: true
       - takeScreenshot: native-social-sign-in-landscape
+      # Close must remain tappable beside a landscape system navigation bar.
+      - tapOn: "Close"
+      - assertVisible: "Sign in or create an account"
+      - takeScreenshot: welcome-after-dismiss-landscape
+      - tapOn: "Sign in or create an account"
+      - extendedWaitUntil:
+          visible:
+            id: "clerk.auth.start.identifier"
+          timeout: 60000
 - setOrientation: ${PORTRAIT_ORIENTATION}
 - stopApp
 - launchApp:

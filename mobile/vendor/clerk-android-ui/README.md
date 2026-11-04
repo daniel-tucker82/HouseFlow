@@ -11,7 +11,9 @@ the scaffold padding and accounts for the keyboard. The form is horizontally
 centered with a maximum 600dp width, avoiding edge-to-edge fields on the tablet
 and wide landscape screens. `wrapContentWidth` relaxes the minimum width from
 the outer `fillMaxWidth` before `widthIn` applies the cap; narrow screens still
-use their available width. This layout change awaits native visual verification.
+use their available width. Run `41845177451` verifies this width on the actual
+Android phone/tablet images at normal and 1.6x text; the tablet landscape form is
+centered and its field and button labels remain uncut.
 `ClerkButton.kt` and
 `ClerkSocialButton.kt` use minimum heights rather than fixed heights, so scaled
 text and content padding can grow together. This follows an observed clipped
@@ -40,7 +42,13 @@ enabled authentication stages. Compilation alone is insufficient. The shared
 Maestro flow scrolls to the rendered Continue label and requires its action ID.
 Android also captures the Google button in both orientations at each text size.
 Screenshot dimensions are verified, and visual review must confirm uncut labels.
-CI retains all three patched sources and the compiler logs.
+The header also applies top and horizontal safe-drawing insets. The actual API
+24 landscape screenshot in run `41845177451` placed Close over the side system
+navigation bar because upstream padded only the status bar. The minimum-OS and
+current Android flows now tap Close and require the welcome screen before
+reopening the form. This fix still needs native compilation and device evidence.
+
+CI retains all four patched sources and the compiler logs.
 
 Once an upstream release contains equivalent scrolling, remove this included
 build and config plugin only after verifying those device journeys against the
@@ -50,3 +58,4 @@ Sources:
 - https://repo.maven.apache.org/maven2/com/clerk/clerk-android-ui/1.3.0/
 - https://github.com/clerk/clerk-android/blob/v1.3.0/source/ui/build.gradle.kts
 - https://github.com/clerk/clerk-android/blob/v1.3.0/LICENSE
+- https://developer.android.com/develop/ui/compose/system/insets-ui

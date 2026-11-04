@@ -33,6 +33,21 @@ APK SHA-256: `02ccf72dfbdd0cf31a17829fae34eec83a975e27668382a5e669ce72f9bc1ead`.
 Evidence: `C:/Users/danie/.codex/tmp/cyntch-android-evidence-41841090786`.
 This run predates the 600dp width change and minimum-Android stage.
 
+Run `41845177451` (source `13f46ac`) subsequently passed phone/tablet at both
+text sizes and the Android 7.0/API 24 installation/startup/form/rotation/restart
+flow. Artifact SHA-256 is
+`402e6124a58deecc3b999cee9fb815cb98674645bcf47ba4c73824578943af80`;
+APK SHA-256 is `c18719ccc6a0ba6531b23bd2a9e14a30f72225d31e7fa96f7956819134d4e212`.
+The verified evidence is in
+`C:/Users/danie/.codex/tmp/cyntch-android-evidence-41845177451`. Visual review
+confirms centered 600dp tablet forms and uncut labels at both text sizes.
+However, the minimum-OS landscape image reveals Close overlapping the side
+system navigation bar. The previous flow did not tap Close, so its green result
+does not establish a usable dismissal control. The pinned header patch now
+includes horizontal safe-drawing insets, and both Android runners actually
+dismiss/reopen native auth. Source preparation, runner control checks and mobile
+lint/types pass; the new fix still requires native compilation and device proof.
+
 iOS run `41839062482` (source `c88394d`) passed compilation, signing and the
 iPhone 17 Maestro journey on iOS 26.5, including native sign-in and restart.
 Its orientation check failed because XCTest stores landscape images as portrait
@@ -50,8 +65,8 @@ Evidence: `C:/Users/danie/.codex/tmp/cyntch-ios-evidence-41839062482`.
 The Android native sign-in form now has a centered maximum width of 600dp;
 the earlier tablet screenshots showed its fields stretching almost edge to edge.
 Narrow screens retain their available width, and the existing scroll/keyboard
-insets remain. Source preparation is checked separately from native execution;
-the new width limit still needs phone/tablet screenshot review.
+insets remain. Run `41845177451` provides the native width verification described
+above; the later header safe-area correction still needs new device evidence.
 
 The iOS runner now repeats the signed-out phone/tablet journey at default Dynamic
 Type (`large`) and `accessibility-extra-large`. It checks the simulator's actual
@@ -286,6 +301,14 @@ configured in the linked Expo project, and iOS needs APNs credentials; this
 inspection does not establish token registration or delivered push notifications.
 References: [Expo Android push credentials](https://docs.expo.dev/push-notifications/fcm-credentials/)
 and [dynamic app configuration](https://docs.expo.dev/workflow/configuration/).
+
+Read-only distribution-account inspection on 2026-11-04 found Google Play
+Console showing developer-account creation for the currently signed-in business
+Google account. No developer account or listing was created. App Store Connect
+redirected to its unauthenticated login page, so Apple membership, app records
+and signing access remain unverified. No account registration, agreement or
+purchase was submitted. These are distribution dependencies, not evidence that
+either app is available through a store testing track.
 
 The isolated Expo 58 Android prebuild at
 `C:/Users/danie/.codex/tmp/cyntch-firebase-prebuild-20261104` completed with this

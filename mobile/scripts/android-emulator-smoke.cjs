@@ -64,6 +64,7 @@ try {
       result.orientationEvidence = inspectScreenshotOrientations(folder, {
         'native-social-sign-in-portrait.png': 'portrait',
         'native-social-sign-in-landscape.png': 'landscape',
+        'welcome-after-dismiss-landscape.png': 'landscape',
         'native-keyboard-portrait.png': 'portrait',
         'native-keyboard-landscape.png': 'landscape',
         'native-keyboard-dismissed-landscape.png': 'landscape',

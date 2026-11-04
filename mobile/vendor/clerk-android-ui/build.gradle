@@ -64,6 +64,21 @@ def prepareClerkUi = tasks.register('prepareClerkUi') {
       'import androidx.compose.foundation.layout.widthIn\n' +
       'import androidx.compose.foundation.BorderStroke')
     scaffold.setText(patched, 'UTF-8')
+    // The upstream header pads only the status bar. A side navigation bar in
+    // landscape can then cover Close/Back (observed on the API 24 emulator).
+    def topBar = new File(target, 'kotlin/com/clerk/ui/core/appbar/ClerkTopAppbar.kt')
+    def topBarSource = topBar.getText('UTF-8').replace('\r\n', '\n')
+    def topBarInsets = '.windowInsetsPadding(WindowInsets.statusBars)'
+    def insetsImport = 'import androidx.compose.foundation.layout.WindowInsets\n'
+    if (topBarSource.count(topBarInsets) != 1 || topBarSource.count(insetsImport) != 1) {
+      throw new GradleException('Clerk top bar changed; review safe-area patch.')
+    }
+    topBar.setText(topBarSource.replace(topBarInsets,
+      '.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top))')
+      .replace(insetsImport, insetsImport +
+        'import androidx.compose.foundation.layout.WindowInsetsSides\n' +
+        'import androidx.compose.foundation.layout.only\n' +
+        'import androidx.compose.foundation.layout.safeDrawing\n'), 'UTF-8')
     // Fixed button heights clip scaled text plus the upstream content padding.
     // Preserve the minimum target, allowing the measured content to grow.
     [
@@ -79,7 +94,7 @@ def prepareClerkUi = tasks.register('prepareClerkUi') {
       button.setText(buttonSource.replace(patch[1], patch[2]).replace(
         heightImport, 'import androidx.compose.foundation.layout.heightIn\n'), 'UTF-8')
     }
-    logger.lifecycle('[Cyntch] Applied pinned Clerk 1.3.0 auth scrolling, content width and button text sizing patches')
+    logger.lifecycle('[Cyntch] Applied pinned Clerk 1.3.0 auth scrolling, content width, safe-area and button text sizing patches')
   }
 }
 

@@ -144,13 +144,28 @@ async function main() {
     await rotate(true)
     await findNode(labelIs('Continue'), true)
     screenshot('native-sign-in-landscape')
+    stage('dismiss-native-sign-in')
+    const close = bounds(await findNode(labelIs('Close')))
+    report.dismissControlBounds = close
+    fs.writeFileSync(path.join(output, 'native-sign-in-landscape.xml'), fs.readFileSync(path.join(output, 'last-hierarchy.xml')))
+    adb('shell', 'input', 'tap', String(Math.round((close.left + close.right) / 2)),
+      String(Math.round((close.top + close.bottom) / 2)))
+    await findNode(labelIs('Sign in or create an account'))
+    screenshot('welcome-after-dismiss-landscape')
+    // Reopen before force-stop so restart coverage still begins in native auth.
+    const reopen = bounds(await findNode(labelIs('Sign in or create an account')))
+    adb('shell', 'input', 'tap', String(Math.round((reopen.left + reopen.right) / 2)),
+      String(Math.round((reopen.top + reopen.bottom) / 2)))
+    await findNode(node => node['resource-id'] === 'clerk.auth.start.identifier')
     stage('force-stop-and-relaunch')
     await rotate(false)
     adb('shell', 'am', 'force-stop', appId)
     launch()
     await findNode(labelIs('Sign in or create an account'))
     screenshot('welcome-after-restart')
-    report.orientationEvidence = inspectScreenshotOrientations(output)
+    report.orientationEvidence = inspectScreenshotOrientations(output, {
+      'welcome-after-dismiss-landscape.png': 'landscape',
+    })
     if (!report.orientationEvidence.passed) throw new Error('Missing or incorrect screenshot orientations.')
     report.passed = true
     stage('completed')
