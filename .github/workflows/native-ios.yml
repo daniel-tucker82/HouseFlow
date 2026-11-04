@@ -43,10 +43,14 @@ jobs:
       - name: Install locked dependencies
         run: npm ci --no-audit --no-fund
       - name: Generate the native iOS project
-        run: npx expo prebuild --platform ios --no-install
+        run: |
+          set -o pipefail
+          npx expo prebuild --platform ios --no-install 2>&1 | tee "$RUNNER_TEMP/cyntch-ios-prebuild.log"
       - name: Install native dependencies
         working-directory: mobile/ios
-        run: pod install
+        run: |
+          set -o pipefail
+          pod install 2>&1 | tee "$RUNNER_TEMP/cyntch-ios-pods.log"
       - name: Compile the unsigned simulator app
         run: |
           set -o pipefail
@@ -70,6 +74,8 @@ jobs:
         with:
           name: native-ios-compilation
           path: |
+            ${{ runner.temp }}/cyntch-ios-prebuild.log
+            ${{ runner.temp }}/cyntch-ios-pods.log
             ${{ runner.temp }}/cyntch-ios.log
             ${{ runner.temp }}/cyntch-native.xcresult
             mobile/ios/Podfile.lock

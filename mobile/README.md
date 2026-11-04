@@ -64,6 +64,17 @@ runner and Xcode 26.6. It requires no account, signing or backend credentials an
 retains compiler logs. It verifies native compilation, not sign-in, purchases,
 push delivery or store readiness. EAS remains the signing/distribution path.
 
+RevenueCat's React Native SDK is pinned to `10.16.0`. The first Mac check
+(`41796637009`, commit `152b698`) generated the iOS project but stopped at pod
+installation: version 11 requires the unpublished `PurchasesHybridCommon 20.1.0`
+pod during the November 2026 CocoaPods publishing freeze. RevenueCat recommends
+Expo apps remain on 10.x until that dependency is published; its experimental
+full Swift Package Manager migration does not yet support Expo Router. Version
+10.16.0 retains RevenueCat iOS 5.99.0 and uses Android 10.30.0. Recheck the
+[official migration guidance](https://www.revenuecat.com/docs/sdk-guides/react-native-cocoapods-to-spm-migration#expo-apps)
+before upgrading. Native prebuild and pod-install logs are retained even if the
+compiler cannot start.
+
 Local validation used EAS CLI 27.4.1's profile resolver and actual Git archive
 copy implementation. The 138-file archive installed from its lockfile and
 exported Android/iOS Hermes bundles without the web app's dependencies. Native
