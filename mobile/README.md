@@ -60,6 +60,16 @@ remain after item deletion to prevent resurrection. The queue is scoped to the
 account, preserves rejected requests for review, and stops uploading after a
 confirmed management-role revocation.
 
+**Try it out** opens an in-memory practice copy of the selected template and its
+upstream prerequisites, including links from other routines. Tasks unlock after
+their prerequisites are completed in practice; Start again resets the copy.
+Practice is available offline for loaded templates and never saves completions,
+changes live runs or sends notifications. It preserves the website's task-order
+preview scope: time and expiry rules are exercised by live runs. A refresh cannot
+rewrite an open practice session; reopening captures the latest locally saved
+template. Portrait and large-text layouts use a scrolling list, while wider
+layouts show progress and reset controls beside the tasks.
+
 A start request returns after saving locally and uploads in the background. It
 requires a connection initially and all earlier planner changes to be synced or
 reviewed; it does not wait for a network flush before saving. Template edits and
@@ -1932,3 +1942,39 @@ three runs were retained and the device's rotation settings restored. Evidence:
 `cyntch-run-controls.png` and `cyntch-run-landscape-keyboard.png` in that directory.
 Physical iOS/Android device, accessibility and household pilot verification remain
 part of the full release goal.
+
+### Native routine practice verification
+
+The native preview shares prerequisite ordering and upstream traversal with the
+web planner. Its detached display model has no network or storage dependency.
+Tests cover multiple prerequisite branches, cross-routine ancestors, rewards,
+missing links, cycles, source refreshes, legacy assignments and a 1,000-task chain.
+The native modal chooses its layout from its own available width, accounting for
+large text and narrower sheets rather than assuming the full window is available.
+Accessible task labels include assignment, reward status and ready-task notes.
+
+Verification on 4 November 2026: 541 general regression tests passed with no
+failures, skips or cancellations. The focused practice/planner/database run
+passed 12 tests. Root/mobile lint and TypeScript checks and the production web
+build passed, as did Android and iOS Hermes exports. These checks do not establish
+signed-binary or physical-device release readiness.
+
+Android emulator checks covered prerequisite unlocking, reward completion,
+reset, offline use, reopening, hardware Back, both landscape orientations and
+portrait, retaining practice progress during rotation and foreground resume.
+At font scale 1.5, the resumed preview used a scrolling single-column layout.
+Real task/run/state hashes and completion-operation/notification counts remained
+unchanged throughout the practice interactions. Evidence is in
+`C:/Users/danie/.codex/tmp/cyntch-practice-runtime.json`, with the
+`cyntch-practice-portrait-final.png`, `cyntch-practice-wide-final.png` and
+`cyntch-practice-large-font-top.png` captures in the same directory.
+
+Reliability remains open: an input-dispatch ANR occurred during rotation and hot
+refresh under substantial CPU, memory and I/O pressure; its stack capture failed.
+A subsequent startup ANR caught React Native's SoLoader reading native-library
+dependencies from the APK, before the practice screen loaded. After stopping an
+idle build daemon, the next launch and repeated rotation checks passed. This is
+not conclusive proof of the original freeze's cause or resolution. Release-like
+startup, memory-pressure and rotation checks on physical devices remain required.
+The emulator was closed after testing, with its font, rotation and connectivity
+settings restored and application data retained.

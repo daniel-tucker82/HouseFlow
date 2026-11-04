@@ -8,6 +8,7 @@ import type { Routine, Task } from "@/lib/types"
 import { buildMemberTokenColorMap, memberColorFor } from "@/lib/member-tokens"
 import { isRenderableUserProfilePhotoUrl } from "@/lib/clerk-profile-image-url"
 import { orderPlannerTasks, taskDescendants, type PlannerTaskInput } from "@/lib/routine-planner"
+import { prerequisiteClosure } from "@/shared/routine-planner-graph"
 import { parseRoutineRecurrenceRules, recurrenceRuleSummary, type RecurrenceRule } from "@/lib/recurrence"
 import styles from "./mobile-planner.module.css"
 import { useTaskSaves } from "@/components/task-save-provider"
@@ -182,12 +183,7 @@ export function MobileRoutinePlanner({ initial, onCanvas }: { initial: LeaderFlo
   }
 
   // Include prerequisites from other routines in practice so their role is visible.
-  const practiceIds = new Set(routineTasks.map(task => task.id))
-  let added = true
-  while (added) {
-    added = false
-    for (const edge of data.dependencies) if (practiceIds.has(edge.target_task_id) && !practiceIds.has(edge.source_task_id)) { practiceIds.add(edge.source_task_id); added = true }
-  }
+  const practiceIds = prerequisiteClosure(routineTasks.map(task => task.id), data.dependencies)
   const practiceTasks = orderPlannerTasks(data.tasks.filter(task => practiceIds.has(task.id)), data.dependencies)
 
   function taskCard(task: Task) {

@@ -1,7 +1,8 @@
 import { z } from "zod"
 import { validateTaskTiming, type TaskTiming } from "@/shared/scheduling"
 
-export type PlannerDependency = { source_task_id: string; target_task_id: string }
+import type { PlannerDependency } from "@/shared/routine-planner-graph"
+export { orderPlannerTasks, type PlannerDependency } from "@/shared/routine-planner-graph"
 
 export const plannerTaskSchema = z.object({
   taskId: z.string().uuid(),
@@ -35,20 +36,4 @@ export function taskDescendants(dependencies: PlannerDependency[], taskId: strin
     }
   }
   return found
-}
-
-export function orderPlannerTasks<T extends { id: string }>(tasks: T[], dependencies: PlannerDependency[]) {
-  const remaining = [...tasks]
-  const ids = new Set(tasks.map(task => task.id))
-  const ordered: T[] = []
-  const seen = new Set<string>()
-  while (remaining.length) {
-    const next = remaining.findIndex(task => dependencies.filter(edge => edge.target_task_id === task.id)
-      .every(edge => !ids.has(edge.source_task_id) || seen.has(edge.source_task_id)))
-    if (next < 0) return [...ordered, ...remaining]
-    const [task] = remaining.splice(next, 1)
-    ordered.push(task)
-    seen.add(task.id)
-  }
-  return ordered
 }

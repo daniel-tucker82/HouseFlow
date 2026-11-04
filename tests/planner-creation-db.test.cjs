@@ -70,6 +70,7 @@ test('planner creation routes recover lost replies at capacity, reject altered r
     return loaded.exports
   }
   mocks['@/shared/scheduling'] = load('shared/scheduling.ts')
+  mocks['@/shared/routine-planner-graph'] = load('shared/routine-planner-graph.ts')
   for (const name of ['planner-creation', 'routine-planner', 'task-edit-version', 'save-planner-task', 'time-rules']) mocks[`@/lib/${name}`] = load(`lib/${name}.ts`)
   const recurrenceFile = path.resolve(__dirname, '../lib/recurrence.ts'), recurrence = new Module(recurrenceFile, module)
   recurrence._compile(buildSync({ entryPoints: [recurrenceFile], bundle: true, platform: 'node', format: 'cjs', write: false }).outputFiles[0].text, recurrenceFile)

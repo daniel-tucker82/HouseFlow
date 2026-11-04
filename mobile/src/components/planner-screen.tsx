@@ -10,6 +10,8 @@ import { Action, Card, Copy, Loading, styles, usePalette } from "./ui"
 import { PlannerField, PlannerTaskEditor } from "./planner-task-editor"
 import { PlannerPendingCreations } from "./planner-pending-creations"
 import { PlannerSchedulePanel } from "./planner-schedule-panel"
+import { PlannerPractice } from "./planner-practice"
+import { createRoutinePractice, type RoutinePractice } from "../../../shared/mobile/routine-practice"
 
 export default function PlannerScreen() {
   const board = useBoard(), state = usePlanner()
@@ -32,6 +34,7 @@ function PlannerWorkspace({ householdId }: { householdId: string }) {
   const [editorError, setEditorError] = useState<string | null>(null)
   const [routineForm, setRoutineForm] = useState<{ id: string | null; name: string } | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [practice, setPractice] = useState<RoutinePractice | null>(null)
   const mounted = useRef(true)
   const draftTouched = useRef(false)
   const data = state.data
@@ -134,6 +137,7 @@ function PlannerWorkspace({ householdId }: { householdId: string }) {
               <Action label={starting ? "Start saved" : "Start routine"} disabled={onlineActionDisabled || starting || !tasks.length} onPress={() => Alert.alert(`Start “${routine.name}”?`, "A fresh copy will appear in Today after your saved request syncs.", [{ text: "Cancel", style: "cancel" }, { text: "Start", onPress: () => void act(() => planner.create("createOccurrence", { routineId: routine.id }, `Start routine: ${routine.name}`)) }])} />
               <Action secondary label="Rename" disabled={onlineActionDisabled} onPress={() => setRoutineForm({ id: routine.id, name: routine.name })} />
               <Action secondary label="Delete" disabled={onlineActionDisabled} onPress={() => removeRoutine(routine)} />
+              <Action secondary label="Try it out" disabled={!tasks.length} onPress={() => { if (data) setPractice(createRoutinePractice(data, routine.id)) }} />
             </View>
             {starting ? <Copy tone="muted">Your start request is saved. Let it sync or review it above before changing this template.</Copy> : null}
             <Action secondary label="Add task or reward" disabled={onlineActionDisabled || starting} onPress={() => edit()} />
@@ -157,6 +161,7 @@ function PlannerWorkspace({ householdId }: { householdId: string }) {
           </Card>)}
         </View> : undefined} />
     </View>
+    {practice ? <PlannerPractice practice={practice} onChange={setPractice} onClose={() => setPractice(null)} /> : null}
     {editorOpen && draft && data ? <PlannerTaskEditor key={draft.taskId} initial={draft} snapshot={data} timezone={state.household?.timezone ?? "UTC"} busy={editorBusy} error={editorError}
       onSave={value => void saveTask(value)} onClose={() => { if (!editorBusy) setEditorOpen(false) }} onDraft={value => { setEditorError(null); persistDraft(value) }} /> : null}
     <Modal visible={Boolean(routineForm)} animationType="slide" presentationStyle="pageSheet" supportedOrientations={["portrait", "landscape-left", "landscape-right"]} onRequestClose={() => { if (!state.busy) setRoutineForm(null) }}>
