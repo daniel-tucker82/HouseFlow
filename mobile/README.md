@@ -153,11 +153,51 @@ not configure one. Late SDK enrollment callbacks, native-profile refresh after
 remote deletion, real biometric keys and physical-device behavior still require
 implementation/verification before the deletion release gate can open. The
 current erasure pass is not proof that a later SDK callback cannot write again.
-ClerkKit's native `UserProfileSecurityView` also offers provider-side deletion
-when `user.deleteSelfEnabled` is true. That route bypasses Cyntch's household and
-billing review. Verify a provider configuration that requires Cyntch's complete
-deletion flow before release, and retain recovery for administrative/out-of-band
-provider deletion. No live Clerk configuration was changed by this inspection.
+ClerkKit's native `UserProfileSecurityView` offers provider-side deletion when
+`user.deleteSelfEnabled` is true, bypassing Cyntch's household and billing review.
+On 2026-11-04, the **Cyntch development instance only** was configured in Clerk's
+User & authentication > User model > User permissions: turn off **Allow users
+to delete their account**, save, then **Apply to existing users**. The default
+toggle alone does not migrate existing users. A Backend API read confirmed both
+existing development users had `delete_self_enabled: false` afterward. Profile
+name and email editing remain enabled. Production settings were not changed.
+
+The opt-in `tests/integration/account-deletion-clerk.cjs` check now creates a
+marked disposable development user without a deletion-permission override and
+verifies that the instance default is inherited. It signs in that fixture via
+Clerk's native Frontend API, then simulates an existing session that has loaded
+the old enabled permission. After updating the fixture's provider policy, direct
+deletion from that same session is rejected with HTTP 403 and
+`user_delete_self_not_enabled`, without first refreshing its profile. Profile
+name editing still succeeds. Cyntch's server deletion then completes, including
+recovery after an intentionally lost provider DELETE response. The fixture and
+isolated local database schema are removed; tokens and secrets are not recorded.
+
+This real-provider check passed with evidence at
+`C:/Users/danie/AppData/Local/Temp/cyntch-delete-32a24c3e-5ee6-4a52-bae8-3c6175cabe96.json`
+and `C:/Users/danie/.codex/tmp/cyntch-clerk-default-deletion-policy.log`.
+The dashboard evidence is
+`C:/Users/danie/.codex/tmp/cyntch-clerk-development-deletion-policy.jpg`.
+Run with `CYNTCH_CLERK_DELETION_TEST=true`, a development `CLERK_SECRET_KEY`, and
+`CYNTCH_TEST_DATABASE_URL` pointing to the isolated local `cyntch_mobile_test`
+database. The check deliberately fails if the default is unsafe.
+
+Before production release, finish and verify Cyntch's custom deletion workflow
+on every supported client, apply the same provider policy to new **and existing**
+production users, and verify native profile presentation on Android and iOS.
+Retain recovery for administrative/out-of-band provider deletion. The provider
+test is not native UI evidence and does not open the account-deletion submission
+gate or prove protection against late SDK credential writes.
+
+A read-only dashboard inspection on the same date found **Sign-in with mobile
+biometrics** disabled in both Cyntch development and production. Neither setting
+was changed. Evidence is
+`C:/Users/danie/.codex/tmp/cyntch-clerk-biometric-settings.txt`. This narrows the
+current exposure to biometric enrollment callbacks; it does not prove general
+native identity cleanup or make future enrollment safe. Recheck the effective
+provider configuration during release verification, and resolve the late-write
+case before enabling biometric sign-in. Existing account-scoped key cleanup and
+its failure handling remain in place.
 
 Receipt dismissal no longer stops device identity recovery. The controller reads
 the durable deleted-account list after restart and repairs retired Clerk caches,
@@ -1186,12 +1226,14 @@ database migration or native module change.
 
 ## Account deletion preparation
 
-The account deletion workflow is **not complete**. The public API is still a
-read-only review at `/api/mobile/account-deletion`, with shared contracts and a
-native `MobileApi.accountDeletionReview()` method. Internal request acceptance
-and durable processing are implemented below. There is no deletion endpoint
-or deletion button yet, and Clerk profile management alone does not remove
-Cyntch data.
+The account deletion workflow is **not complete**. The API at
+`/api/mobile/account-deletion` supports a read-only review and a separately gated
+POST for durable request acceptance. The native review, submission and receipt
+recovery screens are implemented below, but `ACCOUNT_DELETION_SUBMISSION_ENABLED`
+remains off pending full verification. Clerk profile management alone does not
+remove Cyntch data. The development provider policy and integration evidence near
+the start of this README cover direct provider deletion; production rollout and
+native end-to-end verification remain outstanding.
 
 The review lists current memberships, owned households, counts of content and
 profiles without sign-in, possible ownership successors with an existing
