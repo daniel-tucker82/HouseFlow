@@ -10,7 +10,7 @@ export interface AccountDeletionJob {
 /** Each adapter must be idempotent for job.id and verify its actual result.
  * Provider network calls must have bounded timeouts. An interrupted/expired
  * lease can retry a phase whose external effect already happened. */
-export type AccountDeletionAdapters = Record<Phase,(job: AccountDeletionJob) => Promise<void>>
+export type AccountDeletionAdapters = Record<Phase,(job: AccountDeletionJob, remainingMs: number) => Promise<void>>
 export class AccountDeletionProcessingError extends Error {
   constructor(public code: "data_cleanup_failed" | "stripe_cleanup_failed" | "native_cleanup_failed" | "identity_cleanup_failed") {super(code)}
 }
@@ -52,7 +52,14 @@ export async function processAccountDeletions(pool: Pool, adapters: AccountDelet
         }
         // Do not begin another external action if this worker lost its lease.
         if(!(await pool.query("select 1 from account_deletion_requests where id=$1 and lease_id=$2 and lease_until>clock_timestamp() and state='pending'",[job.id,leaseId])).rowCount){current=false;break}
-        await adapters[phase](job)
+        // Database admission can consume the remaining budget too. Pass the
+        // actual remainder so each provider phase cannot start a fresh budget.
+        const remainingMs=Math.floor(deadline-now())
+        if(remainingMs<1) {
+          await pool.query("update account_deletion_requests set lease_id=null,lease_until=null where id=$1 and lease_id=$2 and state='pending'",[job.id,leaseId])
+          current=false;break
+        }
+        await adapters[phase](job,remainingMs)
         const saved=await pool.query(`update account_deletion_requests set work=jsonb_set(work,array['phases',$3],'true'::jsonb),last_error_code=null
           where id=$1 and lease_id=$2 and lease_until>clock_timestamp() and state='pending'`,[job.id,leaseId,phase])
         if(!saved.rowCount){current=false;break}

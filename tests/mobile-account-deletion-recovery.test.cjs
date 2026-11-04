@@ -163,7 +163,7 @@ test('recovery origin configuration only permits HTTPS or explicit local develop
  }
 })
 
-test('only the exact read-only status endpoint bypasses identity middleware',async()=>{
+test('only exact self-authenticated status and scheduler endpoints bypass identity middleware',async()=>{
  const calls=[],protectedPaths=[]
  const mocks={'@clerk/nextjs/server':{
   createRouteMatcher:patterns=>request=>patterns.some(pattern=>request.nextUrl.pathname.startsWith(pattern.replace('(.*)',''))),
@@ -172,7 +172,11 @@ test('only the exact read-only status endpoint bypasses identity middleware',asy
  const loaded=new Module(__filename,module);loaded.require=name=>mocks[name]??require(name)
  loaded._compile(buildSync({entryPoints:[path.join(root,'middleware.ts')],bundle:true,platform:'node',format:'cjs',write:false,external:Object.keys(mocks)}).outputFiles[0].text,__filename)
  const run=path=>loaded.exports.default({nextUrl:new URL(origin+path)},{})
- const response=await run('/api/mobile/account-deletion/status');assert.equal(response.headers.get('x-middleware-next'),'1');assert.deepEqual(calls,[])
- for(const path of ['/api/mobile/account-deletion','/api/mobile/account-deletion/status/extra','/api/mobile/bootstrap','/app','/leader/settings','/member','/join/example'])await run(path)
- assert.equal(calls.length,7);assert.deepEqual(protectedPaths,['/app','/leader/settings','/member','/join/example'])
+ for(const path of ['/api/mobile/account-deletion/status','/api/internal/account-deletions','/api/cron','/api/internal/recurrence']){
+  const response=await run(path);assert.equal(response.headers.get('x-middleware-next'),'1')
+ }
+ assert.deepEqual(calls,[])
+ for(const path of ['/api/mobile/account-deletion','/api/mobile/account-deletion/status/extra','/api/internal/account-deletions/extra','/api/cron/extra',
+  '/api/internal/recurrence/extra','/api/mobile/bootstrap','/app','/leader/settings','/member','/join/example'])await run(path)
+ assert.equal(calls.length,10);assert.deepEqual(protectedPaths,['/app','/leader/settings','/member','/join/example'])
 })

@@ -1383,8 +1383,8 @@ with `WHEN_UNLOCKED_THIS_DEVICE_ONLY`. The installed SDK 58 Android and iOS
 network implementations were also inspected for cookie and redirect handling.
 
 These are recovery foundations; the confirmation/status screens,
-local data/SDK cleanup and automatic orchestration still need wiring. The
-submission transport and disabled HTTP boundary are described below.
+native persistence and provider verification still need work. The submission
+transport, disabled HTTP boundary and scheduled orchestration are described below.
 No destructive public acceptance endpoint or cron worker is enabled by this
 change. Apple and native billing provider verification remain outstanding.
 
@@ -1822,3 +1822,72 @@ The same emulator also passed native refresh followed by JavaScript reload,
 preserving the signed-in account (`cyntch-clerk-native-runtime-refresh-evidence.json`).
 Final Android and iOS Hermes exports passed in
 `C:/Users/danie/.codex/tmp/cyntch-clerk-native-export-final`.
+
+### Processing accepted deletions in scheduled batches
+
+`runAccountDeletions()` connects the durable PostgreSQL coordinator to the real
+data, Stripe, native billing and Clerk/Apple adapters, in that order. The new
+server setting `ACCOUNT_DELETION_PROCESSING_ENABLED` defaults off and must be
+exactly `true` to run a batch. Keep both processing and submission disabled until
+the complete provider/device workflow is verified. Processing is independent of
+`ACCOUNT_DELETION_SUBMISSION_ENABLED` and purchase rollout flags: disabling new
+requests or purchases must not prevent already accepted cleanup from continuing.
+
+The existing authenticated `/api/cron` (and `/api/internal/recurrence`) starts
+deletion work alongside recurrence work and registers that same promise with
+Next's `after`; it does not run another batch from the callback. Durable jobs,
+phase acknowledgements, retry times and reclaimable leases remain in PostgreSQL.
+They survive process termination even when the platform cannot finish `after`.
+Provider calls never run in the mobile submission request.
+
+`GET /api/internal/account-deletions` is also available for a dedicated monitor
+or scheduler. It requires the configured `CRON_SECRET` bearer header before
+doing work and returns non-cacheable aggregate counts. Missing configuration is
+503, invalid authentication is 401, processing failures are 503 and healthy or
+disabled processing is 200. Failed pending jobs keep reporting unhealthy while
+waiting for retry; a quiet backoff tick is not recovery. Ordinary planned
+provider waits do not count as failure. The household cron includes this result
+in its existing `ok` response; its HTTP status convention is unchanged.
+
+Only the exact recovery-status and these three cron paths bypass Clerk
+middleware. Their handlers enforce their own key/secret, so stale user cookies
+and an unavailable identity provider cannot prevent cleanup or its monitoring.
+Normal account, household and protected-page authentication remains in place.
+
+A batch claims at most five requests with a 20-second working budget. Each
+phase receives the actual remaining budget after its lease check. The data
+transaction rechecks that deadline between statements and sets a transaction-local
+PostgreSQL statement timeout; budget exhaustion rolls back partial erasure and
+content moves. Provider adapters use the same remaining budget for their bounded
+requests. A timeout never acknowledges a phase that did not finish. The dedicated
+route allows 30 seconds for processing and response/connection overhead; the
+existing household scheduler's broader timeout/monitoring review remains open.
+
+No server schema migration or production configuration change is introduced by
+this wiring. Live provider deletion, native persistence, out-of-band account
+deletion and release/pilot verification are still outstanding.
+
+Verification: 530 general regression tests passed without skips/cancellations,
+including PostgreSQL statement cancellation, rollback after partial erasure,
+phase budgets, lease recovery and provider backoff. The final middleware/worker
+boundary run passed 19 tests after adding the exact cron middleware exemptions.
+Root lint, standalone TypeScript and the production build passed. Native source
+did not change in this checkpoint.
+
+The built production HTTP worker also passed against an isolated local schema,
+with all external credentials removed. It rejected unauthenticated calls, ran
+real data cleanup for a fixture account with no households/purchases, preserved
+an unrelated account, retained the identity phase and receipt when configuration
+was unavailable, and returned 503 during backoff. This is not proof of real
+provider erasure. Its evidence is
+`C:/Users/danie/AppData/Local/Temp/cyntch-deletion-worker-fff86570-0fad-4d82-99bd-f5a0edfee853.json`.
+After building, repeat this isolated check with:
+
+```powershell
+$env:CYNTCH_TEST_DATABASE_URL='postgresql://cyntch_test@localhost:55439/cyntch_mobile_test'
+$env:CYNTCH_DELETION_WORKER_HTTP_TEST='true'
+node --test tests/integration/account-deletion-worker.cjs
+```
+
+The test creates and removes its own schema and local server. It never enables
+processing on a deployed environment or calls a real provider deletion API.

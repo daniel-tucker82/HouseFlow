@@ -131,6 +131,39 @@ test('a local profile adopted by another household after acceptance is preserved
  assert.equal((await f.db.query('select 1 from household_members where household_id=$1 and user_id=$2',[f.shared,f.child])).rowCount,1)
 })
 
+test('an exhausted data-phase budget rolls back earlier erasure and leaves the connection reusable',options,async t=>{
+ const f=await fixture(t),c=await content(f),intent=await f.intent();await f.accept(intent)
+ const job=await claim(f,intent);let elapsed=0,erasureReached=false
+ const pool={connect:async()=>{
+  const client=await f.db.connect()
+  return new Proxy(client,{get(target,key){
+   if(key==='query')return async(text,values)=>{const result=await target.query(text,values);if(text==='delete from users where id=any($1::text[])'){erasureReached=true;elapsed=100}return result}
+   const value=Reflect.get(target,key);return typeof value==='function'?value.bind(target):value
+  }})
+ }}
+ await assert.rejects(f.lib.deleteAccountData(pool,job,50,()=>elapsed),{code:'cleanup_pending'})
+ assert.equal(erasureReached,true)
+ assert.equal((await f.db.query('select 1 from users where id=$1',[f.owner])).rowCount,1)
+ assert.equal((await f.db.query('select routine_occurrence_id from tasks where id=$1',[c.otherTask])).rows[0].routine_occurrence_id,c.ownRun)
+ await f.lib.deleteAccountData(f.db,job)
+ assert.equal((await f.db.query('select 1 from users where id=$1',[f.owner])).rowCount,0)
+ for(const budget of [0,-1,NaN,40_001])await assert.rejects(f.lib.deleteAccountData(f.db,job,budget),{code:'data_cleanup_failed'})
+})
+
+test('PostgreSQL cancels a blocked cleanup statement within the phase budget',options,async t=>{
+ const f=await fixture(t),intent=await f.intent();await f.accept(intent);const job=await claim(f,intent)
+ const blocker=await f.db.connect()
+ try{
+  await blocker.query('begin');await blocker.query('select id from account_deletion_requests where id=$1 for update',[job.id])
+  // The adapter's ordinary lock timeout is two seconds. A shorter shared
+  // statement budget must cancel the query in PostgreSQL, not leave it running.
+  await assert.rejects(f.lib.deleteAccountData(f.db,job,1000),{code:'57014'})
+ }finally{await blocker.query('rollback');blocker.release()}
+ assert.equal((await f.db.query('select 1 from users where id=$1',[f.owner])).rowCount,1)
+ await f.lib.deleteAccountData(f.db,job)
+ assert.equal((await f.db.query('select 1 from users where id=$1',[f.owner])).rowCount,0)
+})
+
 test('late web preferences cannot restore a deleted member and pending purchases retain their household reservation',options,async t=>{
  const f=await fixture(t),purchase=randomUUID()
  await f.db.query("insert into billing_purchase_attempts(id,household_id,user_id,session_id,device_id,provider,environment,billing_interval,expires_at,integration_suffix) values($1,$2,$3,$4,$5,'play_store','sandbox','monthly',now()+interval '1 day','testdemo')",[purchase,f.transfer,f.owner,f.scope.sessionId,f.scope.deviceId])

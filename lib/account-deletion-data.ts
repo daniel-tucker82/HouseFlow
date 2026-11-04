@@ -1,18 +1,34 @@
 import type { Pool } from "pg"
 import { accountAccessKey, accountHash } from "@/lib/account-access"
-import { AccountDeletionProcessingError, type AccountDeletionJob } from "@/lib/account-deletion-processing"
+import { AccountDeletionDeferred, AccountDeletionProcessingError, type AccountDeletionJob } from "@/lib/account-deletion-processing"
 import type { AccountDeletionWork } from "@/lib/account-deletion-requests"
 import { removeAccountContent } from "@/lib/account-deletion-content"
 
 /** Real PostgreSQL cleanup. This is called only for a durably accepted request,
  * by its current worker. It never accepts cleanup scope supplied by a client. */
-export async function deleteAccountData(pool: Pool, job: AccountDeletionJob) {
-  const client=await pool.connect()
+export async function deleteAccountData(pool: Pool, job: AccountDeletionJob, budgetMs=20_000, now=()=>performance.now()) {
   const failed=()=>new AccountDeletionProcessingError("data_cleanup_failed")
+  if(!Number.isFinite(budgetMs) || budgetMs<1 || budgetMs>40_000) throw failed()
+  const deadline=now()+budgetMs,connection=await pool.connect()
+  // Every SQL statement (including content preservation) shares one deadline.
+  // PostgreSQL cancels a slow statement; rollback stays outside this wrapper.
+  // Transaction-local settings cannot leak into the pooled connection.
+  const client=new Proxy(connection,{
+    get(target,property) {
+      if(property==='query') return async (text:string,values?:unknown[])=>{
+        const remaining=Math.floor(deadline-now())
+        if(remaining<1) throw new AccountDeletionDeferred(1)
+        await target.query("select set_config('statement_timeout',$1,true)",[`${remaining}ms`])
+        if(now()>=deadline) throw new AccountDeletionDeferred(1)
+        return target.query(text,values)
+      }
+      const value=Reflect.get(target,property)
+      return typeof value==='function' ? value.bind(target) : value
+    },
+  })
   try {
-    await client.query("begin")
+    await connection.query("begin")
     await client.query("set local lock_timeout='2s'")
-    await client.query("set local statement_timeout='20s'")
     const request=(await client.query<{account_hash:string;account_id:string|null;state:string;lease_id:string;valid:boolean;work:AccountDeletionWork}>(`select *,lease_until>clock_timestamp() as valid
       from account_deletion_requests where id=$1 for update`,[job.id])).rows[0]
     if(!request || request.account_hash!==accountHash(job.accountId)) throw failed()
@@ -87,5 +103,5 @@ export async function deleteAccountData(pool: Pool, job: AccountDeletionJob) {
     // whose before-images contain just-erased content or display names.
     await client.query("delete from native_notification_changes where transaction_id=pg_current_xact_id()")
     await client.query("commit")
-  } catch(error) {await client.query("rollback");throw error} finally {client.release()}
+  } catch(error) {await connection.query("rollback");throw error} finally {connection.release()}
 }

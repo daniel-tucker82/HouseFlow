@@ -19,6 +19,7 @@ import { createManagerNotificationEventInTransaction, createUnlockNotifications 
 import { dispatchPushForNotificationIds } from "@/lib/push"
 import { runNativeNotifications } from "@/lib/run-native-notifications"
 import { runNativeBilling } from "@/lib/run-native-billing"
+import { runAccountDeletions } from "@/lib/run-account-deletions"
 
 function authorizedByCronSecret(request: Request) {
   const secret = process.env.CRON_SECRET?.trim()
@@ -655,6 +656,8 @@ export async function GET(request: Request) {
   // of its processing budget. after keeps it alive if this handler exits early.
   const nativeBilling = process.env.NATIVE_BILLING_ENABLED === "true" ? runNativeBilling() : null
   if (nativeBilling) after(async () => { await nativeBilling })
+  const accountDeletions = process.env.ACCOUNT_DELETION_PROCESSING_ENABLED === "true" ? runAccountDeletions() : null
+  if (accountDeletions) after(async () => { await accountDeletions })
 
   await ensureRoutineSchemaColumns()
   const households = await db.query<{ id: string; leader_id: string | null }>(
@@ -749,9 +752,11 @@ export async function GET(request: Request) {
     (select bucket_key,window_start from application_rate_limits where window_start < now()-interval '1 day' limit 1000)`)
 
   const billingResult = await nativeBilling
+  const deletionResult = await accountDeletions
   const body = {
-    ok: householdsFailed === 0 && billingResult?.ok !== false,
+    ok: householdsFailed === 0 && billingResult?.ok !== false && deletionResult?.ok !== false,
     ...(billingResult ? { nativeBilling: billingResult } : {}),
+    ...(deletionResult ? { accountDeletions: deletionResult } : {}),
     householdsProcessed,
     householdsFailed,
     occurrencesProcessed,

@@ -87,3 +87,20 @@ test('a stale worker cannot replace the current lease with a planned wait',optio
  assert.ok(row.lease_id);assert.equal(row.work.phases.data,false);assert.equal(row.attempts,1)
  for(const delay of [0,-1,0.1,3601,NaN])assert.throws(()=>new f.lib.AccountDeletionDeferred(delay),RangeError)
 })
+
+test('phases share the remaining batch budget, including time spent checking the lease',options,async t=>{
+ const f=await fixture(t);await f.accept(await f.intent());let elapsed=0
+ const budgets=[],phases=['data','stripe','native','identity']
+ const work=Object.fromEntries(phases.map(phase=>[phase,async(_job,remaining)=>{budgets.push([phase,remaining]);elapsed+=100}]))
+ assert.equal((await f.lib.processAccountDeletions(f.db,work,1,1000,()=>elapsed)).completed,1)
+ assert.deepEqual(budgets,phases.map((phase,index)=>[phase,1000-index*100]))
+})
+
+test('lease admission cannot start an external phase after consuming the last batch time',options,async t=>{
+ const f=await fixture(t);await f.accept(await f.intent());let elapsed=0
+ const pool={query:async(text,values)=>{const result=await f.db.query(text,values);if(text.startsWith('select 1 from account_deletion_requests'))elapsed=100;return result}}
+ const result=await f.lib.processAccountDeletions(pool,adapters([],{data:async()=>assert.fail('Budget spent in admission')}),1,50,()=>elapsed)
+ assert.deepEqual(result,{claimed:1,completed:0,retrying:0,interrupted:1})
+ const row=(await f.db.query('select lease_id,work from account_deletion_requests')).rows[0]
+ assert.equal(row.lease_id,null);assert.equal(row.work.phases.data,false)
+})
