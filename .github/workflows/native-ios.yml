@@ -12,18 +12,25 @@ on:
       - lib/types.ts
       - .github/workflows/native-ios.yml
   workflow_dispatch:
+    inputs:
+      runner:
+        description: Standard Mac runner used for both simulator jobs
+        type: choice
+        default: macos-26-intel
+        options: [macos-26-intel, macos-26]
 
 permissions:
   contents: read
 
 concurrency:
-  group: native-ios-${{ github.ref }}
+  # Keep a capacity-starved host pool from holding up the other architecture.
+  group: native-ios-${{ github.ref }}-${{ inputs.runner || 'macos-26-intel' }}
   # Finish device evidence for the active build; keep the newest next build queued.
   cancel-in-progress: false
 
 jobs:
   compile:
-    runs-on: macos-26
+    runs-on: ${{ inputs.runner || 'macos-26-intel' }}
     timeout-minutes: 90
     outputs:
       app_ready: ${{ steps.simulator_app.outputs.app_ready }}
@@ -84,7 +91,10 @@ jobs:
           pod install 2>&1 | tee "$RUNNER_TEMP/cyntch-ios-pods.log"
       - name: Compile the locally signed release simulator app
         run: |
-          set -o pipefail
+          set -euo pipefail
+          arch="$(uname -m)"
+          case "$arch" in arm64|x86_64) ;; *) echo "Unsupported simulator host architecture"; exit 1;; esac
+          printf '%s\n' "$arch" > "$RUNNER_TEMP/cyntch-ios-host-architecture.txt"
           xcodebuild -version
           xcodebuild \
             -workspace ios/Cyntch.xcworkspace \
@@ -97,7 +107,7 @@ jobs:
             -jobs 2 \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- \
             COMPILER_INDEX_STORE_ENABLE=NO \
-            ONLY_ACTIVE_ARCH=YES ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES ARCHS="$arch" \
             build 2>&1 | tee "$RUNNER_TEMP/cyntch-ios.log"
           test -s "$RUNNER_TEMP/cyntch-derived/Build/Products/Release-iphonesimulator/Cyntch.app/main.jsbundle"
       - name: Verify simulator signing and retain the test app
@@ -114,6 +124,7 @@ jobs:
           bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")
           test -n "$executable"
           test -n "$bundle_id"
+          xcrun lipo -verify_arch "$(uname -m)" "$app/$executable"
           xcrun segedit "$app/$executable" \
             -extract __TEXT __entitlements "$RUNNER_TEMP/cyntch-ios-entitlements.plist" \
             -extract __TEXT __ents_der "$RUNNER_TEMP/cyntch-ios-entitlements.der"
@@ -156,6 +167,7 @@ jobs:
             ${{ runner.temp }}/cyntch-ios-prebuild.log
             ${{ runner.temp }}/cyntch-ios-pods.log
             ${{ runner.temp }}/cyntch-ios.log
+            ${{ runner.temp }}/cyntch-ios-host-architecture.txt
             ${{ runner.temp }}/cyntch-ios-entitlements.plist
             ${{ runner.temp }}/cyntch-ios-entitlements.der
             ${{ runner.temp }}/cyntch-ios-signature-entitlements.plist
@@ -174,7 +186,7 @@ jobs:
     needs: compile
     # Current-OS device failures must not hide minimum-OS compatibility evidence.
     if: ${{ always() && !cancelled() && needs.compile.outputs.app_ready == 'true' }}
-    runs-on: macos-26
+    runs-on: ${{ inputs.runner || 'macos-26-intel' }}
     timeout-minutes: 80
     defaults:
       run:
@@ -216,6 +228,8 @@ jobs:
           ditto -x -k "$archive" "$RUNNER_TEMP/cyntch-ios-minimum-app"
           app="$RUNNER_TEMP/cyntch-ios-minimum-app/Cyntch.app"
           codesign --verify --deep --strict "$app"
+          executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Info.plist")
+          xcrun lipo -verify_arch "$(uname -m)" "$app/$executable"
           test "$('/usr/libexec/PlistBuddy' -c 'Print :MinimumOSVersion' "$app/Info.plist")" = '17.0'
       - name: Install the original iOS 17 runtime from Apple
         timeout-minutes: 20

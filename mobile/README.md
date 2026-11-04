@@ -4,6 +4,19 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
+iOS run `41855537525` never obtained a Mac runner. GitHub's annotations report
+hosted-runner acquisition failure and macOS arm64 capacity constraints; no code
+or device check ran. The workflow now defaults to the standard
+`macos-26-intel` pool and allows `macos-26` on manual dispatch. Both jobs use the
+same selected pool, compile for the actual host architecture and verify that
+the compiled executable contains it. Architecture-specific queue groups preserve
+already queued work while allowing the other pool to run. Xcode 26.6, signed
+Release builds, both text sizes and the separate iOS 17 phone/tablet checks
+remain required. Intel execution is pending. See GitHub's
+[standard Mac runner labels](https://github.blog/changelog/2026-02-26-macos-26-is-now-generally-available-for-github-hosted-runners/)
+and [installed Xcode versions](https://github.com/actions/runner-images/blob/main/images/macos/macos-26-Readme.md).
+Failure evidence: `C:/Users/danie/.codex/tmp/cyntch-ios-41855537525-runner-annotations.json`.
+
 Android CI uses the pinned Gradle setup action's basic GitHub cache after
 prebuild, with task caching enabled for both native builds. Generated Gradle
 files participate in its key and wrapper validation. The workflow still builds
