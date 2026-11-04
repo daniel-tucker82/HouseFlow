@@ -11,6 +11,7 @@ import { AccountDeletionRecoveryController } from "./account-deletion-recovery"
 import { openLocalStore, nativeKioskVault } from "../storage/native-store"
 import { resetNativeNotificationSession, waitForNativeNotification } from "./notification-native-session"
 import { eraseNativeBillingIdentity } from "./native-billing-identity"
+import { eraseNativeClerkOfflineCache } from "./native-clerk-offline-cache"
 
 const options = { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }
 export const nativeAccountDeletionVault = new AccountDeletionVault({
@@ -42,6 +43,7 @@ export function nativeAccountDeletionRecovery() {
       await store.deletedAccounts.eraseAccepted(record)
       const results = await Promise.allSettled([
         eraseNativeBillingIdentity(record.accountId),
+        eraseNativeClerkOfflineCache(record.accountId),
         (async () => {
           for (const kioskId of await store.deletedAccounts.pendingKioskKeys(record.accountId)) {
             await nativeKioskVault.remove(kioskId)

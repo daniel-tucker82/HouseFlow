@@ -1,7 +1,7 @@
 import { ClerkProvider, useAuth } from "@clerk/expo"
 import { AuthView } from "@clerk/expo/native-components"
 import { tokenCache } from "@clerk/expo/token-cache"
-import { resourceCache } from "@clerk/expo/resource-cache"
+import { nativeClerkResourceCache } from "../services/native-clerk-offline-cache"
 import { Tabs } from "expo-router"
 import { StatusBar } from "expo-status-bar"
 import { useState } from "react"
@@ -72,7 +72,7 @@ function Application() {
 
 export default function RootLayout() {
   const key = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY
-  return <SafeAreaProvider><StatusBar style="auto" /><AccountDeletionRecoveryProvider>{key ? <ClerkProvider publishableKey={key} tokenCache={tokenCache} __experimental_resourceCache={resourceCache}>
+  return <SafeAreaProvider><StatusBar style="auto" /><AccountDeletionRecoveryProvider>{key ? <ClerkProvider publishableKey={key} tokenCache={tokenCache} __experimental_resourceCache={nativeClerkResourceCache}>
     <KioskProvider><NotificationSessionProvider fallback={<AccountDeletionRecoveryFallback />}><Application /></NotificationSessionProvider></KioskProvider>
   </ClerkProvider> : <View style={styles.center}><Copy tone="heading">Cyntch setup is incomplete</Copy><Copy>This build is missing its sign-in configuration.</Copy></View>}</AccountDeletionRecoveryProvider></SafeAreaProvider>
 }

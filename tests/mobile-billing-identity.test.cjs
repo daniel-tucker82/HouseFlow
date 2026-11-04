@@ -201,11 +201,12 @@ test('native adapter uses supported configure/logout APIs, binds cleanup to the 
  purchases.logOut=f.driver.logOut;await native.eraseNativeBillingIdentity(f.a.accountId)
  assert.equal((await f.local.billingIdentity.read()).current,null)
 })
-test('billing cleanup failure cannot prevent kiosk/notification cleanup or remove the recovery receipt',async t=>{
- const f=await fixture(t),secure=new Map(),calls=[];let failBilling=true
+test('billing or Clerk cache cleanup failure cannot prevent kiosk/notification cleanup or remove the recovery receipt',async t=>{
+ const f=await fixture(t),secure=new Map(),calls=[];let failBilling=true,failCache=false
  const native=load(['mobile/src/services/native-account-deletion.ts'],{
   '../storage/native-store':{openLocalStore:async()=>f.local,nativeKioskVault:{remove:async id=>calls.push(['pin',id])}},
   './native-billing-identity':{eraseNativeBillingIdentity:async()=>{calls.push(['billing']);if(failBilling)throw Error('Billing unavailable')}},
+  './native-clerk-offline-cache':{eraseNativeClerkOfflineCache:async()=>{calls.push(['clerk-cache']);if(failCache)throw Error('Keychain unavailable')}},
   './notification-native-session':{resetNativeNotificationSession:async()=>{calls.push(['notifications'])},waitForNativeNotification:work=>work},
   'expo-crypto':{CryptoDigestAlgorithm:{SHA256:'sha256'},digestStringAsync:async(algorithm,value)=>createHash(algorithm).update(value).digest('hex'),getRandomBytesAsync:async size=>randomBytes(size)},
   'expo-secure-store':{WHEN_UNLOCKED_THIS_DEVICE_ONLY:1,getItemAsync:async key=>secure.get(key)??null,setItemAsync:async(key,value)=>secure.set(key,value),deleteItemAsync:async key=>secure.delete(key)},
@@ -219,7 +220,9 @@ test('billing cleanup failure cannot prevent kiosk/notification cleanup or remov
  const recovery=await native.nativeAccountDeletionRecovery()
  await assert.rejects(recovery.rememberStatus(saved,{requestId,state:'pending',acceptedAt:'2026-11-04T01:00:00.000Z',completedAt:null,availableUntil:null,appleRevocationRequired:false}),/Some device cleanup/)
  assert.equal(recovery.getSnapshot().localCleanupComplete,false);assert.equal((await native.nativeAccountDeletionVault.read()).secret,saved.secret)
- assert.ok(calls.some(call=>call[0]==='notifications'));assert.ok(calls.some(call=>call[0]==='pin'&&call[1]===kioskId));assert.deepEqual(await f.local.deletedAccounts.pendingKioskKeys(f.a.accountId),[])
- failBilling=false;await recovery.refresh();assert.equal(recovery.getSnapshot().localCleanupComplete,true)
+ assert.ok(calls.some(call=>call[0]==='notifications'));assert.ok(calls.some(call=>call[0]==='clerk-cache'));assert.ok(calls.some(call=>call[0]==='pin'&&call[1]===kioskId));assert.deepEqual(await f.local.deletedAccounts.pendingKioskKeys(f.a.accountId),[])
+ failBilling=false;failCache=true;await assert.rejects(recovery.refresh(),/Some device cleanup/)
+ assert.equal(recovery.getSnapshot().localCleanupComplete,false);assert.equal((await native.nativeAccountDeletionVault.read()).secret,saved.secret)
+ failCache=false;await recovery.refresh();assert.equal(recovery.getSnapshot().localCleanupComplete,true)
  assert.equal(calls.filter(call=>call[0]==='pin').length,1)
 })

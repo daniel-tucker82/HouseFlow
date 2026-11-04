@@ -1708,3 +1708,62 @@ An Android emulator cold start reached the existing household board after the
 database initialization change. This cold-start check does not exercise a real
 store identity or purchase. Its UI evidence is
 `C:/Users/danie/.codex/tmp/cyntch-billing-identity-start.xml`.
+
+### Deleted-account filtering for Clerk's offline cache
+
+`ClerkProvider` now uses Cyntch's `nativeClerkResourceCache` through Clerk's
+existing custom resource-cache interface. The installed Clerk Expo 4.14.5 cache
+only exposes get/set, and its set operation acknowledges before its internal
+keychain write finishes. Cyntch needs an awaited write and cleanup boundary so a
+delayed SDK callback cannot restore an erased profile after cleanup succeeds.
+
+The replacement keeps environment, client snapshots and the last session JWT
+in Expo SecureStore with the existing `AFTER_FIRST_UNLOCK` accessibility. No
+profile or token is copied into SQLite. A serialized owner reads the durable
+deleted-account fence on every cache access. It removes matching sessions,
+profiles and session tokens, preserves other identified sessions and their
+original signed tokens, and clears an erased active-session reference. JWT
+decoding is used only to discard cache entries, never to authorize access.
+Malformed or unidentified session data is discarded. Once an account has been
+erased on this device, offline copies of pending sign-in/sign-up flows are
+omitted because those snapshots contain profile fields without a reliable
+account ID. Live authentication flows and the native SDK are unchanged.
+
+Chunk storage reserves its allocation in a small encrypted manifest before
+writing data, commits the new slot before retiring the old one, and remembers
+unfinished cleanup across process death. Missing committed chunks invalidate
+and remove the remaining fragments; retired data is never a fallback. Legacy
+Clerk slots are migrated before their known chunks and markers are removed.
+An interrupted first migration retains the legacy source until the replacement
+commits. Invalid allocation metadata fails closed. This is logical cache
+cleanup, not forensic erasure; unindexed fragments from an interrupted older
+SDK write cannot be enumerated through SecureStore's public API.
+
+Accepted deletion runs offline-cache cleanup independently alongside billing,
+notification and PIN cleanup. An eight-second UI timeout retains the underlying
+queue operation and saved deletion receipt. Retrying cannot overtake an earlier
+write. **Keep deletion submission disabled:** Clerk's shared device credential,
+native SDK state and in-memory client are separate and still need coordinated
+cleanup. The existing local-cleanup checkpoint does not establish erasure of
+those remaining provider caches, and no real account was deleted for this work.
+
+The general regression run passed 512 tests without skips/cancellations. Final
+focused verification passed 36 tests, including every write/removal interruption
+in migration and replacement, delayed writes, deletion during reads, preserving
+another account, malformed/missing data, cleanup timeout, error sanitization and
+the native adapter against a real SQLite deletion fence. The final focused run
+also covers the subsequently added removal of unreadable cache fragments.
+Root/mobile lint and mobile TypeScript passed. Verification logs are under
+`C:/Users/danie/.codex/tmp/cyntch-clerk-cache-*`.
+
+Final Android and iOS Hermes exports passed. On the Android emulator, an online
+cold start opened the original household after migration; a metadata-only check
+found all three new encrypted resource manifests and no legacy cache markers.
+A second cold start with Wi-Fi and mobile data disabled (Android reported no
+active default network) opened the same household and saved tasks with the
+offline banner. The development bundle still arrived over ADB's local reverse
+connection; Clerk's internet endpoint was unavailable. Both network settings
+were restored and Android confirmed an active network. Evidence:
+`cyntch-clerk-cache-loaded.xml` and `cyntch-clerk-cache-offline-board.xml` in the
+same temporary evidence directory. This verifies ordinary offline startup on
+Android, not real provider account deletion or iOS device behaviour.
