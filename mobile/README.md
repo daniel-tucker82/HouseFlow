@@ -103,10 +103,49 @@ updates aggregate configurations but leaves this dependent pod pointing at
 corrects only the adapter's configurations after the RN hook, and only while
 ClerkExpo is built into the shared directory. Its insertion was checked against
 the official SDK 58 Podfile, including repeated generation and rejection of an
-incompatible template. Full compilation with this correction remains pending.
+incompatible template. The complete unsigned arm64 Simulator build passed in
+run `41807271365` at commit `84fca1b`; the retained compiler log ends with
+`BUILD SUCCEEDED`, and pod-install output confirms both configurations were
+corrected. The downloaded artifact's SHA-256 is
+`48e8a1e5c09fd8032831bdbe0232c3aecacff5375d7c0d20788381bc7361c070`.
+This establishes native compilation, not simulator execution or device release.
 The original artifacts are retained locally as
 `cyntch-native-ios-41798029428.zip` and `cyntch-native-ios-41802152555.zip` in
 `C:/Users/danie/.codex/tmp`.
+
+### iOS account-scoped biometric cleanup
+
+The adapter now implements local biometric cleanup for Cyntch's private app
+Keychain configuration, pinned to ClerkKit 1.6.2's metadata and key-tag format.
+Clerk's equivalent account-scoped method is package-only on iOS, while its public
+revocation method requires a signed-in account and does not propagate all local
+cleanup failures. This adapter validates ownership before removing private keys,
+confirms key absence, and only then updates the exact metadata item through its
+persistent reference. Other accounts and app identifiers retain their records.
+Unknown schemas, duplicate identifiers, ambiguous stores and storage errors keep
+cleanup unverified. Metadata survives a partial key-deletion failure or failed
+write so a later attempt can resume. No credential contents cross the JS bridge.
+
+Apple's [Keychain query documentation](https://developer.apple.com/documentation/security/secitemcopymatching(_:_:))
+disallows requesting all password data in a single query. Both biometric cleanup
+and profile-cache inspection now enumerate references and read each password item
+individually. Biometric mutations run synchronously on MainActor, matching the
+SDK's metadata-store serialization. These operations occur during account
+cleanup, never while saving tasks; they still need device latency verification.
+
+The Mac workflow adds 14 failure/retry/ownership checks against the production
+coordinator and three Security API checks using newly created random fixture
+services and software keys. These new tests and the updated native build are
+pending execution. The Security fixtures are removed on success and failure;
+they do not enroll biometric credentials or touch an existing account.
+Mobile lint and TypeScript passed after the adapter change.
+
+This does not enable account-deletion submission. Shared Keychain access-group
+configuration remains unsupported and fails explicitly; Cyntch currently does
+not configure one. Late SDK enrollment callbacks, native-profile refresh after
+remote deletion, real biometric keys and physical-device behavior still require
+implementation/verification before the deletion release gate can open. The
+current erasure pass is not proof that a later SDK callback cannot write again.
 
 ### Android optimized startup verification
 

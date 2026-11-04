@@ -50,6 +50,17 @@ jobs:
             modules/cyntch-clerk-state/tests/ClerkPersistenceInspectionTests.swift \
             -o "$RUNNER_TEMP/cyntch-clerk-persistence-tests"
           "$RUNNER_TEMP/cyntch-clerk-persistence-tests" 2>&1 | tee "$RUNNER_TEMP/cyntch-clerk-persistence-tests.log"
+          xcrun swiftc -swift-version 5 -parse-as-library \
+            modules/cyntch-clerk-state/ios/ClerkBiometricCleanup.swift \
+            modules/cyntch-clerk-state/tests/ClerkBiometricCleanupTests.swift \
+            -o "$RUNNER_TEMP/cyntch-clerk-biometric-tests"
+          "$RUNNER_TEMP/cyntch-clerk-biometric-tests" 2>&1 | tee "$RUNNER_TEMP/cyntch-clerk-biometric-tests.log"
+          xcrun swiftc -swift-version 5 -parse-as-library \
+            modules/cyntch-clerk-state/ios/ClerkPersistenceInspection.swift \
+            modules/cyntch-clerk-state/ios/ClerkBiometricCleanup.swift \
+            modules/cyntch-clerk-state/tests/ClerkKeychainTests.swift \
+            -o "$RUNNER_TEMP/cyntch-clerk-keychain-tests"
+          "$RUNNER_TEMP/cyntch-clerk-keychain-tests" 2>&1 | tee "$RUNNER_TEMP/cyntch-clerk-keychain-tests.log"
       - name: Generate the native iOS project
         run: |
           set -o pipefail
@@ -83,6 +94,8 @@ jobs:
           name: native-ios-compilation
           path: |
             ${{ runner.temp }}/cyntch-clerk-persistence-tests.log
+            ${{ runner.temp }}/cyntch-clerk-biometric-tests.log
+            ${{ runner.temp }}/cyntch-clerk-keychain-tests.log
             ${{ runner.temp }}/cyntch-ios-prebuild.log
             ${{ runner.temp }}/cyntch-ios-pods.log
             ${{ runner.temp }}/cyntch-ios.log

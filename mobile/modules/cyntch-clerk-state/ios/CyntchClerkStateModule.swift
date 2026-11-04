@@ -3,10 +3,32 @@ import ExpoModulesCore
 
 /** The JS adapter first checks ClerkExpo.getAuthFlowState().isLoaded. This is
  * required: Clerk.shared asserts if its existing Expo bridge has not configured
- * it. Inspect only; never configure another instance or reset a shared token. */
+ * it. Never configure another instance or reset a shared device token. */
 public class CyntchClerkStateModule: Module {
   public func definition() -> ModuleDefinition {
     Name("CyntchClerkState")
+
+    AsyncFunction("forgetBiometricCredentials") { (accountId: String, promise: Promise) in
+      Task { @MainActor in
+        do {
+          guard Clerk.shared.isLoaded, let appIdentifier = Bundle.main.bundleIdentifier else {
+            throw ClerkBiometricCleanupError.unavailable
+          }
+          let config = Clerk.shared.options.keychainConfig
+          // Cyntch uses the SDK's private app store. Shared identity introduces
+          // legacy migration and writes by other apps; that configuration needs
+          // its own concurrency-safe adapter before we can confirm erasure.
+          guard config.accessGroup?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false else {
+            throw ClerkBiometricCleanupError.unavailable
+          }
+          let count = try ClerkBiometricCleanup.erase(accountId: accountId, appIdentifier: appIdentifier,
+            storage: ClerkBiometricKeychain(service: config.service))
+          promise.resolve(["format": 1, "removedCount": count])
+        } catch {
+          promise.reject("E_CLEANUP", "Local sign-in cleanup could not be verified. Keep the saved deletion receipt and try again.")
+        }
+      }
+    }
 
     AsyncFunction("inspectPersistence") { (accountId: String, promise: Promise) in
       Task { @MainActor in

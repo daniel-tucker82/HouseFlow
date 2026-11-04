@@ -1,7 +1,7 @@
 Pod::Spec.new do |s|
   s.name = 'CyntchClerkState'
   s.version = '1.0.0'
-  s.summary = 'Read-only Clerk account cache inspection for Cyntch'
+  s.summary = 'Account-scoped Clerk cleanup and cache inspection for Cyntch'
   s.description = s.summary
   s.license = { :type => 'Proprietary' }
   s.author = 'Cyntch'

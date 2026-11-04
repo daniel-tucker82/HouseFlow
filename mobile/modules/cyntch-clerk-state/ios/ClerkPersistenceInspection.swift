@@ -40,15 +40,31 @@ enum ClerkPersistenceInspection {
       kSecClass as String: kSecClassGenericPassword,
       kSecAttrService as String: service,
       kSecAttrAccount as String: "cachedClient",
-      kSecReturnData as String: true,
+      kSecReturnPersistentRef as String: true,
       kSecMatchLimit as String: kSecMatchLimitAll
     ]
     var result: CFTypeRef?
     let status = SecItemCopyMatching(query as CFDictionary, &result)
     if status == errSecItemNotFound { return [] }
-    guard status == errSecSuccess, let values = result as? [Data],
-          values.allSatisfy({ !$0.isEmpty && $0.count <= 8 * 1024 * 1024 }) else {
+    guard status == errSecSuccess, let references = result as? [Data],
+          !references.isEmpty, references.count <= 64 else {
       throw InspectionError.unavailable
+    }
+    // Apple disallows returning all password data in one query. Read each
+    // enumerated reference separately, and fail if an item disappears midway.
+    let values: [Data] = try references.map { reference in
+      let readQuery: [String: Any] = [
+        kSecClass as String: kSecClassGenericPassword,
+        kSecMatchItemList as String: [reference],
+        kSecReturnData as String: true,
+        kSecMatchLimit as String: kSecMatchLimitOne
+      ]
+      var value: CFTypeRef?
+      guard !reference.isEmpty, SecItemCopyMatching(readQuery as CFDictionary, &value) == errSecSuccess,
+            let data = value as? Data, !data.isEmpty, data.count <= 8 * 1024 * 1024 else {
+        throw InspectionError.unavailable
+      }
+      return data
     }
     return values.sorted { $0.lexicographicallyPrecedes($1) }
   }
