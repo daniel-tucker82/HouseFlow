@@ -18,7 +18,8 @@ permissions:
 
 concurrency:
   group: native-android-${{ github.ref }}
-  cancel-in-progress: true
+  # Finish device evidence for the active build; keep the newest next build queued.
+  cancel-in-progress: false
 
 jobs:
   verify:

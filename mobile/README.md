@@ -36,6 +36,8 @@ Local JavaScript/YAML/shell checks and mobile lint/types validate the setup;
 the first hosted build/device results must still be inspected before claiming
 these journeys pass. Authenticated workflows, physical-device performance,
 push delivery, billing and the remaining device matrix need separate evidence.
+Both native workflows let an active run finish and queue the latest pending
+revision, preserving device evidence when implementation work is pushed.
 
 Use Node 22 and install this application's dependencies separately with `npm ci`.
 Copy `.env.example` to `.env.local` and set the API URL and the matching Clerk
