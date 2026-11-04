@@ -77,7 +77,7 @@ jobs:
         run: |
           set -o pipefail
           pod install 2>&1 | tee "$RUNNER_TEMP/cyntch-ios-pods.log"
-      - name: Compile the unsigned release simulator app
+      - name: Compile the locally signed release simulator app
         run: |
           set -o pipefail
           xcodebuild -version
@@ -90,11 +90,21 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/cyntch-derived" \
             -resultBundlePath "$RUNNER_TEMP/cyntch-native.xcresult" \
             -jobs 2 \
-            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- \
             COMPILER_INDEX_STORE_ENABLE=NO \
             ONLY_ACTIVE_ARCH=YES ARCHS=arm64 \
             build 2>&1 | tee "$RUNNER_TEMP/cyntch-ios.log"
           test -s "$RUNNER_TEMP/cyntch-derived/Build/Products/Release-iphonesimulator/Cyntch.app/main.jsbundle"
+      - name: Verify simulator signing and retain the test app
+        run: |
+          set -euo pipefail
+          app="$RUNNER_TEMP/cyntch-derived/Build/Products/Release-iphonesimulator/Cyntch.app"
+          codesign --verify --deep --strict "$app"
+          codesign -d --entitlements :- "$app" > "$RUNNER_TEMP/cyntch-ios-entitlements.plist"
+          app_id=$(/usr/libexec/PlistBuddy -c 'Print :application-identifier' "$RUNNER_TEMP/cyntch-ios-entitlements.plist")
+          test -n "$app_id"
+          ditto -c -k --sequesterRsrc --keepParent "$app" "$RUNNER_TEMP/cyntch-ios-simulator.zip"
+          shasum -a 256 "$RUNNER_TEMP/cyntch-ios-simulator.zip" > "$RUNNER_TEMP/cyntch-ios-simulator.sha256"
       - name: Install pinned simulator test runner
         run: |
           set -euo pipefail
@@ -106,7 +116,7 @@ jobs:
           unzip -q "$RUNNER_TEMP/maestro.zip" -d "$RUNNER_TEMP/maestro-cli"
           "$RUNNER_TEMP/maestro-cli/maestro/bin/maestro" --version
       - name: Verify iPhone and iPad startup and native sign-in
-        timeout-minutes: 15
+        timeout-minutes: 25
         run: |
           set -o pipefail
           node scripts/ios-simulator-smoke.cjs \
@@ -126,6 +136,9 @@ jobs:
             ${{ runner.temp }}/cyntch-ios-prebuild.log
             ${{ runner.temp }}/cyntch-ios-pods.log
             ${{ runner.temp }}/cyntch-ios.log
+            ${{ runner.temp }}/cyntch-ios-entitlements.plist
+            ${{ runner.temp }}/cyntch-ios-simulator.zip
+            ${{ runner.temp }}/cyntch-ios-simulator.sha256
             ${{ runner.temp }}/cyntch-ios-smoke.log
             ${{ runner.temp }}/cyntch-ios-smoke/
             ${{ runner.temp }}/cyntch-native.xcresult

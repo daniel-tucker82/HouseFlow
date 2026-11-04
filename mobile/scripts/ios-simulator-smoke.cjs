@@ -12,9 +12,13 @@ if (!appPath || !maestro || !output || !fs.existsSync(path.join(appPath, 'main.j
   throw new Error('A compiled simulator app with bundled JavaScript is required.')
 }
 fs.mkdirSync(output, { recursive: true })
-const command = (executable, args, timeout = 60_000) => execFileSync(executable, args, {
-  encoding: 'utf8', timeout, maxBuffer: 12 * 1024 * 1024,
-})
+const command = (executable, args, timeout = 60_000) => {
+  const label = `${executable} ${args.slice(0, 2).join(' ')}`, start = Date.now()
+  console.log(`Starting ${label} (timeout ${timeout / 1000}s)`)
+  try { return execFileSync(executable, args, { encoding: 'utf8', timeout, maxBuffer: 12 * 1024 * 1024 }) }
+  catch (error) { throw new Error(`${label} failed: ${error.code ?? error.message}`, { cause: error }) }
+  finally { console.log(`Finished ${label} after ${((Date.now() - start) / 1000).toFixed(1)}s`) }
+}
 const simctl = (...args) => command('xcrun', ['simctl', ...args])
 const inventory = JSON.parse(simctl('list', '--json'))
 const candidates = inventory.runtimes.filter(runtime => runtime.isAvailable && runtime.identifier.includes('.iOS-'))
@@ -29,7 +33,7 @@ const devices = [
   available.find(device => device.name === 'iPhone 17') ?? available.find(device => device.name.startsWith('iPhone')),
   available.find(device => device.name === 'iPad (A16)') ?? available.find(device => device.name.startsWith('iPad')),
 ]
-const report = { source: process.env.GITHUB_SHA, configuration: 'Release', runtime: runtime.name, devices: [] }
+const report = { source: process.env.GITHUB_SHA, configuration: 'Release with local simulator signing', runtime: runtime.name, devices: [] }
 const save = () => fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify(report, null, 2))
 let failed = false
 for (const [index, template] of devices.entries()) {
@@ -41,16 +45,23 @@ for (const [index, template] of devices.entries()) {
   const result = { family: label, model: template.name, type, passed: false, cleaned: false }
   report.devices.push(result)
   save()
+  const stage = name => { result.stage = name; save() }
   let ownedDevice
   try {
+    stage('create')
     ownedDevice = simctl('create', `Cyntch-${process.env.GITHUB_RUN_ID}-${label}`, type, runtime.identifier).trim()
     if (!/^[0-9a-f-]{36}$/i.test(ownedDevice)) throw new Error('Unexpected created simulator identifier.')
     console.log(`Verifying ${template.name} on ${runtime.name} (${ownedDevice})`)
+    stage('boot')
     simctl('boot', ownedDevice)
-    command('xcrun', ['simctl', 'bootstatus', ownedDevice, '-b'], 180_000)
+    stage('wait-for-boot')
+    command('xcrun', ['simctl', 'bootstatus', ownedDevice, '-b'], 300_000)
+    stage('open-simulator')
     command('open', ['-a', 'Simulator', '--args', '-CurrentDeviceUDID', ownedDevice])
     simctl('ui', ownedDevice, 'appearance', 'light')
+    stage('install')
     simctl('install', ownedDevice, appPath)
+    stage('test-flow')
     const run = spawnSync(maestro, [
       '--device', ownedDevice, 'test', '--format', 'junit', '--output', path.join(folder, 'report.xml'),
       '--test-output-dir', folder, '--debug-output', folder, path.resolve('.maestro/signed-out.yaml'),
@@ -58,6 +69,7 @@ for (const [index, template] of devices.entries()) {
     result.exitCode = run.status
     if (run.error || run.status !== 0) throw new Error(`Simulator flow failed (${run.error?.code ?? run.status}).`)
     result.passed = true
+    stage('completed')
   } catch (error) {
     failed = true
     result.error = error.message

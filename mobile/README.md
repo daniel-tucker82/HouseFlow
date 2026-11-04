@@ -4,6 +4,16 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
+The first bundled iOS Release runtime check compiled successfully but failed
+before sign-in: the unsigned simulator binary reported Keychain error -34018
+(missing entitlement). The iOS workflow now enables local ad-hoc simulator
+signing and checks the built app's application-identifier entitlement before
+testing. Its artifact also retains the simulator app ZIP and hash. This signing
+is for the simulator only, not TestFlight or App Store distribution. A separate
+iPad setup timeout prompted a five-minute cold-boot allowance and per-command
+timings/stage reporting. These fixes still require a successful hosted rerun.
+Failed-run evidence: `C:/Users/danie/.codex/tmp/cyntch-ios-evidence-41822109295`.
+
 Membership departure notifications now describe the recorded cause: a parent
 removing someone produces "was removed", while self-requested account deletion
 produces "left" for surviving households. The cause commits with membership
