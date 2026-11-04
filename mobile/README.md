@@ -91,6 +91,15 @@ caches and the restricted bridge payload. They do not read the Keychain and do
 not verify account erasure, SDK concurrency, biometric keys or device behavior.
 The added Swift checks still require their first Mac execution.
 
+The subsequent Mac run (`41798029428`, commit `c1b9d77`) installed pods but failed
+Clang dependency scanning: React Native flattened both `ClerkExpo` and
+`CyntchClerkState` into the shared products directory, where their generated
+umbrella headers conflict. The adapter now depends on `ClerkExpo 0.4.3` and
+imports that bridge's already-built ClerkKit package from the shared products
+directory, instead of declaring a second `spm_dependency`. Native compilation
+of this correction remains to be verified. The compiler artifact is retained at
+`C:/Users/danie/.codex/tmp/cyntch-native-ios-41798029428.zip`.
+
 Local validation used EAS CLI 27.4.1's profile resolver and actual Git archive
 copy implementation. The 138-file archive installed from its lockfile and
 exported Android/iOS Hermes bundles without the web app's dependencies. Native

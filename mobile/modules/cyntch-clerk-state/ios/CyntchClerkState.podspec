@@ -11,16 +11,17 @@ Pod::Spec.new do |s|
   s.swift_version = '5.10'
   s.static_framework = true
   s.dependency 'ExpoModulesCore'
+  # This adapter inspects the storage format used by this exact native bridge.
+  s.dependency 'ClerkExpo', '0.4.3'
   s.source_files = '**/*.swift'
-  s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES', 'SWIFT_COMPILATION_MODE' => 'wholemodule' }
-
-  # Match the native Clerk component's exact Swift Package dependency.
-  if defined?(spm_dependency)
-    spm_dependency(s,
-      url: 'https://github.com/clerk/clerk-ios.git',
-      requirement: { :kind => 'exactVersion', :version => '1.6.2' },
-      products: ['ClerkKit'])
-  else
-    raise 'CyntchClerkState requires the Swift Package integration installed by the Clerk Expo config plugin.'
-  end
+  # ClerkExpo owns the exact ClerkKit 1.6.2 package and its build dependency.
+  # RN 0.88 flattens each static spm_dependency pod into the shared products
+  # directory. Declaring it here too puts two CocoaPods umbrella headers in
+  # that directory, which Clang rejects. Keep this pod in its own output
+  # directory and import the already-built package from the shared products.
+  s.pod_target_xcconfig = {
+    'DEFINES_MODULE' => 'YES',
+    'SWIFT_COMPILATION_MODE' => 'wholemodule',
+    'SWIFT_INCLUDE_PATHS' => '$(inherited) ${PODS_CONFIGURATION_BUILD_DIR}'
+  }
 end
