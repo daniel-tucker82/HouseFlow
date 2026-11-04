@@ -53,6 +53,7 @@ jobs:
           npm ci --no-audit --no-fund
           npm run lint
           npm run typecheck
+          node --test scripts/device-screenshot-evidence.test.cjs
       - name: Generate the native Android project
         run: |
           set -euo pipefail

@@ -4,6 +4,30 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
+Android run `41841090786` (source `70f2ef4`) passed the signed-out startup,
+rotation, native sign-in and restart journeys on Pixel 6 and Pixel Tablet at
+1x and 1.6x text. Each case retained seven correctly oriented screenshots.
+Visual review confirms the tablet's enlarged Google label is no longer clipped
+and the phone's landscape Continue action is reachable. Artifact SHA-256:
+`18fd9b4d78bb88d680716712872d9cb5334c42e4c3ebfb53ed99b7868e94cfd2`;
+APK SHA-256: `02ccf72dfbdd0cf31a17829fae34eec83a975e27668382a5e669ce72f9bc1ead`.
+Evidence: `C:/Users/danie/.codex/tmp/cyntch-android-evidence-41841090786`.
+This run predates the 600dp width change and minimum-Android stage.
+
+iOS run `41839062482` (source `c88394d`) passed compilation, signing and the
+iPhone 17 Maestro journey on iOS 26.5, including native sign-in and restart.
+Its orientation check failed because XCTest stores landscape images as portrait
+pixel arrays with EXIF Orientation=8. Visual review confirms landscape rendering;
+the corrected checker reads that metadata and passes all five existing captures,
+retaining both stored and displayed dimensions. It also rejects malformed EXIF
+instead of guessing. The run remains failed: the iPad did not finish its initial
+simulator boot within five minutes, before application installation. The runner
+now retains boot logs and rechecks a live device for one further observation
+period without rebooting it, bounded by a ten-minute setup budget. Actual iPad
+execution and enlarged iOS text remain unverified. Artifact SHA-256:
+`82280cb88ffa4d1746f4817045dba7f38de38e01dd713e5fa94e7f6028c10425`.
+Evidence: `C:/Users/danie/.codex/tmp/cyntch-ios-evidence-41839062482`.
+
 The Android native sign-in form now has a centered maximum width of 600dp;
 the earlier tablet screenshots showed its fields stretching almost edge to edge.
 Narrow screens retain their available width, and the existing scroll/keyboard
@@ -37,8 +61,8 @@ flow failed because Maestro considered the Continue ID's full bounds visible
 inside the screen even though its scroll parent clipped the label. The hierarchy
 shows a scrollable parent ending at y=707 and the button extending to y=810;
 the test performed zero scrolls before its text assertion failed. The flow now
-scrolls to the rendered label and also requires the action ID. Default-text phone
-success remains unverified until rerun. Artifact SHA-256:
+scrolls to the rendered label and also requires the action ID. The later run
+`41841090786`, described above, verifies the default-text phone correction. Earlier artifact SHA-256:
 `f6368dddd4f19a889dd7c9f68bd6239afaddbfe74c6cf1065e3f14257e6d0bfa`;
 APK SHA-256: `9ecef772c25fd8081721f11a7c9272d0cf05d633a06af0d5e9503abd265d1529`.
 Evidence: `C:/Users/danie/.codex/tmp/cyntch-android-evidence-41836733823`.
@@ -47,8 +71,8 @@ Visual review of that run found another defect despite the tablet flow passing:
 the Google button's fixed 48dp height clipped its label at 1.6x text. The pinned
 UI patch now lets social and standard button heights grow above their existing
 minimum. Android tests also require separate Google-button screenshots in both
-orientations. This change still needs native compilation and visual verification;
-automated element visibility alone does not establish that text is uncut.
+orientations. Run `41841090786` verifies that correction; automated element
+visibility alone does not establish that text is uncut.
 
 The first bundled iOS Release runtime check compiled successfully but failed
 before sign-in: the unsigned simulator binary reported Keychain error -34018
@@ -58,8 +82,9 @@ testing. Its artifact also retains the simulator app ZIP and hash. This signing
 is for the simulator only, not TestFlight or App Store distribution. A separate
 iPad setup timeout prompted a five-minute cold-boot allowance and per-command
 timings/stage reporting. Run `41839062482` (source `c88394d`) has now compiled and
-passed the embedded-entitlement/signature checks; its iPhone/iPad runtime results
-are still pending. Successful signing alone does not establish Keychain recovery.
+passed the embedded-entitlement/signature checks and the iPhone startup/sign-in
+journey, resolving the earlier startup failure there. iPad runtime remains
+unverified because its simulator did not finish booting.
 Failed-run evidence: `C:/Users/danie/.codex/tmp/cyntch-ios-evidence-41822109295`.
 
 The locally signed Release build in run `41832990843` (source `50e4173`)

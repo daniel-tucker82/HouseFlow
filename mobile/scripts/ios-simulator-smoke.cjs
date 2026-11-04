@@ -64,7 +64,29 @@ for (const [index, template] of devices.entries()) {
     stage('boot')
     simctl('boot', ownedDevice)
     stage('wait-for-boot')
-    command('xcrun', ['simctl', 'bootstatus', ownedDevice, '-b'], 300_000)
+    result.bootObservations = []
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const started = Date.now()
+      const boot = spawnSync('xcrun', ['simctl', 'bootstatus', ownedDevice, '-b'], {
+        encoding: 'utf8', timeout: 300_000, maxBuffer: 12 * 1024 * 1024,
+      })
+      fs.writeFileSync(path.join(folder, `boot-${attempt}.log`), `${boot.stdout ?? ''}\n${boot.stderr ?? ''}`)
+      const observation = { attempt, elapsedSeconds: (Date.now() - started) / 1000,
+        exitCode: boot.status, error: boot.error?.code }
+      result.bootObservations.push(observation)
+      save()
+      if (!boot.error && boot.status === 0) break
+      if (boot.error?.code !== 'ETIMEDOUT') throw new Error(`Simulator boot failed (${boot.error?.code ?? boot.status}).`)
+      const current = JSON.parse(simctl('list', 'devices', '--json'))
+      const device = Object.values(current.devices).flat().find(item => item.udid === ownedDevice)
+      observation.deviceState = device?.state ?? 'missing'
+      save()
+      if (!device || !['Booted', 'Booting'].includes(device.state)) throw new Error('Simulator stopped during boot observation.')
+      if (attempt === 2) throw new Error('Simulator did not finish booting within the ten-minute test setup budget.')
+      // The observer timed out, but the simulator is still live. Continue waiting
+      // on the same owned device; do not reboot it or discard its migration work.
+      console.log(`${template.name} is still ${device.state}; continuing boot observation.`)
+    }
     stage('open-simulator')
     command('open', ['-a', 'Simulator', '--args', '-CurrentDeviceUDID', ownedDevice])
     simctl('ui', ownedDevice, 'appearance', 'light')

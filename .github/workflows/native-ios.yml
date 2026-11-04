@@ -24,7 +24,7 @@ concurrency:
 jobs:
   compile:
     runs-on: macos-26
-    timeout-minutes: 75
+    timeout-minutes: 90
     defaults:
       run:
         working-directory: mobile
@@ -47,8 +47,10 @@ jobs:
           node-version: '22.23.3'
           cache: npm
           cache-dependency-path: mobile/package-lock.json
-      - name: Install locked dependencies
-        run: npm ci --no-audit --no-fund
+      - name: Install locked dependencies and verify screenshot checks
+        run: |
+          npm ci --no-audit --no-fund
+          node --test scripts/device-screenshot-evidence.test.cjs
       - name: Verify native account-cache inspection
         run: |
           set -o pipefail
@@ -129,7 +131,7 @@ jobs:
           unzip -q "$RUNNER_TEMP/maestro.zip" -d "$RUNNER_TEMP/maestro-cli"
           "$RUNNER_TEMP/maestro-cli/maestro/bin/maestro" --version
       - name: Verify iPhone and iPad startup and native sign-in at both text sizes
-        timeout-minutes: 35
+        timeout-minutes: 45
         run: |
           set -o pipefail
           node scripts/ios-simulator-smoke.cjs \
