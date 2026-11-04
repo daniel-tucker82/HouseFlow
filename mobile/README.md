@@ -75,6 +75,12 @@ the native auth scaffold; `vendor/clerk-android-ui` records its reproducible
 build and upstream license. It preserves the 1.3.0 authentication/API versions.
 Prebuild, lint and typecheck pass; compilation and native runtime verification
 of the replacement remain pending.
+The first patched run (`41833452182`, source `5771a7a`) failed before compiling
+the library because the verification task path did not resolve. The workflow
+now compiles the library directly with Gradle's project-directory option before
+the app build, and the generated included build has an explicit name. Java and
+Kotlin compilation targets are both 17. Failure evidence is retained in
+`C:/Users/danie/.codex/tmp/cyntch-android-evidence-41833452182`.
 
 The shared flow now selects Clerk's published native field/action identifiers
 on both platforms and requires the complete Continue control and its text to be

@@ -57,6 +57,8 @@ jobs:
         run: |
           set -euo pipefail
           npx expo prebuild --platform android --no-install 2>&1 | tee "$RUNNER_TEMP/cyntch-android-prebuild.log"
+          grep -Fq 'includeBuild("../vendor/clerk-android-ui")' android/settings.gradle
+          grep -Fq 'name = "cyntch-clerk-ui"' android/settings.gradle
       - name: Compile optimized emulator APK with test signing
         id: compile
         working-directory: mobile/android
@@ -64,10 +66,11 @@ jobs:
           set -euo pipefail
           java -version
           chmod +x gradlew
-          ./gradlew :cyntch-clerk-ui:assembleRelease --no-daemon --max-workers=2 \
+          ./gradlew -p ../vendor/clerk-android-ui assembleRelease --no-daemon --max-workers=2 \
             -Dorg.gradle.jvmargs='-Xmx3072m -XX:MaxMetaspaceSize=512m -XX:ActiveProcessorCount=2' \
             2>&1 | tee "$RUNNER_TEMP/cyntch-clerk-ui-build.log"
-          ./gradlew :app:assembleRelease --no-daemon --max-workers=2 \
+          ./gradlew :app:dependencyInsight --dependency clerk --configuration releaseRuntimeClasspath \
+            :app:assembleRelease --no-daemon --max-workers=2 \
             -Dorg.gradle.jvmargs='-Xmx3072m -XX:MaxMetaspaceSize=512m -XX:ActiveProcessorCount=2' \
             -PreactNativeArchitectures=x86_64 \
             -Pandroid.enableMinifyInReleaseBuilds=true \
@@ -150,6 +153,7 @@ jobs:
             ${{ runner.temp }}/cyntch-android-apk/
             ${{ runner.temp }}/cyntch-android-smoke/
             mobile/android/app/build/outputs/mapping/release/mapping.txt
+            mobile/android/settings.gradle
             mobile/vendor/clerk-android-ui/build/generated/upstream/kotlin/com/clerk/ui/core/scaffold/ClerkThemedAuthScaffold.kt
           if-no-files-found: warn
           retention-days: 7

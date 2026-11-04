@@ -22,6 +22,7 @@ module.exports = function withClerkAuthScroll(config) {
       comment: '//',
       newSrc: [
         'includeBuild("../vendor/clerk-android-ui") {',
+        '  name = "cyntch-clerk-ui"',
         '  dependencySubstitution {',
         '    substitute module("com.clerk:clerk-android-ui:1.3.0") using project(":")',
         '  }',
