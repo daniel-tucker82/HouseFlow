@@ -10,6 +10,7 @@ import type { AccountDeletionStore } from "../storage/account-deletion-store"
 import { AccountDeletionRecoveryController } from "./account-deletion-recovery"
 import { openLocalStore, nativeKioskVault } from "../storage/native-store"
 import { resetNativeNotificationSession, waitForNativeNotification } from "./notification-native-session"
+import { eraseNativeBillingIdentity } from "./native-billing-identity"
 
 const options = { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }
 export const nativeAccountDeletionVault = new AccountDeletionVault({
@@ -39,10 +40,16 @@ export function nativeAccountDeletionRecovery() {
   return recoveryController ??= openLocalStore().then(store => new AccountDeletionRecoveryController(nativeAccountDeletionVault,
     nativeAccountDeletionDrafts(store.accountDeletion),nativeAccountDeletionStatusApi(),async record => {
       await store.deletedAccounts.eraseAccepted(record)
-      for (const kioskId of await store.deletedAccounts.pendingKioskKeys(record.accountId)) {
-        await nativeKioskVault.remove(kioskId)
-        await store.deletedAccounts.acknowledgeKioskKey(record.accountId,record.requestId,kioskId)
-      }
-      await waitForNativeNotification(resetNativeNotificationSession(store.notificationSessions))
+      const results = await Promise.allSettled([
+        eraseNativeBillingIdentity(record.accountId),
+        (async () => {
+          for (const kioskId of await store.deletedAccounts.pendingKioskKeys(record.accountId)) {
+            await nativeKioskVault.remove(kioskId)
+            await store.deletedAccounts.acknowledgeKioskKey(record.accountId,record.requestId,kioskId)
+          }
+        })(),
+        waitForNativeNotification(resetNativeNotificationSession(store.notificationSessions)),
+      ])
+      if (results.some(result => result.status === "rejected")) throw new Error("Some device cleanup still needs another attempt. Your saved deletion receipt has been kept.")
     },() => store.deletedAccounts.accounts())).catch(error => { recoveryController = undefined;throw error })
 }

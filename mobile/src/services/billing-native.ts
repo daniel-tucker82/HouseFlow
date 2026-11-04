@@ -2,11 +2,10 @@ import type { PurchasesPackage, SubscriptionOption } from "react-native-purchase
 import { Platform } from "react-native"
 import * as Linking from "expo-linking"
 import { isWebBillingCancellationUrl, type NativeBillingSetup } from "../../../shared/mobile/billing"
-import { BillingSdkQueue, type BillingOffer, type BillingSdk, type IdentifiedBillingStore } from "./billing-sdk"
+import { type BillingOffer, type BillingSdk, type IdentifiedBillingStore } from "./billing-sdk"
+import { nativeBillingIdentity } from "./native-billing-identity"
 
 type Reference = { package: PurchasesPackage; basePlan: SubscriptionOption | null }
-const queue = new BillingSdkQueue()
-let configuredKey: string | undefined
 export const nativeBillingSdk: BillingSdk = {
   store: Platform.OS === "ios" ? "app_store" : Platform.OS === "android" ? "play_store" : null,
   async manage(store, check) {
@@ -25,20 +24,12 @@ export const nativeBillingSdk: BillingSdk = {
     if (!isWebBillingCancellationUrl(url)) throw new Error("This cancellation link is not valid. Please try again.")
     await Linking.openURL(url)
   },
-  run<T>(setup: NativeBillingSetup, check: () => void, work: (store: IdentifiedBillingStore) => Promise<T>) {
-    return queue.run(check, async () => {
-      const { default: Purchases, LOG_LEVEL, PURCHASES_ERROR_CODE, RECURRENCE_MODE } = await import("react-native-purchases")
+  async run<T>(setup: NativeBillingSetup, checkAccess: () => void, work: (store: IdentifiedBillingStore) => Promise<T>) {
+    checkAccess()
+    if (setup.store !== nativeBillingSdk.store) throw new Error("This subscription belongs to a different app store.")
+    return (await nativeBillingIdentity()).run(setup,checkAccess,async check => {
+      const { default: Purchases, PURCHASES_ERROR_CODE, RECURRENCE_MODE } = await import("react-native-purchases")
       check()
-      if (setup.store !== nativeBillingSdk.store) throw new Error("This subscription belongs to a different app store.")
-      if (configuredKey && configuredKey !== setup.publicSdkKey) throw new Error("Store settings changed. Restart Cyntch before managing subscriptions.")
-      if (!configuredKey) {
-        await Purchases.setLogLevel(LOG_LEVEL.ERROR); check()
-        Purchases.configure({ apiKey: setup.publicSdkKey, appUserID: setup.billingCustomerId,
-          shouldShowInAppMessagesAutomatically: false, automaticDeviceIdentifierCollectionEnabled: false })
-        configuredKey = setup.publicSdkKey
-      }
-      const current = await Purchases.getAppUserID(); check()
-      if (current !== setup.billingCustomerId) { await Purchases.logIn(setup.billingCustomerId); check() }
       const customer = await Purchases.getCustomerInfo(); check()
       if (customer.originalAppUserId !== setup.billingCustomerId) throw new Error("This store account is linked to another household. Restore purchases for the original household.")
       const available = new Set<unknown>()

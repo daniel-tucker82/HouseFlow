@@ -661,7 +661,9 @@ an automatically selected trial offer. Existing subscriptions block another
 purchase, including pending payment and subscriptions needing attention.
 
 The SDK loads on demand. A process-wide queue keeps the opaque household identity
-unchanged throughout each store operation; no anonymous identity is created.
+unchanged throughout each store operation. Normal purchase setup starts with an
+explicit household identity; accepted-account cleanup now uses the SDK's logout,
+which creates a detached anonymous identity (see the cleanup section below).
 Account, session, selected household, connectivity and kiosk access are checked
 at asynchronous boundaries. Explicit sign-out fences new requests immediately,
 before persistence or React unmount. A sheet already presented by the OS retains
@@ -1622,12 +1624,87 @@ the test household remained usable. Screenshots and UI hierarchy evidence are
 under `C:/Users/danie/.codex/tmp/cyntch-deletion-*.png` and
 `C:/Users/danie/.codex/tmp/cyntch-deletion-*.xml`.
 
-**Keep submission disabled.** Remaining release work includes scope-safe native
-billing/identity SDK cache cleanup, the unresolved single-slot recovery edge,
+**Keep submission disabled.** Remaining release work includes real-device billing
+SDK cleanup verification, identity SDK cache cleanup, the unresolved single-slot recovery edge,
 Clerk's alternate self-deletion path and out-of-band deletion handling, durable
 worker scheduling, provider purchase-proof/re-creation safeguards, and real
 provider/OS deletion and reverification tests. The new device-cleanup checkpoint
-currently covers app SQLite data, kiosk credentials and native notifications;
+now covers app SQLite data, billing SDK detachment, kiosk credentials and native notifications;
 it does not yet prove erasure of every provider SDK cache. No production
 migration, provider deletion, submission enablement or deployment was performed
 for this UI integration.
+
+### Durable native billing identity cleanup
+
+Local database version 14 adds `native_billing_identity`. This singleton journal
+keeps the current and pending SDK identity, their account/session/device/household
+scope, public SDK key, store and environment. It contains no receipt, customer
+object, token or offering. The journal commits before configure/login and keeps
+both identities until the native SDK confirms which one is current. Account
+erasure deliberately retains this journal until SDK detachment finishes.
+
+`BillingIdentityController` serializes configure/login, purchases, restores and
+logout in one queue. New transitions require an active matching local session,
+unlocked parent controls and an account without a deletion marker. An accepted
+deletion fences old callbacks, waits for any in-flight store operation, then
+logs out only if the SDK still belongs to that account. A later account's
+identity is preserved. Store callbacks cannot be reused after their queue
+operation ends. Unknown native identities, corrupt journals and project/key
+changes fail closed instead of guessing whose cache to remove.
+
+On restart, the controller resumes the SDK's cached identity, reconciles it with
+the durable current/pending records and finishes any required logout. If logout
+succeeded but its acknowledgement was lost, the SDK's anonymous identity allows
+cleanup to finish without logging out again. An eight-second UI wait limit keeps
+recovery responsive; it never releases the underlying native operation's place
+in the queue. Billing, PIN and notification cleanup run independently, and a
+failure keeps the deletion receipt and incomplete-cleanup checkpoint.
+
+Purchase operations require the server-issued household customer ID.
+After logout, the SDK's anonymous identity must **not** be passed to `logIn`:
+RevenueCat can merge it into a new customer and leave `originalAppUserId`
+anonymous. The queue instead reconfigures the detached SDK with the explicit
+household ID, preserving the existing client/server ownership checks. It first
+resumes the cached anonymous configuration because both locked native SDKs
+deduplicate their original configuration even after login/logout changed the
+customer. This also permits returning to a previously configured household.
+Normal identified-to-identified switching still uses `logIn`.
+
+This narrowly scoped reconfiguration relies on the installed React Native
+Purchases 11.0.0 / HybridCommon 20.1.0 bindings and their native implementations:
+[Android 11.0.0](https://github.com/RevenueCat/purchases-android/blob/11.0.0/purchases/src/defaults/kotlin/com/revenuecat/purchases/Purchases.kt)
+replaces and closes a differently configured singleton; [iOS 5.99.0](https://github.com/RevenueCat/purchases-ios/blob/5.99.0/Sources/Purchasing/Purchases/Purchases.swift)
+releases the old singleton before replacing it. Both deduplicate equal original
+configurations. Recheck this behaviour when upgrading the SDK and verify it on
+real store builds before release. No in-flight purchase may overlap replacement.
+
+This follows RevenueCat's documented [identity lifecycle](https://www.revenuecat.com/docs/customers/identifying-customers)
+and [logout/cache behaviour](https://www.revenuecat.com/docs/test-and-launch/debugging/caching).
+Logout is a local SDK detachment, not remote customer deletion. Resuming a cached
+identity or synchronizing SDK attributes can contact RevenueCat before logout;
+server tombstones and follow-up erasure for late SDK/webhook recreation remain
+required before enabling deletion. Real provider/device verification is also
+still required. An older development installation that used billing before
+identity journaling has no reliable ownership proof for an untracked SDK cache;
+do not treat that legacy cache as verified erased.
+
+The final focused verification passed 47 tests covering real SQLite persistence and
+restart, native configure/login/logout acknowledgement loss, account switching,
+an in-flight purchase, cleanup timeout without queue release, retired callbacks,
+kiosk/session guards, malformed/stale journals, SDK error sanitization and
+independent PIN/notification cleanup. The SDK doubles model anonymous aliasing
+and original-configuration deduplication; purchase/restore after deletion,
+returning to a previous configuration and interrupted reconfiguration pass.
+Native SDK calls are controlled doubles;
+these tests do not establish real RevenueCat erasure or real store purchase
+behaviour. Submission and purchase rollout settings remain unchanged.
+
+The general regression run passed 500 tests with no skips/cancellations; the
+final focused run also covers the subsequently added parent-access check inside
+delayed native initialization. Root/mobile lint and TypeScript passed.
+Final Android and iOS Hermes exports also passed; output and logs are under
+`C:/Users/danie/.codex/tmp/cyntch-billing-identity-alias-export`.
+An Android emulator cold start reached the existing household board after the
+database initialization change. This cold-start check does not exercise a real
+store identity or purchase. Its UI evidence is
+`C:/Users/danie/.codex/tmp/cyntch-billing-identity-start.xml`.

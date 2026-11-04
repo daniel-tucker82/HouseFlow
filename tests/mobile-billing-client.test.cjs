@@ -201,20 +201,35 @@ test('household changes during recovery cannot display the earlier household ope
   assert.equal(seen.some(state=>state.household?.id===other.id&&state.operation?.householdId===f.household.id),false)
 })
 
-function nativeSdk(platform) {
-  let user, configurations=0
-  const calls=[], offered=[]
-  const purchases={ setLogLevel:async()=>{}, configure:value=>{user=value.appUserID;configurations++;calls.push(['configure',value])},
-    getAppUserID:async()=>user,logIn:async value=>{user=value;calls.push(['login',value])},getCustomerInfo:async()=>({originalAppUserId:user}),
+function nativeSdk(platform,t) {
+  let user, configurations=0,configuration
+  const calls=[], offered=[],originals=new Map()
+  const anonymous=()=>user?.startsWith('$RCAnonymousID:')===true
+  const remember=()=>{if(!originals.has(user))originals.set(user,user)}
+  const scope={accountId:'user_sdk',sessionId:'sess_sdk',deviceId:randomUUID(),householdId:randomUUID(),environment:'production'}
+  let database,local
+  const openLocalStore=async()=>{if(!local){database=new Database(':memory:');local=new LocalStore(database);await local.initialize();await local.notificationSessions.activate(scope)}return local}
+  t.after(()=>database?.db.close())
+  const purchases={ setLogLevel:async()=>{}, configure:value=>{
+      calls.push(['configure',value]);if(configuration===JSON.stringify(value))return
+      configuration=JSON.stringify(value);user=value.appUserID??user??'$RCAnonymousID:'+randomUUID();configurations++;remember()
+    },
+    isConfigured:async()=>configurations>0,isAnonymous:async()=>anonymous(),
+    getAppUserID:async()=>user,logIn:async value=>{
+      if(anonymous()&&!originals.has(value)){originals.set(value,originals.get(user));calls.push(['anonymous-alias',value])}
+      user=value;remember();calls.push(['login',value])
+    },logOut:async()=>{calls.push(['logout',user]);user='$RCAnonymousID:'+randomUUID();remember()},
+    getCustomerInfo:async()=>({originalAppUserId:originals.get(user)}),
     getOfferings:async()=>({current:{availablePackages:offered}}),purchasePackage:async value=>{calls.push(['purchase',user,value])},
     purchaseSubscriptionOption:async value=>{calls.push(['option',user,value])},restorePurchases:async()=>{calls.push(['restore',user])},showManageSubscriptions:async()=>{} }
-  const { nativeBillingSdk }=load(['mobile/src/services/billing-native.ts'],{
+  const { nativeBillingSdk,eraseNativeBillingIdentity }=load(['mobile/src/services/billing-native.ts','mobile/src/services/native-billing-identity.ts'],{
     'react-native':{Platform:{OS:platform}},'expo-linking':{openURL:async url=>calls.push(['open',url])},
+    '../storage/native-store':{openLocalStore},
     'react-native-purchases':{default:purchases,__esModule:true,LOG_LEVEL:{ERROR:'ERROR'},PURCHASES_ERROR_CODE:{PURCHASE_CANCELLED_ERROR:'1',PAYMENT_PENDING_ERROR:'20'},RECURRENCE_MODE:{INFINITE_RECURRING:1}} })
-  return {sdk:nativeBillingSdk,purchases,calls,offered,get user(){return user},get configurations(){return configurations}}
+  return {sdk:nativeBillingSdk,purchases,calls,offered,scope,originals,openLocalStore,eraseNativeBillingIdentity,get user(){return user},get configurations(){return configurations}}
 }
-test('native SDK serializes household identity changes until the old purchase finishes and never creates anonymous identities',async()=>{
-  const f=nativeSdk('ios'), first={store:'app_store',publicSdkKey:'appl_fixture',billingCustomerId:randomUUID(),products:[]},second={...first,billingCustomerId:randomUUID()}
+test('native SDK serializes household identity changes until the old purchase finishes and never creates anonymous identities',async t=>{
+  const f=nativeSdk('ios',t), first={...f.scope,store:'app_store',publicSdkKey:'appl_fixture',billingCustomerId:randomUUID(),products:[]},second={...first,billingCustomerId:randomUUID()}
   const gate=deferred(),reached=deferred()
   const buying=f.sdk.run(first,()=>{},async()=>{reached.resolve();await gate.promise;assert.equal(f.user,first.billingCustomerId)})
   await reached.promise; const changing=f.sdk.run(second,()=>{},async session=>session.restore())
@@ -224,18 +239,57 @@ test('native SDK serializes household identity changes until the old purchase fi
   const configuration=f.calls.find(call=>call[0]==='configure')[1]
   assert.equal(configuration.shouldShowInAppMessagesAutomatically,false);assert.equal(configuration.automaticDeviceIdentifierCollectionEnabled,false)
 })
-test('native Google prices and purchases use the approved auto-renewing base plan, not a free-trial offer',async()=>{
-  const f=nativeSdk('android'), productId='premium:month'
+
+test('after deletion a new household can purchase and restore without inheriting an anonymous original customer',async t=>{
+ for(const platform of ['ios','android']){
+  const f=nativeSdk(platform,t),first={...f.scope,store:platform==='ios'?'app_store':'play_store',publicSdkKey:platform==='ios'?'appl_fixture':'goog_fixture',billingCustomerId:randomUUID(),products:[{interval:'monthly',storeProductId:'monthly'}]}
+  const second={...first,accountId:'user_next',sessionId:'sess_next',householdId:randomUUID(),billingCustomerId:randomUUID()}
+  const local=await f.openLocalStore();await f.sdk.run(first,()=>{},async()=>{})
+  const requestId=randomUUID()
+  await local.deletedAccounts.eraseAccepted({format:1,origin:'https://www.cyntch.test',accountId:first.accountId,requestId,secret:'f'.repeat(64),submitted:true,intentHash:null,withdrawal:null,
+   status:{requestId,state:'pending',acceptedAt:'2026-11-04T01:00:00.000Z',completedAt:null,availableUntil:null,appleRevocationRequired:false}})
+  await f.eraseNativeBillingIdentity(first.accountId);assert.equal(await f.purchases.isAnonymous(),true)
+  await local.notificationSessions.activate(second)
+  const base={isBasePlan:true,storeProductId:'monthly',isPrepaid:false,installmentsInfo:null,freePhase:null,introPhase:null,pricingPhases:[{}],
+   fullPricePhase:{billingPeriod:{iso8601:'P1M'},recurrenceMode:1,price:{amountMicros:5990000,formatted:'A$5.99',currencyCode:'AUD'}}}
+  f.offered.push({product:{identifier:'monthly',subscriptionPeriod:'P1M',price:5.99,priceString:'A$5.99',currencyCode:'AUD',introPrice:null,installmentsInfo:null,subscriptionOptions:[base]}})
+  await f.sdk.run(second,()=>{},async session=>{
+   assert.equal(await session.purchase((await session.offers())[0]),'purchased');await session.restore()
+  })
+  assert.equal((await f.purchases.getCustomerInfo()).originalAppUserId,second.billingCustomerId)
+  assert.equal(f.calls.some(call=>call[0]==='anonymous-alias'),false)
+  assert.equal(f.calls.filter(call=>call[0]==='purchase'||call[0]==='option').length,1)
+  assert.equal(f.calls.find(call=>call[0]==='restore')[1],second.billingCustomerId)
+ }
+})
+
+test('an unrelated original customer still blocks every purchase and restore',async t=>{
+ const f=nativeSdk('ios',t),setup={...f.scope,store:'app_store',publicSdkKey:'appl_fixture',billingCustomerId:randomUUID(),products:[]}
+ await f.sdk.run(setup,()=>{},async()=>{});f.originals.set(setup.billingCustomerId,'$RCAnonymousID:unrelated')
+ await assert.rejects(f.sdk.run(setup,()=>{},async()=>assert.fail('Unverified identity must not expose purchase methods')),/another household/)
+ assert.equal(f.calls.some(call=>['purchase','option','restore'].includes(call[0])),false)
+})
+
+test('delayed native initialization cannot configure purchases after access is revoked',async t=>{
+ const f=nativeSdk('ios',t),setup={...f.scope,store:'app_store',publicSdkKey:'appl_fixture',billingCustomerId:randomUUID(),products:[]}
+ let allowed=true
+ f.purchases.setLogLevel=async()=>{allowed=false}
+ await assert.rejects(f.sdk.run(setup,()=>{if(!allowed)throw Error('Access revoked')},async()=>assert.fail()),/Store identity could not/)
+ assert.equal(f.configurations,0);assert.equal(f.user,undefined)
+ assert.equal((await (await f.openLocalStore()).billingIdentity.read()).pending.accountId,setup.accountId)
+})
+test('native Google prices and purchases use the approved auto-renewing base plan, not a free-trial offer',async t=>{
+  const f=nativeSdk('android',t), productId='premium:month'
   const base={isBasePlan:true,storeProductId:productId,isPrepaid:false,installmentsInfo:null,freePhase:null,introPhase:null,pricingPhases:[{}],
     fullPricePhase:{billingPeriod:{iso8601:'P1M'},recurrenceMode:1,price:{amountMicros:5990000,formatted:'A$5.99',currencyCode:'AUD'}}}
   f.offered.push({product:{identifier:productId,price:0,priceString:'Free',currencyCode:'AUD',subscriptionOptions:[{isBasePlan:false},base]}})
-  const setup={store:'play_store',publicSdkKey:'goog_fixture',billingCustomerId:randomUUID(),products:[{interval:'monthly',storeProductId:productId}]}
+  const setup={...f.scope,store:'play_store',publicSdkKey:'goog_fixture',billingCustomerId:randomUUID(),products:[{interval:'monthly',storeProductId:productId}]}
   await f.sdk.run(setup,()=>{},async session=>{const [offer]=await session.offers();assert.equal(offer.price,'A$5.99');assert.equal(offer.amount,5.99);assert.equal(await session.purchase(offer),'purchased')})
   assert.equal(f.calls.find(call=>call[0]==='option')[2],base)
   base.isPrepaid=true;await assert.rejects(f.sdk.run(setup,()=>{},session=>session.offers()),/terms need updating/)
 })
-test('SDK errors distinguish cancellation and pending payment; stale access checks prevent a queued household login',async()=>{
-  const f=nativeSdk('ios'), setup={store:'app_store',publicSdkKey:'appl_fixture',billingCustomerId:randomUUID(),products:[{interval:'monthly',storeProductId:'monthly'}]}
+test('SDK errors distinguish cancellation and pending payment; stale access checks prevent a queued household login',async t=>{
+  const f=nativeSdk('ios',t), setup={...f.scope,store:'app_store',publicSdkKey:'appl_fixture',billingCustomerId:randomUUID(),products:[{interval:'monthly',storeProductId:'monthly'}]}
   f.offered.push({product:{identifier:'monthly',subscriptionPeriod:'P1M',price:5.99,priceString:'$5.99',currencyCode:'AUD',introPrice:null,installmentsInfo:null}})
   for(const [code,expected] of [['1','cancelled'],['20','pending']]) {
     f.purchases.purchasePackage=async()=>{throw{code}}
@@ -262,13 +316,13 @@ test('store management does not need purchase setup or SDK identity; delayed can
   await assert.rejects(opening,/interrupted/);assert.equal(f.calls.some(call=>Array.isArray(call)&&call[0]==='open'),false)
 })
 
-test('native management links use only approved destinations without configuring RevenueCat',async()=>{
+test('native management links use only approved destinations without configuring RevenueCat',async t=>{
   for(const [platform,provider,url] of [
     ['ios','app_store','https://apps.apple.com/account/subscriptions'],
     ['ios','play_store','https://play.google.com/store/account/subscriptions'],
     ['android','app_store','https://account.apple.com/account/manage/section/subscriptions'],
     ['android','play_store','https://play.google.com/store/account/subscriptions']]){
-    const f=nativeSdk(platform);await f.sdk.manage(provider,()=>{})
+    const f=nativeSdk(platform,t);await f.sdk.manage(provider,()=>{})
     assert.deepEqual(f.calls,[['open',url]]);assert.equal(f.configurations,0)
     await assert.rejects(f.sdk.manage(provider,()=>{throw new Error('Locked')}),/Locked/)
     await assert.rejects(f.sdk.manage('https://evil.test',()=>{}),/Choose the store/)

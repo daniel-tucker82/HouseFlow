@@ -8,6 +8,7 @@ import { NotificationHistoryStore } from "./notification-history-store"
 import { BillingStore } from "./billing-store"
 import { AccountDeletionStore } from "./account-deletion-store"
 import { AccountDeletionLocalStore } from "./account-deletion-local"
+import { BillingIdentityStore } from "./billing-identity-store"
 import { KioskStore, kioskRestriction, requireKioskParentAccess } from "./kiosk-store"
 import { restrictKioskBoard } from "../../../shared/mobile/kiosk"
 import { mergeRunPages, runView, summarizeRun, type RunPage, type RunSnapshot, type RunSummary, type RunView } from "../../../shared/mobile/runs"
@@ -92,7 +93,8 @@ export class LocalStore {
   readonly billing: BillingStore
   readonly accountDeletion: AccountDeletionStore
   readonly deletedAccounts: AccountDeletionLocalStore
-  constructor(private readonly database: LocalDatabase) { this.planner = new PlannerStore(database); this.notifications = new NotificationStore(database); this.notificationSessions = new NotificationSessionStore(database); this.notificationInbox = new NotificationInbox(database); this.notificationHistory = new NotificationHistoryStore(database); this.kiosk = new KioskStore(database); this.billing = new BillingStore(database); this.accountDeletion = new AccountDeletionStore(database); this.deletedAccounts = new AccountDeletionLocalStore(database) }
+  readonly billingIdentity: BillingIdentityStore
+  constructor(private readonly database: LocalDatabase) { this.planner = new PlannerStore(database); this.notifications = new NotificationStore(database); this.notificationSessions = new NotificationSessionStore(database); this.notificationInbox = new NotificationInbox(database); this.notificationHistory = new NotificationHistoryStore(database); this.kiosk = new KioskStore(database); this.billing = new BillingStore(database); this.accountDeletion = new AccountDeletionStore(database); this.deletedAccounts = new AccountDeletionLocalStore(database); this.billingIdentity = new BillingIdentityStore(database) }
 
   async initialize() {
     await this.database.execAsync(`
@@ -142,7 +144,8 @@ export class LocalStore {
     await this.billing.initialize()
     await this.accountDeletion.initialize()
     await this.deletedAccounts.initialize()
-    await this.database.execAsync("PRAGMA user_version = 13;")
+    await this.billingIdentity.initialize()
+    await this.database.execAsync("PRAGMA user_version = 14;")
   }
 
   async getBoard(accountId: string, householdId: string, connection: SqlConnection = this.database) {
