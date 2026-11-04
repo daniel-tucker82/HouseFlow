@@ -4,6 +4,12 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
+The Android native sign-in form now has a centered maximum width of 600dp;
+the earlier tablet screenshots showed its fields stretching almost edge to edge.
+Narrow screens retain their available width, and the existing scroll/keyboard
+insets remain. Source preparation is checked separately from native execution;
+the new width limit still needs phone/tablet screenshot review.
+
 The iOS runner now repeats the signed-out phone/tablet journey at default Dynamic
 Type (`large`) and `accessibility-extra-large`. It checks the simulator's actual
 setting before each case, retains the installed `simctl ui` help, and saves each

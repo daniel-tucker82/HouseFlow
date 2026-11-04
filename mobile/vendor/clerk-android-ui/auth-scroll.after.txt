@@ -2,6 +2,8 @@ Modifier.fillMaxWidth()
         .padding(innerPadding)
         .consumeWindowInsets(innerPadding)
         .imePadding()
+        .wrapContentWidth(Alignment.CenterHorizontally)
+        .widthIn(max = 600.dp)
         .verticalScroll(rememberScrollState())
         .padding(horizontal = dp18)
         .background(ClerkMaterialTheme.colors.background),

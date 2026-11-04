@@ -7,7 +7,12 @@ The published 1.4.1 source has the same scaffold, so upgrading alone is not a fi
 
 This included Gradle build compiles the **published 1.3.0 sources**, using its
 original resources and consumer rules. `ClerkThemedAuthScaffold.kt` scrolls within
-the scaffold padding and accounts for the keyboard. `ClerkButton.kt` and
+the scaffold padding and accounts for the keyboard. The form is horizontally
+centered with a maximum 600dp width, avoiding edge-to-edge fields on the tablet
+and wide landscape screens. `wrapContentWidth` relaxes the minimum width from
+the outer `fillMaxWidth` before `widthIn` applies the cap; narrow screens still
+use their available width. This layout change awaits native visual verification.
+`ClerkButton.kt` and
 `ClerkSocialButton.kt` use minimum heights rather than fixed heights, so scaled
 text and content padding can grow together. This follows an observed clipped
 Google sign-in label at 1.6x text on the Pixel Tablet in run `41836733823`.
