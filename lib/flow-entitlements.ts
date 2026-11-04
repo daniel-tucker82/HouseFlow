@@ -6,11 +6,6 @@ export async function enforceFlowEntitlements(client: PoolClient, householdId: s
   const entitlement = await getHouseholdEntitlement(client, householdId)
   const { limits, tier } = entitlement
   const action = String(body.action)
-  // The mobile planner always writes template tasks. Do not let a supplied run
-  // ID make its request pass the separate occurrence quota checks.
-  if (["createTask", "updateTask"].includes(action) && Object.hasOwn(body, "prerequisiteIds") && body.occurrenceId) {
-    throw new EntitlementError("The routine planner only edits template tasks.", 400)
-  }
   if (["createTask","updateTask"].includes(action) &&
       (String(body.title ?? "").length > 200 || String(body.notes ?? body.recurrenceRule ?? "").length > 4000)) {
     throw new EntitlementError("Use a title up to 200 characters and notes up to 4,000 characters.",400)

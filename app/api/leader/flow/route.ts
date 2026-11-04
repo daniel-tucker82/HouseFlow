@@ -44,8 +44,10 @@ import {
 import { dispatchPushForNotificationIds } from "@/lib/push"
 import { runNativeNotifications } from "@/lib/run-native-notifications"
 import { PlannerSaveError, savePlannerTask } from "@/lib/save-planner-task"
+import { saveRunTask } from "@/lib/save-run-task"
+import { runTaskSchema } from "@/lib/routine-planner"
 import { saveRoutineSchedule } from "@/lib/save-routine-schedule"
-import { findPlannerCreation, parsePlannerCreation, PlannerCreationError, recordPlannerCreation, type PlannerCreation } from "@/lib/planner-creation"
+import { findPlannerCreation, parsePlannerCreation, PlannerCreationError, recordPlannerCreation, taskBoardCreationInput, type PlannerCreation } from "@/lib/planner-creation"
 import { claimTaskEditVersion, validTaskEditVersion } from "@/lib/task-edit-version"
 import { CompletionOperationError, parseCompletionOperation, findCompletionReceipt, claimCompletionVersion, recordCompletionReceipt } from "@/lib/completion-operations"
 
@@ -979,6 +981,10 @@ async function handlePOST(request: Request) {
   if (body.action === "updateTask" && !validTaskEditVersion(body)) {
     return NextResponse.json({ error: "Invalid task save version" }, { status: 400 })
   }
+  if (["createTask", "updateTask"].includes(String(body.action)) && Object.hasOwn(body, "prerequisiteIds") && body.occurrenceId) {
+    const parsed = runTaskSchema.safeParse({ ...body, isNew: body.action === "createTask" })
+    if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid board task." }, { status: 400 })
+  }
   let creation: PlannerCreation | null = null
   try { creation = parsePlannerCreation(body) } catch (error) {
     if (error instanceof PlannerCreationError) return NextResponse.json({ error: error.message }, { status: error.status })
@@ -989,10 +995,6 @@ async function handlePOST(request: Request) {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(householdId)) {
     return NextResponse.json({ error: "Invalid household" }, { status: 400 })
   }
-  const membership = await getHouseholdMembershipAuthz(householdId, userId)
-  if (!membership || (body.action !== "deleteHousehold" && !canPerformAction(membership.role, String(body.action)))) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-  }
   const lockClient = await db.connect()
   const started = Date.now()
   let locked = false
@@ -1000,10 +1002,16 @@ async function handlePOST(request: Request) {
     const result = await lockClient.query("select pg_try_advisory_lock(hashtextextended($1, 0)) as acquired", [householdId])
     locked = result.rows[0].acquired
     if (!locked) return NextResponse.json({ error: "Another household change is in progress. Please retry." }, { status: 429 })
+    // Authorize once under the household write lock. A role read before this
+    // lock could become stale while a membership change is finishing.
+    const currentMembership = await getHouseholdMembershipAuthz(householdId, userId)
+    if (!currentMembership || (body.action !== "deleteHousehold" && !canPerformAction(currentMembership.role, String(body.action)))) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
     await recheckNativeKioskFlow(lockClient, userId, sessionId, request)
     const created = creation ? await findPlannerCreation(lockClient, householdId, userId, creation) : null
     const entitlement = created ? await getHouseholdEntitlement(lockClient, householdId) : await enforceFlowEntitlements(lockClient, householdId, body)
-    const response = await handleFlowPost(request, { userId, body, membership, creation, created, automationAllowed: entitlement.limits?.automation ?? false })
+    const response = await handleFlowPost(request, { userId, body, membership: currentMembership, creation, created, automationAllowed: entitlement.limits?.automation ?? false })
     if (response.ok && process.env.NATIVE_PUSH_ENABLED === "true") {
       // The transaction already owns the durable event. Sending never blocks its response;
       // the scheduled worker recovers if this post-response attempt is interrupted.
@@ -1850,9 +1858,11 @@ async function handleFlowPost(request: Request, context?: {
   }
 
   if (action === "createTaskBoard") {
-    const title = String(body?.title ?? "").trim() || "New task board"
-    const scheduledFor = String(body?.scheduledFor ?? new Date().toISOString())
-    const result = await db.query(
+    const input = taskBoardCreationInput(body)
+    const client = await db.connect()
+    try {
+      await client.query("BEGIN")
+      const result = await client.query(
       `insert into routine_occurrences (
          routine_id,
          household_id,
@@ -1864,9 +1874,16 @@ async function handleFlowPost(request: Request, context?: {
        )
        values (null, $1, 'manual', $2, $3::timestamptz, 'active', $4)
        returning id, routine_id, household_id, kind, title, scheduled_for, status`,
-      [householdId, title, scheduledFor, userId],
-    )
-    return NextResponse.json({ occurrence: result.rows[0] })
+        [householdId, input.title, input.scheduledFor ?? new Date().toISOString(), userId],
+      )
+      const response = { occurrence: result.rows[0] }
+      await recordPlannerCreation(client, householdId, userId, context?.creation ?? null, result.rows[0].id, response)
+      await client.query("COMMIT")
+      return NextResponse.json(response)
+    } catch (error) {
+      await client.query("ROLLBACK")
+      throw error
+    } finally { client.release() }
   }
 
   if (action === "renameTaskBoard") {
@@ -2307,6 +2324,13 @@ async function handleFlowPost(request: Request, context?: {
 
   if ((action === "createTask" || action === "updateTask") && Object.hasOwn(body, "prerequisiteIds")) {
     try {
+      if (body.occurrenceId) {
+        return NextResponse.json(await saveRunTask(householdId, userId, { ...body, isNew: action === "createTask" }, context?.creation ?? null, async (client, occurrenceId) => {
+          await recomputeOccurrenceStatuses(client, occurrenceId)
+          await materializeDeferredExpiryForUnlockedTasks(client, occurrenceId)
+          await applyRewardAutoCompletion(client, occurrenceId)
+        }))
+      }
       const task = await savePlannerTask(householdId, userId, { ...body, isNew: action === "createTask" }, context?.creation ?? null)
       return NextResponse.json({ task })
     } catch (error) {

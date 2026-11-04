@@ -36,6 +36,8 @@ test('planner creation routes recover lost replies at capacity, reject altered r
   await db.query(migration); await db.query(migration)
   const startMigration = readFileSync(path.resolve(__dirname, '../database/0021_routine_start_receipts.sql'), 'utf8')
   await db.query(startMigration); await db.query(startMigration)
+  const boardMigration = readFileSync(path.resolve(__dirname, '../database/0040_task_board_creation_receipts.sql'), 'utf8')
+  await db.query(boardMigration); await db.query(boardMigration)
   await db.query(readFileSync(path.resolve(__dirname, '../database/0017_task_edit_versions.sql'), 'utf8'))
   await db.query(readFileSync(path.resolve(__dirname, '../database/0019_occurrence_status_versions.sql'), 'utf8'))
   await db.query(readFileSync(path.resolve(__dirname, '../database/0025_native_notification_events.sql'), 'utf8'))
@@ -71,7 +73,7 @@ test('planner creation routes recover lost replies at capacity, reject altered r
   }
   mocks['@/shared/scheduling'] = load('shared/scheduling.ts')
   mocks['@/shared/routine-planner-graph'] = load('shared/routine-planner-graph.ts')
-  for (const name of ['planner-creation', 'routine-planner', 'task-edit-version', 'save-planner-task', 'time-rules']) mocks[`@/lib/${name}`] = load(`lib/${name}.ts`)
+  for (const name of ['planner-creation', 'routine-planner', 'task-edit-version', 'save-planner-task', 'time-rules', 'save-run-task']) mocks[`@/lib/${name}`] = load(`lib/${name}.ts`)
   const recurrenceFile = path.resolve(__dirname, '../lib/recurrence.ts'), recurrence = new Module(recurrenceFile, module)
   recurrence._compile(buildSync({ entryPoints: [recurrenceFile], bundle: true, platform: 'node', format: 'cjs', write: false }).outputFiles[0].text, recurrenceFile)
   mocks['@/lib/recurrence'] = recurrence.exports
@@ -188,4 +190,101 @@ test('planner creation routes recover lost replies at capacity, reject altered r
   assert.equal((await db.query('select count(*)::int n from routines')).rows[0].n, 0, 'receipt and routine roll back together')
   await db.query('drop trigger interrupt_receipt on planner_creations')
   assert.equal((await send(interrupted)).status, 200, 'an uncommitted attempt can retry')
+
+  await t.test('one-off board creation is atomic, replayable and never resurrects a removed board', async () => {
+    const before = (await db.query('select count(*)::int n from routine_occurrences')).rows[0].n
+    const eventBaseline = await events()
+    const body = { action: 'createTaskBoard', title: '  Weekend jobs  ', creationId: randomUUID() }
+    const createdResponse = await send(body)
+    assert.equal(createdResponse.status, 200)
+    const created = await createdResponse.json()
+    assert.equal(created.occurrence.title, 'Weekend jobs')
+    assert.equal(created.occurrence.kind, 'manual'); assert.equal(created.occurrence.routine_id, null)
+    assert.equal(created.occurrence.household_id, householdId)
+    denied = true
+    assert.deepEqual(await (await send(body)).json(), created, 'lost reply uses the original board and server start time at full quota')
+    assert.equal((await db.query('select count(*)::int n from routine_occurrences')).rows[0].n, before + 1)
+    assert.equal((await send({ ...body, title: 'Different board' })).status, 409)
+    assert.equal((await send({ ...body, title: 'x'.repeat(201) })).status, 400)
+    assert.equal((await send({ ...body, scheduledFor: 'bad' })).status, 400)
+    assert.equal((await send({ ...body, creationId: randomUUID() })).status, 402)
+    kiosk = true
+    assert.equal((await send(body)).status, 423, 'receipt replay does not bypass kiosk protection')
+    kiosk = false; member = false
+    assert.equal((await send(body)).status, 403, 'receipt replay does not bypass revoked membership')
+    member = true; denied = false
+    for (const migrationName of ['0020_planner_creations.sql', '0021_routine_start_receipts.sql', '0022_routine_schedule_receipts.sql', '0040_task_board_creation_receipts.sql']) {
+      await db.query(readFileSync(path.resolve(__dirname, '../database', migrationName), 'utf8'))
+    }
+    assert.deepEqual(await (await send(body)).json(), created, 'reapplying older migrations preserves newer receipts')
+    await db.query('delete from routine_occurrences where id=$1', [created.occurrence.id])
+    assert.equal((await send(body)).status, 410)
+    await db.query('create trigger interrupt_board_receipt before insert on planner_creations for each row execute function fail_receipt()')
+    const interruptedBoard = { ...body, creationId: randomUUID() }
+    await assert.rejects(send(interruptedBoard), /Interrupted receipt/)
+    assert.equal((await db.query('select count(*)::int n from routine_occurrences')).rows[0].n, before, 'board and receipt roll back together')
+    await db.query('drop trigger interrupt_board_receipt on planner_creations')
+    assert.equal((await send(interruptedBoard)).status, 200)
+    assert.deepEqual(await events(), eventBaseline, 'an empty one-off board does not pretend a routine was started')
+  })
+
+  await t.test('live board task edits atomically preserve templates, timing and task state while enforcing run boundaries', async () => {
+    const board = (await (await send({action:'createTaskBoard',title:'Live edits',creationId:randomUUID()})).json()).occurrence
+    const sourceId=randomUUID(), rewardId=randomUUID(), templateTask=randomUUID()
+    const template=(await db.query('select id from routines limit 1')).rows[0].id
+    await db.query("insert into tasks(id,household_id,routine_id,title,is_reward,status,position_x,position_y) values($1,$2,$3,'Template only',false,'locked',25,35)",[templateTask,householdId,template])
+    const templateBefore=(await db.query('select * from tasks where id=$1',[templateTask])).rows[0]
+    const source={action:'createTask',occurrenceId:board.id,taskId:sourceId,isNew:true,title:'Pack the bag',notes:'Lunch and water',isReward:false,assigneeIds:['child'],prerequisiteIds:[],creationId:randomUUID()}
+    let response=await send(source); assert.equal(response.status,200)
+    const first=await response.json()
+    assert.equal(first.task.routine_id,null); assert.equal(first.task.routine_occurrence_id,board.id)
+    assert.equal(first.occurrenceTaskStatus.status,'unlocked')
+    denied=true
+    assert.deepEqual(await (await send(source)).json(),first,'a lost live-task reply replays without creating another item')
+    denied=false
+    const reward={...source,taskId:rewardId,title:'Choose a story',isReward:true,prerequisiteIds:[sourceId],creationId:randomUUID()}
+    response=await send(reward); assert.equal(response.status,200)
+    assert.equal((await response.json()).occurrenceTaskStatus.status,'locked')
+    const edit={...source,action:'updateTask',isNew:false,creationId:undefined,saveStreamId:randomUUID(),saveId:randomUUID(),saveRevision:10,
+      timing:{unlockRule:{kind:'fixed',date:'2035-01-02',time:'08:00'},expiryRule:{kind:'fixed',date:'2035-01-03',time:'09:00'},unlockCombiner:'and'},
+      unlockAtOverride:'2035-01-02T09:15:00+11:00',expiryAtOverride:'2035-01-03T10:30:00+11:00'}
+    response=await send(edit); assert.equal(response.status,200)
+    const timed=await response.json()
+    assert.equal(timed.occurrenceTaskStatus.status,'locked'); assert.ok(timed.task.unlock_at); assert.ok(timed.task.expires_at)
+    assert.equal(timed.task.unlock_at,new Date(edit.unlockAtOverride).toISOString()); assert.equal(timed.task.expires_at,new Date(edit.expiryAtOverride).toISOString())
+    assert.equal((await send({...edit,unlockAtOverride:'invalid'})).status,400)
+    const renamed={...edit,title:'Renamed live task',timing:undefined,unlockAtOverride:undefined,expiryAtOverride:undefined,saveId:randomUUID(),saveRevision:11}
+    response=await send(renamed); assert.equal(response.status,200)
+    const renamedResult=await response.json()
+    assert.equal(renamedResult.task.unlock_at,timed.task.unlock_at); assert.equal(renamedResult.task.expires_at,timed.task.expires_at)
+    assert.equal(renamedResult.task.position_x,first.task.position_x); assert.equal(renamedResult.task.position_y,first.task.position_y)
+    assert.equal((await send({...renamed,taskId:templateTask,routineId:template})).status,400,'template must match the run')
+    assert.equal((await send({...renamed,taskId:templateTask})).status,404,'a run ID cannot disguise a template edit')
+    assert.equal((await send({...renamed,prerequisiteIds:[templateTask],saveRevision:12})).status,400,'template prerequisites cannot leak into a live board')
+    assert.equal((await send({...renamed,prerequisiteIds:[rewardId],saveRevision:12})).status,400,'cycles roll back the revision claim')
+    const otherRun=(await (await send({action:'createTaskBoard',title:'Other board',creationId:randomUUID()})).json()).occurrence
+    assert.equal((await send({...renamed,occurrenceId:otherRun.id,saveRevision:12})).status,404,'a task cannot be edited through another run')
+    const clear={...renamed,title:'Ready again',saveId:randomUUID(),saveRevision:12,timing:{unlockRule:null,expiryRule:null,unlockCombiner:'and'}}
+    await db.query('create trigger interrupt_live_assignment before insert on task_assignees for each row execute function fail_assignment()')
+    assert.equal((await send(clear)).status,500)
+    assert.equal((await db.query('select title from tasks where id=$1',[sourceId])).rows[0].title,renamed.title)
+    assert.equal((await db.query('select unlock_at from tasks where id=$1',[sourceId])).rows[0].unlock_at.toISOString(),timed.task.unlock_at)
+    await db.query('drop trigger interrupt_live_assignment on task_assignees')
+    response=await send(clear); assert.equal(response.status,200)
+    assert.equal((await response.json()).occurrenceTaskStatus.status,'unlocked','rolled-back revision can be retried')
+    response=await send(edit); assert.equal(response.status,200)
+    assert.equal((await response.json()).task.title,clear.title,'an older edit cannot reapply relative/absolute timing or overwrite newer metadata')
+    await db.query("update occurrence_tasks set status='completed' where occurrence_id=$1 and task_id=$2",[board.id,sourceId])
+    response=await send({...clear,title:'Completed task renamed',timing:undefined,saveRevision:13,saveId:randomUUID()})
+    assert.equal(response.status,200); assert.equal((await response.json()).occurrenceTaskStatus.status,'completed','metadata edit does not reopen completed task')
+    assert.deepEqual((await db.query('select * from tasks where id=$1',[templateTask])).rows[0],templateBefore)
+    assert.equal((await db.query('select count(*)::int n from tasks where routine_occurrence_id=$1',[otherRun.id])).rows[0].n,0)
+    const checksBefore=admissionChecks
+    assert.equal((await send({...source,occurrenceId:'invalid'})).status,400)
+    assert.equal(admissionChecks,checksBefore,'invalid structured run edits fail before entitlement SQL')
+    await db.query("update routine_occurrences set status='cancelled' where id=$1",[board.id])
+    assert.equal((await send({...clear,saveRevision:14})).status,409)
+    await db.query('delete from tasks where id=$1',[sourceId])
+    assert.equal((await send(source)).status,410,'removed live tasks cannot be recreated by a delayed retry')
+  })
 })

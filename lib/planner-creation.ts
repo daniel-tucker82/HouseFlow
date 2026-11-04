@@ -4,7 +4,17 @@ import type { PoolClient } from "pg"
 export class PlannerCreationError extends Error {
   constructor(message: string, public status = 400) { super(message) }
 }
-export interface PlannerCreation { id: string; action: "createRoutine" | "createTask" | "createOccurrence" | "saveRoutineSchedule"; hash: string }
+export interface PlannerCreation { id: string; action: "createRoutine" | "createTask" | "createOccurrence" | "saveRoutineSchedule" | "createTaskBoard"; hash: string; occurrenceId?: string }
+
+export function taskBoardCreationInput(body: Record<string, unknown>) {
+  if (body.title !== undefined && typeof body.title !== "string") throw new PlannerCreationError("Enter a task board name.")
+  const title = String(body.title ?? "").trim() || "New task board"
+  if (title.length > 200) throw new PlannerCreationError("Use a task board name up to 200 characters.")
+  if (body.scheduledFor !== undefined && (typeof body.scheduledFor !== "string" || !Number.isFinite(Date.parse(body.scheduledFor)))) {
+    throw new PlannerCreationError("Choose a valid task board start time.")
+  }
+  return { title, scheduledFor: body.scheduledFor as string | undefined }
+}
 
 function canonical(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonical)
@@ -12,6 +22,7 @@ function canonical(value: unknown): unknown {
   return value
 }
 export function parsePlannerCreation(body: Record<string, unknown>): PlannerCreation | null {
+  if (body.action === "createTaskBoard") taskBoardCreationInput(body)
   if (body.action === "createOccurrence" && (typeof body.routineId !== "string" ||
     !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.routineId) ||
     (body.scheduledFor !== undefined && (typeof body.scheduledFor !== "string" || !Number.isFinite(Date.parse(body.scheduledFor)))))) {
@@ -19,11 +30,12 @@ export function parsePlannerCreation(body: Record<string, unknown>): PlannerCrea
   }
   if (body.creationId === undefined) return null
   if (typeof body.creationId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.creationId) ||
-    !["createRoutine", "createTask", "createOccurrence", "saveRoutineSchedule"].includes(String(body.action)) ||
-    (body.action === "createTask" && (!Object.hasOwn(body, "prerequisiteIds") || body.occurrenceId))) {
+    !["createRoutine", "createTask", "createOccurrence", "saveRoutineSchedule", "createTaskBoard"].includes(String(body.action)) ||
+    (body.action === "createTask" && !Object.hasOwn(body, "prerequisiteIds"))) {
     throw new PlannerCreationError("Invalid routine creation request.")
   }
-  return { id: body.creationId, action: body.action as PlannerCreation["action"], hash: createHash("sha256").update(JSON.stringify(canonical(body))).digest("hex") }
+  return { id: body.creationId, action: body.action as PlannerCreation["action"], hash: createHash("sha256").update(JSON.stringify(canonical(body))).digest("hex"),
+    ...(body.action === "createTask" && typeof body.occurrenceId === "string" ? { occurrenceId: body.occurrenceId } : {}) }
 }
 
 /** Caller holds the household write lock and has checked current membership.
@@ -38,9 +50,10 @@ export async function findPlannerCreation(client: PoolClient, householdId: strin
   if (row.result.dataRemoved === true) throw new PlannerCreationError("This saved response included data that has been removed. Refresh the household.", 410)
   const exists = await client.query(creation.action === "createRoutine" || creation.action === "saveRoutineSchedule"
     ? "select id from routines where id=$1::uuid and household_id=$2::uuid"
-    : creation.action === "createOccurrence"
+    : creation.action === "createOccurrence" || creation.action === "createTaskBoard"
       ? "select id from routine_occurrences where id=$1::uuid and household_id=$2::uuid"
-      : "select id from tasks where id=$1::uuid and household_id=$2::uuid and routine_occurrence_id is null", [row.entity_id, householdId])
+      : "select id from tasks where id=$1::uuid and household_id=$2::uuid and routine_occurrence_id is not distinct from $3::uuid",
+    creation.action === "createTask" ? [row.entity_id, householdId, creation.occurrenceId ?? null] : [row.entity_id, householdId])
   if (!exists.rowCount) throw new PlannerCreationError("This item was saved, then removed. It has not been recreated.", 410)
   return row.result
 }

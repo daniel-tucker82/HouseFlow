@@ -84,7 +84,7 @@ test('PostgreSQL migrations, quotas, identity, isolation and scheduler integrati
         ]) await assert.rejects(enforceFlowEntitlements(client,hh,body),e=>e.status===402)
         await assert.rejects(enforceFlowEntitlements(client,hh,{
           action:'createTask',routineId:routine,occurrenceId:randomUUID(),prerequisiteIds:[],
-        }),e=>e.status===400)
+        }),e=>e.status===404)
         const endpoints = await client.query("select id from tasks where routine_id=$1 limit 2",[routine])
         await enforceFlowEntitlements(client,hh,{action:'createDependency',sourceTaskId:endpoints.rows[0].id,targetTaskId:endpoints.rows[1].id})
         await enforceFlowEntitlements(client,hh,{action:'createOccurrence',routineId:routine})
