@@ -53,6 +53,7 @@ jobs:
         run: |
           npm ci --no-audit --no-fund
           node --test scripts/device-screenshot-evidence.test.cjs
+          node --test scripts/check-build-env.test.cjs
       - name: Verify native account-cache inspection
         run: |
           set -o pipefail

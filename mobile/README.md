@@ -266,6 +266,37 @@ starts an unsigned Simulator build once the project and environment are linked.
 Device/store builds additionally need the appropriate signing and push-provider
 configuration. Preserve the existing `com.cyntch.app` identifiers.
 
+Android Firebase client configuration is supplied through `GOOGLE_SERVICES_JSON`:
+use an absolute file path in the ignored local `.env.local`, or an EAS file
+environment variable in the selected build environment. `app.config.js` extends
+`app.json` with `android.googleServicesFile`; it does not embed the JSON contents
+in the JavaScript configuration. Android preview/production build validation
+requires this file and checks the package/project identifiers. It rejects a
+service-account private key. Simulator/iOS and credential-free development
+compilation remain available without this Android file.
+
+Read-only Firebase inspection on 2026-11-04 confirmed the existing project
+`cyntch-2358a`, Android app `com.cyntch.app`, and enabled Cloud Messaging V1 API.
+Its existing client configuration was downloaded for local build preparation.
+No new project, app registration, service-account credential or access grant was
+created. The downloaded client file and signing/service credentials are excluded
+from Git and the EAS source archive. Supply the client file separately through
+EAS environment configuration. FCM V1 sending credentials still need to be
+configured in the linked Expo project, and iOS needs APNs credentials; this
+inspection does not establish token registration or delivered push notifications.
+References: [Expo Android push credentials](https://docs.expo.dev/push-notifications/fcm-credentials/)
+and [dynamic app configuration](https://docs.expo.dev/workflow/configuration/).
+
+The isolated Expo 58 Android prebuild at
+`C:/Users/danie/.codex/tmp/cyntch-firebase-prebuild-20261104` completed with this
+downloaded client file. Its generated `android/app/google-services.json` matches
+the source byte-for-byte; Gradle includes Google's services plugin and classpath.
+`firebase-prebuild-evidence.json` records that check. Four automated build-config
+checks cover required environments, malformed/mismatched files, private-key
+rejection without disclosure and preservation of existing app settings. Mobile
+lint and type checking passed. Native compilation with Firebase configuration
+and on-device registration/delivery remain unverified.
+
 The root `.easignore` uploads `mobile`, `shared`, and the three package-free
 calendar/type utilities in `lib`. It excludes generated app projects while
 retaining the local Expo module's Android and Swift sources. Update the allowlist
