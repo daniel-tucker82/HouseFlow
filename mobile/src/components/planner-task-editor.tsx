@@ -4,6 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context"
 import { Check } from "lucide-react-native"
 import { plannerDescendants, type PlannerSnapshot, type PlannerTaskDraft } from "../../../shared/mobile/planner"
 import type { RunTaskDraft } from "../../../shared/mobile/run-editor"
+import { changeRunTaskTiming, runTimingInstants } from "../../../shared/mobile/run-timing"
 import { Action, Card, Copy, styles, usePalette } from "./ui"
 import { timingForTask } from "../../../shared/scheduling"
 import { PlannerTaskTiming } from "./planner-task-timing"
@@ -68,7 +69,14 @@ export function PlannerTaskEditor<D extends PlannerTaskDraft | RunTaskDraft>({ i
             {candidates.length ? candidates.map(task => <PlannerChoice key={task.id} label={task.title} selected={draft.prerequisiteIds.includes(task.id)} onPress={() => toggle("prerequisiteIds", task.id)} />)
               : <Copy tone="muted">There are no earlier tasks to choose from yet.</Copy>}
           </Card>
-          <PlannerTaskTiming value={timing} timezone={timezone} live={live} legacy={draft.timing === undefined && Boolean(task?.scheduled_time || task?.unlock_at || task?.expires_at)} onChange={timing => update({ timing })} />
+          <PlannerTaskTiming value={timing} timezone={timezone} live={live} changed={draft.timing !== undefined}
+            instants={"occurrenceId" in draft ? runTimingInstants(draft, task) : undefined}
+            legacy={draft.timing === undefined && Boolean(task?.scheduled_time || task?.unlock_at || task?.expires_at)}
+            onChange={(timing, field) => {
+              if (busy) return
+              if ("occurrenceId" in draft) { const next = changeRunTaskTiming(draft, task, timing, field) as D; setDraft(next); onDraft(next) }
+              else update({ timing })
+            }} />
           <Action label={busy ? "Saving…" : draft.isNew ? "Add task" : "Save changes"} disabled={busy || !draft.title.trim()} onPress={() => onSave(draft)} />
         </ScrollView>
       </KeyboardAvoidingView>

@@ -50,6 +50,38 @@ test('native one-off boards and structured run edits enforce real roles, quotas,
   assert.equal((await f.db.query('select title from tasks where id=$1',[templateTask])).rows[0].title,'Keep template')
 })
 
+test('native timing edits preserve untouched instants and apply changed dates in the household timezone', {skip:!connectionString}, async t=>{
+  const f=await fixture(t),{POST,GET}=f.load(['app/api/leader/flow/route.ts'],next)
+  const {MobileApi,changeRunTaskTiming,runTaskDraft}=f.load(['mobile/src/services/api.ts','shared/mobile/run-timing.ts','shared/mobile/run-editor.ts'])
+  await f.db.query("update household_billing set paid_through=now()+interval '5 days' where household_id=$1",[f.transfer])
+  await f.db.query("update households set timezone='Australia/Sydney' where id=$1",[f.transfer])
+  const original=global.fetch
+  global.fetch=async(url,init)=>(init?.method==='POST'?POST:GET)(new Request(url,init))
+  t.after(()=>{global.fetch=original})
+  const api=new MobileApi('https://fixture.cyntch.test',f.owner,f.scope.deviceId,async()=>'fixture',async()=>f.secret,f.scope.sessionId)
+  const run=(await api.request('/api/leader/flow',{action:'createTaskBoard',householdId:f.transfer,title:'Timing board',creationId:randomUUID()})).occurrence.id
+  const taskId=randomUUID(),activation='2027-04-03T16:30:45.123Z',expiry='2027-04-05T03:00:00.000Z'
+  const timing={unlockRule:{kind:'after_generation_days',days:10,time:'02:30'},expiryRule:{kind:'fixed',date:'2027-04-05',time:'13:00'},unlockCombiner:'and'}
+  const operation=draft=>({id:randomUUID(),accountId:f.owner,householdId:f.transfer,deviceId:f.scope.deviceId,revision:++revision,deviceTimeMs:Date.now(),draft})
+  let revision=0
+  await api.saveRunEdit(operation({taskId,occurrenceId:run,routineId:null,isNew:true,title:'Timed task',notes:'',isReward:false,assigneeIds:[f.successor],prerequisiteIds:[],timing,unlockAtOverride:activation,expiryAtOverride:expiry}))
+  let data=await api.runEditor(f.transfer,run),task=data.tasks[0]
+  assert.equal(task.unlock_at,activation)
+  let draft=changeRunTaskTiming(runTaskDraft(data,task),task,{...timing,expiryRule:{kind:'fixed',date:'2027-04-06',time:'09:15'}},'expiry')
+  const edit=operation(draft),saved=await api.saveRunEdit(edit)
+  assert.equal(saved.task.unlock_at,activation,'expiry change retains the later repeated hour, milliseconds and original activation')
+  assert.equal(saved.task.expires_at,'2027-04-05T23:15:00.000Z')
+  assert.equal((await api.saveRunEdit(edit)).task.unlock_at,activation,'retry cannot restart the retained relative activation')
+  data=await api.runEditor(f.transfer,run);task=data.tasks[0]
+  draft=changeRunTaskTiming(runTaskDraft(data,task),task,{...timing,expiryRule:task.expiry_rule,unlockCombiner:'or'},'combiner')
+  const combined=await api.saveRunEdit(operation(draft))
+  assert.equal(combined.task.unlock_at,activation);assert.equal(combined.task.expires_at,saved.task.expires_at)
+  draft=changeRunTaskTiming(draft,task,{unlockRule:null,expiryRule:null,unlockCombiner:'and'},'all')
+  const cleared=await api.saveRunEdit(operation(draft))
+  assert.equal(cleared.task.unlock_at,null);assert.equal(cleared.task.expires_at,null)
+  assert.equal(cleared.occurrenceTaskStatus.status,'unlocked')
+})
+
 test('flow authorizes board writes and receipt replays under the household lock', {skip:!connectionString}, async t=>{
   const f=await fixture(t),authz=f.load(['lib/household-authz.ts'])
   await f.db.query("update household_billing set paid_through=now()+interval '5 days' where household_id=$1",[f.transfer])

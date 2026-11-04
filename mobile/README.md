@@ -2212,3 +2212,40 @@ React Native reload shortcut in a modal. Separating those keys by more than its
 No ANR/crash event was recorded in this session. This does not resolve the earlier
 ANR or establish release-device performance, physical iOS behavior or readiness
 for store release.
+
+### Live activation and expiry controls
+
+Live task forms now show the resolved activation and expiry in the household's
+timezone. Choosing a fixed date starts from the saved time. Changing expiry or
+the prerequisite combiner preserves an untouched activation exactly, including
+seconds, milliseconds and the later occurrence of a repeated daylight-saving
+hour. Changing activation preserves independent expiry; expiry based on
+activation is recalculated. Clear all timing explicitly removes both settings.
+Edited relative rules retain the existing server sync-time baseline, explained
+in the form. Ordinary metadata changes still omit timing entirely.
+
+Verification: 23 focused timing/editor tests and 37 scheduling/planner tests
+passed, including real PostgreSQL and SQLite. These cover timezone boundaries,
+successive edits, dependent expiry, retries, exact saved times and clearing.
+Mobile lint/types and targeted root lint passed. Final export/type results and
+runtime evidence are recorded in
+`C:/Users/danie/.codex/tmp/cyntch-live-timing-runtime.json`.
+
+On the API 36 Android development client, a changed expiry date survived an app
+stop and emulator restart in the local draft. Saving offline produced a durable
+queue entry with the original exact activation override. Reconnection applied
+the new household-local expiry and retained the activation on the server, then
+cleared the queue. Native Clear all timing restored the fixture's original
+timing and availability; the temporary local billing entitlement was restored,
+with no pending edits or drafts left behind. No production changes were made.
+
+The reduced-memory emulator run produced a 5,093ms focus-event ANR. Its captured
+main-thread stack waited in window relayout/Binder, with high CPU pressure; this
+does not establish its cause. A normal-memory restart initially could not reach
+Metro with network disabled; after connectivity recovered, the test completed.
+Diagnostics are `cyntch-live-timing-anr.txt` and
+`cyntch-live-timing-anr-dropbox.txt` in the evidence directory. Release-build and
+physical-device startup/performance checks remain open. During offline switching,
+the form also moved back to its top while automation was targeting Save; an
+unintended assignee selection was corrected before submission. Background-error
+scroll behavior needs investigation before the interaction is considered polished.
