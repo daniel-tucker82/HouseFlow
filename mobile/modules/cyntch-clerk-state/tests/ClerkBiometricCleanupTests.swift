@@ -33,7 +33,7 @@ struct ClerkBiometricCleanupTests {
     var keepKey = false
     var afterRemove: (() throws -> Void)?
     init(_ records: [[String: Any]]?, keys: Set<String> = []) throws {
-      snapshot = try records.map { ClerkBiometricSnapshot(reference: Data("fixture".utf8), data: ClerkBiometricCleanupTests.data($0)) }
+      snapshot = try records.map { ClerkBiometricSnapshot(reference: Data("fixture".utf8), data: try ClerkBiometricCleanupTests.data($0)) }
       self.keys = keys
     }
     func read() throws -> ClerkBiometricSnapshot? { snapshot }

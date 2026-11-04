@@ -2038,8 +2038,9 @@ This supersedes the earlier limitation about observing loaded clients only.
 It proves only a point-in-time profile-cache observation. Biometric credentials,
 late SDK callbacks, shared device credentials, out-of-band deletion and complete
 provider deletion/restart tests remain separate release requirements. **Keep
-deletion submission disabled.** iOS native compilation and device execution are
-still unverified; an iOS JavaScript export cannot establish either.
+deletion submission disabled.** Native iOS compilation subsequently passed in
+run `41807271365`; device execution is still unverified. An iOS JavaScript export
+cannot establish either.
 
 Verification: 31 JavaScript recovery/cache tests and eight Android native unit
 tests passed, along with root/mobile lint, mobile TypeScript, Android APK build
@@ -2084,14 +2085,14 @@ Failures retain the receipt. The existing eight-second UI timeout does not
 cancel the underlying work or allow a retry to overtake it. There is no extra
 request, key inspection or disk work on ordinary task saves.
 
-**This erasure method is currently implemented on Android only.** ClerkKit
-1.6.2 exposes its account-scoped local-forget method only within its Swift
+ClerkKit 1.6.2 exposes its account-scoped local-forget method only within its Swift
 package; inspection of 1.7.1 found the same restriction. Its public current-device
 revocation method requires an active session, so it is not sufficient for
 interrupted recovery after server-side deletion. The JavaScript boundary rejects
-a missing erasure method, including on iOS, instead of reporting cleanup as
-complete. The supported iOS cleanup path, native verification, late enrollment
-callbacks and end-to-end deletion remain unfinished. Deletion submission stays
+a missing erasure method in older native builds instead of reporting cleanup as
+complete. The newer iOS private-store adapter and its verification are described
+near the top of this README. Late enrollment callbacks, real biometric keys and
+end-to-end deletion remain unfinished. Deletion submission stays
 disabled. See the pinned
 [ClerkKit implementation](https://github.com/clerk/clerk-ios/blob/1.6.2/Sources/ClerkKit/Core/BiometricCredentials.swift).
 
