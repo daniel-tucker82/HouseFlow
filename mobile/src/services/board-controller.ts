@@ -144,9 +144,12 @@ export class BoardController {
 
   /** A confirmed run mutation updates SQLite first. Invalidate earlier network
    * reads before publishing it so Today cannot restore an old name/deleted run. */
-  async reloadAfterRunChange() {
-    this.mutationRevision++; this.refreshRevision++
+  invalidateRunReads() {
+    this.mutationRevision++; this.refreshRevision++; this.readRevision++
     this.update({ refreshing: false })
+  }
+  async reloadAfterRunChange() {
+    this.invalidateRunReads()
     await this.readLocal()
   }
 

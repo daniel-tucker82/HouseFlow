@@ -71,10 +71,13 @@ export function RuntimeProvider({ children, accountId, sessionId, restricted = f
           && controller?.getSelectedHouseholdId() === householdId
       })
       runEditor = new RunEditorController(store.runEditor, accountId, deviceId, api, randomUUID,
-        async () => { await Promise.all([controller?.refresh(), runs?.reloadAfterCreation()]) }, () => runs?.invalidateCreationReads(),
+        async () => { await Promise.all([controller?.refresh(), runs?.reloadAfterCreation()]) }, () => { runs?.invalidateCreationReads(); controller?.invalidateRunReads() },
         async (householdId, occurrenceId, taskId) => {
           await controller?.reloadAfterRunChange()
           await store.removeRunTask(accountId, householdId, occurrenceId, taskId)
+          await controller?.reloadAfterRunChange()
+        }, async () => {
+          runs?.invalidateCreationReads()
           await controller?.reloadAfterRunChange()
         })
       notifications = new NotificationController(store.notifications.forSession(accountId, sessionId), accountId, api, createNotificationDevice(store.notificationSessions), randomUUID,

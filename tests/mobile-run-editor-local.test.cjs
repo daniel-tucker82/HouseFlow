@@ -3,8 +3,8 @@ const { test } = require('node:test'), assert = require('node:assert/strict'), {
 const { DatabaseSync } = require('node:sqlite'), { buildSync } = require('esbuild'), Module = require('node:module')
 const fs = require('node:fs'), path = require('node:path'), os = require('node:os')
 const loaded = new Module(__filename, module)
-loaded._compile(buildSync({ stdin: { contents: 'export * from "./mobile/src/storage/local-store"; export * from "./mobile/src/services/run-editor-controller"; export * from "./mobile/src/storage/sync-engine";', resolveDir: path.resolve(__dirname, '..') }, bundle: true, platform: 'node', format: 'cjs', write: false }).outputFiles[0].text, __filename)
-const { LocalStore, RunEditorController, TransportError } = loaded.exports
+loaded._compile(buildSync({ stdin: { contents: 'export * from "./mobile/src/storage/local-store"; export * from "./mobile/src/services/run-editor-controller"; export * from "./mobile/src/services/board-controller"; export * from "./mobile/src/services/runs-controller"; export * from "./mobile/src/storage/sync-engine";', resolveDir: path.resolve(__dirname, '..') }, bundle: true, platform: 'node', format: 'cjs', write: false }).outputFiles[0].text, __filename)
+const { LocalStore, RunEditorController, BoardController, RunsController, TransportError } = loaded.exports
 const household = { id: 'h1', name: 'Home', role: 'manager', leaderId: 'parent', timezone: 'Australia/Sydney' }
 function snapshot(occurrenceId = 'run1') {
   return { householdId: 'h1', occurrence: { id: occurrenceId, household_id: 'h1', routine_id: null, title: 'Saturday', status: 'active' },
@@ -37,6 +37,125 @@ function until(controller, predicate) {
   if (predicate(controller.getSnapshot())) return Promise.resolve()
   return new Promise(resolve => { const stop = controller.subscribe(() => { if (predicate(controller.getSnapshot())) { stop(); resolve() } }) })
 }
+
+async function cacheViews(f) {
+  const task = { id: 'task1', occurrence_id: 'run1', occurrence_title: 'Saturday', occurrence_kind: 'manual', title: 'Pack bag', description: 'Original',
+    status: 'unlocked', status_version: '23', assignee_ids: ['child'], is_reward: false, lock_type: 'none', blocking_task_title: null,
+    unlock_at: '2026-11-04T01:00:00Z', expires_at: '2026-11-05T01:00:00Z' }
+  const dependent = { ...task, id: 'dependent', title: 'After bag', status: 'locked', lock_type: 'prerequisite', blocking_task_id: 'task1', blocking_task_title: 'Pack bag', blocking_task_assignee_ids: ['child'] }
+  const board = { household, members: snapshot().members, tasks: [task, dependent, { ...task, occurrence_id: 'run2' }], fetchedAt: new Date().toISOString() }
+  const run = { ...board, tasks: [task, dependent], run: { id: 'run1', title: 'Saturday', routine_id: null, kind: 'manual', status: 'active', total_tasks: 2, completed_tasks: 0, scheduled_for: board.fetchedAt } }
+  await f.local.cacheBoard('parent', board); await f.local.cacheRun('parent', run)
+  await f.local.cacheRunPage('parent', { householdId: 'h1', view: 'active', items: [run.run], nextCursor: null, fetchedAt: board.fetchedAt })
+  return { task, board, run }
+}
+
+test('pending live metadata appears across cached task screens through restart and refresh without altering task state', async t => {
+  const f = await fixture(t), { board, run } = await cacheViews(f)
+  await f.local.cacheBoard('another', board)
+  const value = draft({ title: 'New bag name', notes: 'New note', assigneeIds: ['parent'], isReward: true,
+    timing: { unlockRule: null, expiryRule: null, unlockCombiner: 'and' } })
+  await f.local.runEditor.enqueue('parent', 'h1', 'device', 'metadata1', value)
+  await f.reopen()
+  // Even an older network snapshot must retain the durable overlay.
+  await f.local.cacheBoard('parent', board); await f.local.cacheRun('parent', run)
+  for (const view of [await f.local.getBoard('parent', 'h1'), await f.local.getRun('parent', 'h1', 'run1'), (await f.local.getBoards('parent'))[0]]) {
+    const changed = view.tasks.find(task => task.id === 'task1' && task.occurrence_id === 'run1')
+    assert.equal(changed.title, 'New bag name'); assert.equal(changed.description, 'New note'); assert.equal(changed.is_reward, true)
+    assert.deepEqual(changed.assignee_ids, ['parent']); assert.equal(changed.metadata_sync, 'pending')
+    assert.equal(changed.status, 'unlocked'); assert.equal(changed.status_version, '23'); assert.equal(changed.unlock_at, board.tasks[0].unlock_at)
+    assert.equal(changed.expires_at, board.tasks[0].expires_at)
+    const dependent = view.tasks.find(task => task.id === 'dependent')
+    assert.equal(dependent.blocking_task_title, 'New bag name'); assert.deepEqual(dependent.blocking_task_assignee_ids, ['parent']); assert.equal(dependent.status, 'locked')
+  }
+  assert.equal((await f.local.getBoard('parent', 'h1')).tasks.find(task => task.occurrence_id === 'run2').title, 'Pack bag')
+  assert.equal((await f.local.getBoard('another', 'h1')).tasks[0].title, 'Pack bag')
+  await f.local.enqueueCompletion({ id: 'completed1', accountId: 'parent', householdId: 'h1', deviceId: 'device', taskId: 'task1', occurrenceId: 'run1', memberId: 'child', completed: true, deviceTimeMs: Date.now() })
+  assert.equal((await f.local.getRun('parent', 'h1', 'run1')).tasks[0].status, 'completed')
+  assert.equal((await f.local.getRun('parent', 'h1', 'run1')).run.completed_tasks, 1)
+  const edit = (await f.local.runEditor.pending('parent'))[0]
+  await f.local.runEditor.fail(edit, 'Review assignment', true)
+  assert.equal((await f.local.getBoard('parent', 'h1')).tasks[0].metadata_sync, 'rejected')
+  await f.local.runEditor.retry('parent', edit)
+  assert.equal((await f.local.getBoard('parent', 'h1')).tasks[0].metadata_sync, 'pending')
+  await f.local.reconcileHouseholds('parent', [{ ...household, role: 'member' }])
+  const revoked = (await f.local.getBoard('parent', 'h1')).tasks[0]
+  assert.equal(revoked.title, 'Pack bag'); assert.equal(revoked.metadata_sync, undefined)
+})
+
+test('metadata acknowledgement and discard update every server cache atomically and retain completion intent', async t => {
+  const f = await fixture(t), { board } = await cacheViews(f)
+  await f.local.runEditor.enqueue('parent', 'h1', 'device', 'metadata1', draft())
+  let edit = (await f.local.runEditor.pending('parent'))[0]
+  await f.local.enqueueCompletion({ id: 'completed1', accountId: 'parent', householdId: 'h1', deviceId: 'device', taskId: 'task1', occurrenceId: 'run1', memberId: 'child', completed: true, deviceTimeMs: Date.now() })
+  f.db.fail = 'INSERT INTO run_snapshots'
+  await assert.rejects(f.local.runEditor.acknowledge(edit, reply(edit)), /Disk full/)
+  assert.equal((await f.local.runEditor.pending('parent')).length, 1)
+  const base = JSON.parse(f.db.db.prepare('SELECT data FROM board_snapshots WHERE account_id=?').get('parent').data)
+  assert.equal(base.server.tasks[0].title, 'Pack bag', 'a partial cache acknowledgement rolls back')
+  f.db.fail = null
+  await f.local.runEditor.acknowledge(edit, { task: { ...reply(edit).task, title: 'Authoritative version', assignee_id: null, assignee_ids: [] } })
+  await f.reopen()
+  for (const view of [await f.local.getBoard('parent', 'h1'), await f.local.getRun('parent', 'h1', 'run1')]) {
+    assert.equal(view.tasks[0].title, 'Authoritative version'); assert.deepEqual(view.tasks[0].assignee_ids, [])
+    assert.equal(view.tasks[0].metadata_sync, undefined); assert.equal(view.tasks[0].status, 'completed'); assert.equal(view.tasks[0].status_version, '23')
+    assert.equal(view.tasks.find(task => task.id === 'dependent').blocking_task_title, 'Authoritative version')
+  }
+  assert.equal((await f.local.pending('parent')).length, 1)
+  await f.local.runEditor.enqueue('parent', 'h1', 'device', 'metadata2', draft({ title: 'Rejected title' }))
+  edit = (await f.local.runEditor.pending('parent'))[0]; await f.local.runEditor.fail(edit, 'Review', true)
+  const fresh = snapshot(); fresh.tasks[0].title = 'Current household version'
+  await f.local.runEditor.discard('parent', edit, fresh)
+  assert.equal((await f.local.getBoard('parent', 'h1')).tasks[0].title, 'Current household version')
+  assert.equal((await f.local.getRun('parent', 'h1', 'run1')).tasks[0].status, 'completed')
+  assert.equal((await f.local.getBoard('parent', 'h1')).tasks.find(task => task.occurrence_id === 'run2').title, board.tasks[2].title)
+})
+
+test('controller publishes pending metadata without a network dependency and fences a pre-acknowledgement refresh', { timeout: 5000 }, async t => {
+  const f = await fixture(t), { board: original, run } = await cacheViews(f), requests = []
+  const board = new BoardController(f.local, 'parent', 'device', { bootstrap: () => new Promise(resolve => requests.push(resolve)) }, () => 'completion1')
+  const runs = new RunsController(f.local, 'parent', { runs: async () => { throw Error('Unexpected network request') } }, board)
+  const unsubscribe = board.subscribe(() => runs.observe(board.getSnapshot()))
+  const editor = new RunEditorController(f.local.runEditor, 'parent', 'device', { runEditor: async () => snapshot(), saveRunEdit: async edit => reply(edit) }, () => 'metadata1', undefined,
+    () => { board.invalidateRunReads(); runs.invalidateCreationReads() }, undefined,
+    async () => { runs.invalidateCreationReads(); await board.reloadAfterRunChange() })
+  t.after(() => { unsubscribe(); editor.stop(); runs.stop(); board.stop() })
+  await board.start(); await runs.openRun('run1'); await editor.open(household, 'run1')
+  await editor.save(draft())
+  await until(board, state => state.board?.tasks[0].title === 'Pack lunch')
+  await until(runs, state => state.run?.tasks[0].title === 'Pack lunch')
+  assert.equal(requests.length, 0); assert.equal(board.getSnapshot().board.tasks[0].metadata_sync, 'pending')
+  board.setConnectivity(true)
+  assert.equal(requests.length, 1)
+  editor.setConnectivity(true)
+  await until(editor, state => state.pending.length === 0)
+  requests[0]({ households: [household], board: original })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal((await f.local.getBoard('parent', 'h1')).tasks[0].title, 'Pack lunch')
+  assert.equal((await f.local.getRun('parent', 'h1', 'run1')).run.total_tasks, run.run.total_tasks)
+})
+
+test('run acknowledgement invalidation fences local reads started before its transaction', async t => {
+  const f = await fixture(t); await cacheViews(f)
+  const board = new BoardController(f.local, 'parent', 'device', {}, () => 'unused')
+  t.after(() => board.stop()); await board.start()
+  await f.local.runEditor.enqueue('parent', 'h1', 'device', 'metadata1', draft())
+  await board.reloadAfterRunChange()
+  const visible = board.getSnapshot().board, read = f.local.getBoard.bind(f.local)
+  let release
+  f.local.getBoard = async (...args) => { const captured = await read(...args); return new Promise(resolve => { release = () => resolve(captured) }) }
+  const earlierRead = board.reloadAfterRunChange()
+  await new Promise(resolve => setImmediate(resolve))
+  // A receipt invalidates readers before changing the cache/outbox atomically.
+  board.invalidateRunReads()
+  const edit = (await f.local.runEditor.pending('parent'))[0]
+  await f.local.runEditor.acknowledge(edit, { task: { ...reply(edit).task, title: 'Confirmed name' } })
+  release(); await earlierRead
+  assert.equal(board.getSnapshot().board, visible, 'an old read cannot publish between acknowledgement and the next local read')
+  f.local.getBoard = read; await board.reloadAfterRunChange()
+  assert.equal(board.getSnapshot().board.tasks[0].title, 'Confirmed name')
+  assert.equal(board.getSnapshot().board.tasks[0].metadata_sync, undefined)
+})
 
 test('live edits and drafts survive restart without changing templates, another run or another account', async t => {
   const f = await fixture(t)

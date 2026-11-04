@@ -37,6 +37,8 @@ export interface BoardTask {
   blocking_task_assignee_ids?: string[]
   unlock_at: string | null
   expires_at: string | null
+  /** Device-only indication; never changes server availability or completion. */
+  metadata_sync?: "pending" | "rejected"
 }
 
 export interface BoardSnapshot {

@@ -2,6 +2,8 @@ import type { BoardSnapshot, CompletionChange, CompletionResult, HouseholdSummar
 import { retryDelayMs } from "../../../shared/mobile/sync-policy"
 import { PlannerStore } from "./planner-store"
 import { RunEditorStore } from "./run-editor-store"
+import { acceptRunMetadata, overlayRunMetadata } from "../../../shared/mobile/run-metadata"
+import type { RunEdit, RunEditorSnapshot } from "../../../shared/mobile/run-editor"
 import { NotificationStore } from "./notification-store"
 import { NotificationSessionStore } from "./notification-session-store"
 import { NotificationInbox } from "./notification-inbox"
@@ -97,7 +99,7 @@ export class LocalStore {
   readonly accountDeletion: AccountDeletionStore
   readonly deletedAccounts: AccountDeletionLocalStore
   readonly billingIdentity: BillingIdentityStore
-  constructor(private readonly database: LocalDatabase) { this.planner = new PlannerStore(database); this.runEditor = new RunEditorStore(database, this.planner); this.notifications = new NotificationStore(database); this.notificationSessions = new NotificationSessionStore(database); this.notificationInbox = new NotificationInbox(database); this.notificationHistory = new NotificationHistoryStore(database); this.kiosk = new KioskStore(database); this.billing = new BillingStore(database); this.accountDeletion = new AccountDeletionStore(database); this.deletedAccounts = new AccountDeletionLocalStore(database); this.billingIdentity = new BillingIdentityStore(database) }
+  constructor(private readonly database: LocalDatabase) { this.planner = new PlannerStore(database); this.runEditor = new RunEditorStore(database, this.planner, (edit, confirmed, tx) => this.resolveRunMetadata(edit, confirmed, tx)); this.notifications = new NotificationStore(database); this.notificationSessions = new NotificationSessionStore(database); this.notificationInbox = new NotificationInbox(database); this.notificationHistory = new NotificationHistoryStore(database); this.kiosk = new KioskStore(database); this.billing = new BillingStore(database); this.accountDeletion = new AccountDeletionStore(database); this.deletedAccounts = new AccountDeletionLocalStore(database); this.billingIdentity = new BillingIdentityStore(database) }
 
   async initialize() {
     await this.database.execAsync(`
@@ -153,7 +155,8 @@ export class LocalStore {
   }
 
   async getBoard(accountId: string, householdId: string, connection: SqlConnection = this.database) {
-    return (await this.getCachedBoard(accountId, householdId, connection))?.board ?? null
+    const board = (await this.getCachedBoard(accountId, householdId, connection))?.board
+    return board ? overlayRunMetadata(board, await this.runEditor.displayEdits(accountId, householdId, connection)) : null
   }
 
   private async getCachedBoard(accountId: string, householdId: string, connection: SqlConnection) {
@@ -164,7 +167,10 @@ export class LocalStore {
 
   async getBoards(accountId: string) {
     const rows = await this.database.getAllAsync<{ data: string }>("SELECT data FROM board_snapshots WHERE account_id = ?", accountId)
-    return rows.map(row => readCachedBoard(row.data).board)
+    return Promise.all(rows.map(async row => {
+      const board = readCachedBoard(row.data).board
+      return overlayRunMetadata(board, await this.runEditor.displayEdits(accountId, board.household.id))
+    }))
   }
 
   async pending(accountId: string, connection: SqlConnection = this.database) {
@@ -215,7 +221,16 @@ export class LocalStore {
     const row = await tx.getFirstAsync<{ data: string }>("SELECT data FROM run_snapshots WHERE account_id=? AND household_id=? AND occurrence_id=?", accountId, householdId, occurrenceId)
     return row ? JSON.parse(row.data) as { server: RunSnapshot; board: RunSnapshot } : null
   }
-  async getRun(accountId: string, householdId: string, occurrenceId: string) { return (await this.runCache(accountId, householdId, occurrenceId, this.database))?.board ?? null }
+  async getRun(accountId: string, householdId: string, occurrenceId: string) {
+    const run = (await this.runCache(accountId, householdId, occurrenceId, this.database))?.board
+    return run ? overlayRunMetadata(run, await this.runEditor.displayEdits(accountId, householdId)) : null
+  }
+  private async resolveRunMetadata(edit: RunEdit, confirmed: RunEditorSnapshot, tx: SqlConnection) {
+    const today = await this.getCachedBoard(edit.accountId, edit.householdId, tx)
+    if (today) await this.writeBoard(tx, edit.accountId, acceptRunMetadata(today.server, edit.draft.taskId, confirmed))
+    const run = await this.runCache(edit.accountId, edit.householdId, edit.draft.occurrenceId, tx)
+    if (run) await this.writeRun(tx, edit.accountId, acceptRunMetadata(run.server, edit.draft.taskId, confirmed))
+  }
   private async updateRunPages(tx: SqlConnection, accountId: string, householdId: string, run: RunSummary) {
     const rows = await tx.getAllAsync<{ data: string }>("SELECT data FROM run_pages WHERE account_id=? AND household_id=?", accountId, householdId)
     for (const row of rows) {

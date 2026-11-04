@@ -2169,10 +2169,46 @@ list were empty afterwards. Device display/network settings were restored and
 the emulator stopped. Evidence and hashes are recorded in
 `C:/Users/danie/.codex/tmp/cyntch-live-editor-runtime.json`.
 
-Remaining work includes showing pending metadata edits consistently in Today
-and run details (these currently retain the last server metadata until sync),
+Pending metadata display is covered by the next section. Remaining work includes
 the complete native feature-parity audit, live timing controls on devices,
 physical Android/iOS testing and release-build performance. No ANR/crash was
 reported in this emulator session's event log; the earlier ANR's cause remains
 unresolved. These checks do not establish store readiness or fulfil the complete
 mobile release specification.
+
+### Pending live edits across task screens
+
+Today, task details and run details now show locally saved names, notes, reward
+flags and assignments, with separate pending/rejected edit indicators. They read
+the existing durable queue, including after restart; they do not predict changes
+to task availability, completion or timing. Prerequisite labels use the matching
+task ID within the same run. The run API now includes that ID and its assignees;
+older cached responses without the ID need one refresh to update these labels.
+
+Acknowledgement applies the confirmed task metadata to the editor, Today and
+run caches in the same transaction that removes the queue entry. A failed cache
+write rolls the whole acknowledgement back. Newer queued completion changes
+remain visible. Removed tasks are never reinserted. Discarding a rejected edit
+uses fresh household data. Controllers invalidate earlier network and local
+reads before acknowledgement, then reload the local views without waiting for
+another server request. Role changes and kiosk restrictions hide edit overlays.
+
+Verification includes 571 general regression tests before the final API/read
+fence adjustments, followed by 16 passing focused PostgreSQL, SQLite and
+controller tests covering those adjustments. Root/mobile lint and type checking,
+the production web build and Android/iOS Hermes exports passed. Final exports:
+`C:/Users/danie/.codex/tmp/cyntch-live-metadata-export-verified`.
+
+Android emulator checks verified offline title changes across the editor, Today
+and run details, task-detail status text, force-stop/relaunch recovery, upload,
+and immediate prerequisite-label updates after the API correction. The original
+title was restored using the native editor; the final queue and draft list were
+empty, and template/sibling-run names were unchanged. Evidence and hashes:
+`C:/Users/danie/.codex/tmp/cyntch-live-metadata-runtime.json`.
+
+Rapid ADB keyboard input containing two R keys triggered the development client's
+React Native reload shortcut in a modal. Separating those keys by more than its
+200ms recognition window allowed the check to finish; the draft survived reload.
+No ANR/crash event was recorded in this session. This does not resolve the earlier
+ANR or establish release-device performance, physical iOS behavior or readiness
+for store release.

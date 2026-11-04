@@ -28,11 +28,13 @@ export class RunEditorController {
   constructor(private readonly store: RunEditorStore, private readonly accountId: string, private readonly deviceId: string,
     private readonly api: RunEditorApi, private readonly uuid: () => string, private readonly onSynced?: () => Promise<void>,
     private readonly beforeAcknowledged?: () => void,
-    private readonly onTaskDeleted?: (householdId: string, occurrenceId: string, taskId: string) => Promise<void>) {}
+    private readonly onTaskDeleted?: (householdId: string, occurrenceId: string, taskId: string) => Promise<void>,
+    private readonly onLocalChanged?: () => Promise<void>) {}
   getSnapshot = () => this.state
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
   private update(patch: Partial<RunEditorState>) { if (!this.stopped) { this.state = { ...this.state, ...patch }; this.listeners.forEach(listener => listener()) } }
   private report(error: unknown) { this.update({ error: error instanceof Error ? error.message : "Unable to save this task board." }) }
+  private notifyLocal() { if (!this.stopped && this.onLocalChanged) void this.onLocalChanged().catch(error => this.report(error)) }
   async start() { await this.readLocal(); this.wake() }
   private async readLocal() {
     const read = ++this.localReads, generation = this.generation, draftRevision = this.draftRevision, { household, occurrenceId } = this.state
@@ -104,6 +106,7 @@ export class RunEditorController {
     this.mutations++; this.draftRevision++; this.update({ busy: true, error: null })
     try {
       await this.store.enqueue(this.accountId, household.id, this.deviceId, this.uuid(), draft)
+      this.notifyLocal()
       if (generation === this.generation) { this.draftDirty = false; this.update({ draft: null, draftSaving: false }); await this.readLocal() }
       this.wake()
     } catch (error) { if (generation === this.generation) this.report(error); throw error }
@@ -133,6 +136,7 @@ export class RunEditorController {
           const rejected = error instanceof TransportError && [400, 402, 403, 404, 409, 410, 422].includes(error.status)
           await this.store.fail(edit, error instanceof Error ? error.message : "Waiting for a connection", rejected)
         }
+        this.notifyLocal()
         await this.readLocal()
       }
       await this.readLocal()
@@ -146,7 +150,7 @@ export class RunEditorController {
     })
     return this.flushing
   }
-  async retry(edit: RunEdit) { await this.store.retry(this.accountId, edit); await this.readLocal(); this.wake() }
+  async retry(edit: RunEdit) { await this.store.retry(this.accountId, edit); this.notifyLocal(); await this.readLocal(); this.wake() }
   async deleteTask(taskId: string) {
     const { household, occurrenceId, data } = this.state
     if (!household || !occurrenceId || !data?.tasks.some(task => task.id === taskId) || !this.onTaskDeleted || this.stopped)
@@ -177,7 +181,8 @@ export class RunEditorController {
     const fresh = this.state.online && await this.store.allowed(this.accountId, edit.householdId)
       ? await this.api.runEditor(edit.householdId, edit.draft.occurrenceId).catch(async error => { if (error instanceof TransportError && [403, 404, 410].includes(error.status)) { await this.store.invalidate(this.accountId, edit.householdId, edit.draft.occurrenceId); return null }; throw error }) : null
     this.mutations++; this.reads++
-    await this.store.discard(this.accountId, edit, fresh); await this.readLocal()
+    this.beforeAcknowledged?.()
+    await this.store.discard(this.accountId, edit, fresh); this.notifyLocal(); await this.readLocal()
   }
   stop() { this.stopped = true; this.generation++; clearTimeout(this.timer); this.listeners.clear() }
 }

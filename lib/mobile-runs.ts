@@ -57,10 +57,11 @@ export async function readMobileRuns(userId: string, params: URLSearchParams): P
     const tasks = (await client.query<BoardTask>(`select t.id,ot.occurrence_id,$3::text as occurrence_title,$4::text as occurrence_kind,
       t.title,t.description,t.is_reward,ot.status,ot.status_version::text,t.unlock_at,t.expires_at,
       coalesce((select array_agg(ta.user_id order by ta.user_id) from task_assignees ta where ta.task_id=t.id),'{}'::text[]) as assignee_ids,
-      blocker.title as blocking_task_title,
+      blocker.id as blocking_task_id,blocker.title as blocking_task_title,
+      coalesce((select array_agg(ta.user_id order by ta.user_id) from task_assignees ta where ta.task_id=blocker.id),'{}'::text[]) as blocking_task_assignee_ids,
       case when ot.status<>'locked' then 'none' when blocker.title is not null then 'prerequisite' when t.unlock_at is not null then 'time' else 'none' end as lock_type
       from occurrence_tasks ot join tasks t on t.id=ot.task_id and t.household_id=$1
-      left join lateral (select source.title from task_dependencies dep
+      left join lateral (select source.id,source.title from task_dependencies dep
         join occurrence_tasks prior on prior.task_id=dep.source_task_id and prior.occurrence_id=ot.occurrence_id
         join tasks source on source.id=prior.task_id and source.household_id=$1
         where dep.target_task_id=t.id and prior.status<>'completed' order by source.created_at,source.id limit 1) blocker on true

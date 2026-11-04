@@ -25,7 +25,8 @@ export function BoardTaskRow({ task, canEdit, memberNames, saving, needsAttentio
   const complete = task.status === "completed"
   const locked = task.status === "locked"
   const explanation = taskWaitingLabel(task, timezone)
-  const label = `${task.title}${memberNames ? `, ${memberNames}` : ""}${explanation ? `, ${explanation}` : ""}${needsAttention ? ", saved change needs attention" : saving ? ", saved on this device, waiting to sync" : ""}`
+  const metadataMessage = task.metadata_sync === "rejected" ? "Task edit needs attention" : task.metadata_sync === "pending" ? "Task edit waiting to sync" : null
+  const label = `${task.title}${memberNames ? `, ${memberNames}` : ""}${explanation ? `, ${explanation}` : ""}${needsAttention ? ", saved change needs attention" : saving ? ", saved on this device, waiting to sync" : ""}${metadataMessage ? `, ${metadataMessage}` : ""}`
   const check = <View style={[boardStyles.check, { borderColor: complete ? colors.primary : colors.border, backgroundColor: complete ? colors.primary : colors.background }]}>
       {complete ? <Check size={23} color={colors.onPrimary} strokeWidth={3} /> : locked ? <LockKeyhole size={18} color={colors.muted} /> : null}
     </View>
@@ -39,6 +40,7 @@ export function BoardTaskRow({ task, canEdit, memberNames, saving, needsAttentio
       {explanation ? <Copy tone="label" style={{ color: colors.muted }}>{explanation}</Copy> : null}
       {onOpen ? <Copy tone="label" style={{ color: colors.muted }}>{complete ? "Completed" : locked ? "Waiting" : "Ready"}{!canEdit && !locked ? " · View only" : ""} · Details</Copy> : null}
       {needsAttention ? <Copy tone="label" style={{ color: colors.danger }}>Saved change needs attention</Copy> : saving ? <Copy tone="label" style={{ color: colors.primary }}>Saved on this device</Copy> : null}
+      {metadataMessage ? <Copy tone="label" style={{ color: task.metadata_sync === "rejected" ? colors.danger : colors.primary }}>{metadataMessage}</Copy> : null}
     </View>
   if (onOpen) return <View style={[boardStyles.task, { backgroundColor: colors.surface, borderColor: colors.border, padding: 12, gap: 8 }]}>
     <Pressable onPress={onPress} disabled={!canEdit || locked} accessibilityRole="checkbox" accessibilityLabel={label}

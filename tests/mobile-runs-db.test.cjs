@@ -44,6 +44,7 @@ test('run history pages accurately, retains microsecond ordering, isolates house
   await db.query("insert into tasks(id,household_id,title,is_reward,unlock_at) values($1,$3,'First',false,null),($2,$3,'Then',true,'2030-01-01')", [source, targetTask, hh])
   await db.query("insert into occurrence_tasks values($1,$2,'unlocked',4),($1,$3,'locked',5);", [active, source, targetTask])
   await db.query('insert into task_dependencies values($1,$2)', [source, targetTask])
+  await db.query("insert into task_assignees values($1,'child')", [source])
   let userId = 'parent'
   const mocks = { '@/lib/db': { db }, '@clerk/nextjs/server': { auth: async () => ({ userId }) },
     '@/lib/household-authz': { normalizeRole: role => role === 'leader' ? 'manager' : role }, '@/lib/usage-controls': { enforceRequestLimit: async () => {} },
@@ -74,6 +75,15 @@ test('run history pages accurately, retains microsecond ordering, isolates house
   const detailResponse = await send({ occurrenceId: active }), detail = await detailResponse.json()
   assert.equal(detailResponse.headers.get('cache-control'), 'no-store')
   assert.equal(detail.tasks.find(task => task.id === targetTask).blocking_task_title, 'First')
+  assert.equal(detail.tasks.find(task => task.id === targetTask).blocking_task_id, source)
+  assert.deepEqual(detail.tasks.find(task => task.id === targetTask).blocking_task_assignee_ids, ['child'])
+  const { overlayRunMetadata } = load('shared/mobile/run-metadata.ts', true)
+  const preview = overlayRunMetadata(detail, [{ householdId: hh, state: 'pending', draft: {
+    occurrenceId: active, taskId: source, title: 'Renamed first task', notes: '', isReward: false, assigneeIds: ['parent'], isNew: false,
+  } }])
+  assert.equal(preview.tasks.find(task => task.id === targetTask).blocking_task_title, 'Renamed first task')
+  assert.deepEqual(preview.tasks.find(task => task.id === targetTask).blocking_task_assignee_ids, ['parent'])
+  assert.equal(preview.tasks.find(task => task.id === targetTask).status, 'locked')
   assert.equal(detail.tasks.find(task => task.id === targetTask).lock_type, 'prerequisite')
   assert.equal(detail.tasks.find(task => task.id === targetTask).status_version, '5')
   assert.equal(detail.household.timezone, 'Australia/Sydney')

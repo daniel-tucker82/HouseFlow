@@ -15,7 +15,8 @@ function fromRow(row: EditRow): RunEdit {
 
 /** Live edits have their own snapshots, drafts and queue, never template storage. */
 export class RunEditorStore {
-  constructor(private readonly db: LocalDatabase, private readonly planner: PlannerStore) {}
+  constructor(private readonly db: LocalDatabase, private readonly planner: PlannerStore,
+    private readonly onResolved?: (edit: RunEdit, confirmed: RunEditorSnapshot, tx: SqlConnection) => Promise<void>) {}
   initialize() {
     return this.db.execAsync(`CREATE TABLE IF NOT EXISTS run_editor_snapshots(account_id TEXT NOT NULL, household_id TEXT NOT NULL,
       occurrence_id TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(account_id,household_id,occurrence_id));
@@ -37,6 +38,10 @@ export class RunEditorStore {
   }
   async pending(accountId: string, tx: SqlConnection = this.db) {
     return (await tx.getAllAsync<EditRow>("SELECT * FROM run_editor_edits WHERE account_id=? ORDER BY revision", accountId)).map(fromRow)
+  }
+  async displayEdits(accountId: string, householdId: string, tx: SqlConnection = this.db) {
+    if (!await this.allowed(accountId, householdId, tx)) return []
+    return (await tx.getAllAsync<EditRow>("SELECT * FROM run_editor_edits WHERE account_id=? AND household_id=? ORDER BY revision", accountId, householdId)).map(fromRow)
   }
   private async cached(accountId: string, householdId: string, occurrenceId: string, tx: SqlConnection) {
     const row = await tx.getFirstAsync<{ data: string }>("SELECT data FROM run_editor_snapshots WHERE account_id=? AND household_id=? AND occurrence_id=?", accountId, householdId, occurrenceId)
@@ -110,6 +115,7 @@ export class RunEditorStore {
       if (!alreadyLoaded) server.tasks = server.tasks.map(item => item.id === task.id ? task : item)
       await tx.runAsync("DELETE FROM run_editor_edits WHERE account_id=? AND id=?", edit.accountId, edit.id)
       await this.write(edit.accountId, server, tx)
+      await this.onResolved?.(edit, server, tx)
     })
   }
   async fail(edit: RunEdit, error: string, rejected: boolean, now = Date.now()) {
@@ -136,6 +142,7 @@ export class RunEditorStore {
       if (allowed && cached && !fresh && !edit.draft.isNew) throw new Error("Connect to refresh this board before discarding a saved edit.")
       await tx.runAsync("DELETE FROM run_editor_edits WHERE account_id=? AND id=?", accountId, edit.id)
       if (allowed && (fresh || cached)) await this.write(accountId, fresh ?? cached!.server, tx)
+      if (allowed && fresh) await this.onResolved?.(edit, fresh, tx)
     })
   }
   async remove(accountId: string, householdId: string, occurrenceId: string, tx: SqlConnection) {

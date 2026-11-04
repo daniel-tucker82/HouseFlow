@@ -34,6 +34,9 @@ export function BoardTaskDetails({ task, memberNames, timezone, canEdit, saving,
         {!canEdit && task.status !== "locked" ? <Copy tone="muted">View only on this display.</Copy> : null}
         {needsAttention ? <Copy tone="label" style={{ color: colors.danger }}>A saved change needs {kiosk ? "a parent’s attention" : "attention in Settings"}.</Copy>
           : saving ? <Copy tone="label" style={{ color: colors.primary }}>Saved on this device, waiting to sync.</Copy> : null}
+        {task.metadata_sync ? <Card><Copy tone="label" style={{ color: task.metadata_sync === "rejected" ? colors.danger : colors.primary }}>
+          {task.metadata_sync === "rejected" ? "Task edit needs attention" : "Task edit waiting to sync"}
+        </Copy><Copy tone="muted">{task.metadata_sync === "rejected" ? "Open this run in Runs, then Edit tasks, to review the saved change." : "Your task edits are saved on this device. They will sync when a connection is available."}</Copy></Card> : null}
       </> : <Copy>This task is no longer available on this display. Close these details to return to Today.</Copy>}
     </ScrollView></SafeAreaView>
   </Modal>
