@@ -85,6 +85,15 @@ Run `41835086449` reached the standalone library but AGP 9 rejected its lazy
 ProGuard file provider. Generated source/resource/rule paths now use concrete
 files with the existing explicit preBuild dependency. That failed run's evidence
 is in `C:/Users/danie/.codex/tmp/cyntch-android-evidence-41835086449`.
+The next run reached source preparation and exposed a Groovy copy-spec closure
+binding error. The copy action now addresses its project and copy specifications
+explicitly. The actual preparation task passed twice under Gradle 9.4.1 in a
+small local fixture using the official archives: all 219 Kotlin sources were
+preserved, exactly the intended scaffold changed, consumer rules were retained,
+and the upstream compiled classes were excluded. Forced regeneration produced
+identical patched source and removed a stale fixture output. This proves source
+preparation, not Android compilation or layout. Fixture:
+`C:/Users/danie/.codex/tmp/cyntch-clerk-source-check-20261104`.
 
 The shared flow now selects Clerk's published native field/action identifiers
 on both platforms and requires the complete Continue control and its text to be

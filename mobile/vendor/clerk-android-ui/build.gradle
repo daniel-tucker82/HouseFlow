@@ -39,10 +39,15 @@ def prepareClerkUi = tasks.register('prepareClerkUi') {
     }
     def target = generated.get().asFile
     // Sync only this task's generated directory; no working sources are removed.
-    sync {
-      into target
-      from(zipTree(sources)) { include '**/*.kt'; into 'kotlin' }
-      from(zipTree(resources)) { include 'res/**', 'AndroidManifest.xml', 'proguard.txt' }
+    project.sync { spec ->
+      spec.into(target)
+      spec.from(project.zipTree(sources)) { sourceSpec ->
+        sourceSpec.include('**/*.kt')
+        sourceSpec.into('kotlin')
+      }
+      spec.from(project.zipTree(resources)) { resourceSpec ->
+        resourceSpec.include('res/**', 'AndroidManifest.xml', 'proguard.txt')
+      }
     }
     def scaffold = new File(target, 'kotlin/com/clerk/ui/core/scaffold/ClerkThemedAuthScaffold.kt')
     def original = scaffold.getText('UTF-8').replace('\r\n', '\n')
