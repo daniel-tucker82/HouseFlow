@@ -1,0 +1,26 @@
+appId: com.cyntch.app
+name: Enter a native form before changing the device posture
+---
+- launchApp:
+    clearState: true
+    permissions:
+      all: deny
+- extendedWaitUntil:
+    visible: "CYNTCH"
+    timeout: 60000
+- scrollUntilVisible:
+    element: "Sign in or create an account"
+    direction: DOWN
+    timeout: 10000
+    visibilityPercentage: 100
+- tapOn: "Sign in or create an account"
+- extendedWaitUntil:
+    visible:
+      id: "clerk.auth.start.identifier"
+    timeout: 60000
+- tapOn:
+    id: "clerk.auth.start.identifier"
+# Only type a reserved address. Never submit authentication or send an email.
+- inputText: "layout-check@example.invalid"
+- hideKeyboard
+- runFlow: retained.yaml

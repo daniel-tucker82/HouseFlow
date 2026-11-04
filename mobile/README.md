@@ -4,6 +4,33 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
+Android run `41867082612` (`93777e1`) passed the optimized API 36 phone/tablet
+matrix at 1x/1.6x text, including software-keyboard rotation, retained input,
+keyboard dismissal and app Back handling. Both devices also passed real native
+development email-code sign-in, isolated household/task loading in both
+orientations and authenticated restart. API 24 startup/rotation/dismissal/restart
+passed. The artifact digest was verified and reports/screenshots inspected:
+`C:/Users/danie/.codex/tmp/cyntch-android-evidence-41867082612`;
+artifact SHA-256 `13117d61e11b9dcfa247b1af17ddfac26e6d7e2e577633288cc5b156283fcbe0`;
+APK SHA-256 `87818e2756ac72365d7bac35a7daba4a0aeb51045726da3a97b55f36c7bcdcb8`.
+The tablet landscape board and phone board after restart show the correct test
+household and task dependencies. Visual review still found the floating email
+label partly clipped above the populated field on the phone's 1.6x landscape
+keyboard capture. Input is usable and the automated checks passed, but that
+remaining layout issue must be investigated before calling sign-in polished.
+
+The next Android matrix uses Android 17/API 37 (`37.0` SDK packages) with 16 KB
+memory pages, retaining the API 24 minimum check. A separate Pixel Fold job
+downloads and verifies the same run's compiled APK. At 1x/1.6x text it enters a
+reserved invalid address once, then unfolds and folds without relaunching or
+refilling the form. Each posture must retain the input and expose Continue;
+committed device states and actual screenshot dimensions must change and return
+as expected. Reports, screenshots, hierarchy and logs survive failures. It uses
+Android's documented [emulator fold/unfold commands](https://developer.android.com/blog/posts/emulator-control-for-adaptive-app-development).
+Source/YAML/Bash checks, lint/types and simulated runner-control failure checks
+pass; actual Android 17/foldable execution is still required. This is sign-in
+state-retention coverage, not proof of every editor or physical foldable device.
+
 iOS Intel run `41860511228` (`79abb8f`) compiled the optimized simulator app and
 passed `codesign --verify --deep --strict`, then stopped at the architecture
 check: `lipo -verify_arch` consumed the following executable path as another
@@ -55,7 +82,8 @@ profile in the fixed development Clerk instance. Ordinary push runs stay signed
 out. No provider secret or password is sent to Actions. The additional flow runs
 once per device after the two text-size cases, with separate reports and three
 required screenshots; it does not replace the earlier checks or establish offline,
-billing or push coverage. Actual native execution of this new flow is pending.
+billing or push coverage. Android execution is verified above; iOS execution
+remains pending.
 
 The unchanged backend at `79abb8f` was built in a separate worktree and verified
 through both local HTTP and a temporary HTTPS tunnel: real development email-code

@@ -1,0 +1,25 @@
+appId: com.cyntch.app
+name: Native form retains its text and reachable controls after folding
+---
+# Deliberately no launchApp, clearState, stopApp or inputText here. A reset or
+# recreation that loses the entered value must fail rather than refill it.
+- scrollUntilVisible:
+    element:
+      id: "clerk.auth.start.identifier"
+    direction: UP
+    timeout: 15000
+    visibilityPercentage: 100
+- assertVisible:
+    id: "clerk.auth.start.identifier"
+    text: 'layout-check@example\.invalid'
+- takeScreenshot: retained-identifier
+- scrollUntilVisible:
+    element: "Continue"
+    direction: DOWN
+    timeout: 15000
+    visibilityPercentage: 100
+    centerElement: true
+- assertVisible:
+    id: "clerk.auth.start.continue"
+    enabled: true
+- takeScreenshot: reachable-continue

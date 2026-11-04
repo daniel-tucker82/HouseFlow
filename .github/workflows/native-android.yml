@@ -34,6 +34,8 @@ jobs:
   verify:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    outputs:
+      apk_ready: ${{ steps.compile.outputs.apk_ready }}
     defaults:
       run:
         working-directory: mobile
@@ -104,7 +106,8 @@ jobs:
           mkdir -p "$RUNNER_TEMP/cyntch-android-apk"
           cp "$apk" "$RUNNER_TEMP/cyntch-android-apk/cyntch-emulator-test-signed.apk"
           sha256sum "$RUNNER_TEMP/cyntch-android-apk/cyntch-emulator-test-signed.apk" > "$RUNNER_TEMP/cyntch-android-apk/sha256.txt"
-          printf 'Source: %s\nRelease x86_64 APK; generated development signing key; reserved .invalid API URL.\nFor signed-out emulator verification only. Not a store artifact.\n' "$GITHUB_SHA" > "$RUNNER_TEMP/cyntch-android-apk/README.txt"
+          printf 'Source: %s\nRelease x86_64 APK; generated development signing key.\nSigned-out verification, with optional isolated-backend development-test sign-in. Not a store artifact.\n' "$GITHUB_SHA" > "$RUNNER_TEMP/cyntch-android-apk/README.txt"
+          echo 'apk_ready=true' >> "$GITHUB_OUTPUT"
       - name: Stop build daemons before running emulators
         if: always()
         working-directory: mobile
@@ -134,8 +137,8 @@ jobs:
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         timeout-minutes: 15
         with:
-          api-level: 36
-          target: google_apis
+          api-level: '37.0'
+          target: google_apis_ps16k
           arch: x86_64
           profile: pixel_6
           avd-name: cyntch-phone
@@ -152,8 +155,8 @@ jobs:
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         timeout-minutes: 15
         with:
-          api-level: 36
-          target: google_apis
+          api-level: '37.0'
+          target: google_apis_ps16k
           arch: x86_64
           profile: pixel_tablet
           avd-name: cyntch-tablet
@@ -199,5 +202,86 @@ jobs:
             mobile/vendor/clerk-android-ui/build/generated/upstream/kotlin/com/clerk/ui/core/footer/DevelopmentModeWarning.kt
             mobile/vendor/clerk-android-ui/build/generated/upstream/kotlin/com/clerk/ui/core/button/social/ClerkSocialButton.kt
             mobile/vendor/clerk-android-ui/build/generated/upstream/kotlin/com/clerk/ui/core/button/standard/ClerkButton.kt
+          if-no-files-found: warn
+          retention-days: 7
+
+  foldable:
+    needs: verify
+    # Other device failures must not hide fold/unfold evidence for a built APK.
+    if: ${{ always() && !cancelled() && needs.verify.outputs.apk_ready == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: mobile
+        shell: bash
+    env:
+      CI: '1'
+      MAESTRO_CLI_NO_ANALYTICS: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22.23.3'
+      - name: Download this run's compiled APK
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: native-android-verification
+          path: ${{ runner.temp }}/cyntch-android-compile-evidence
+          digest-mismatch: error
+      - name: Verify the exact compiled APK
+        run: |
+          set -euo pipefail
+          mapfile -d '' apks < <(find "$RUNNER_TEMP/cyntch-android-compile-evidence" -type f -name cyntch-emulator-test-signed.apk -print0)
+          test "${#apks[@]}" -eq 1
+          apk="${apks[0]}"
+          expected=$(awk '{print $1}' "$(dirname "$apk")/sha256.txt")
+          [[ "$expected" =~ ^[a-f0-9]{64}$ ]]
+          actual=$(sha256sum "$apk" | awk '{print $1}')
+          test "$actual" = "$expected"
+          mkdir -p "$RUNNER_TEMP/cyntch-android-foldable"
+          printf '%s\n' "$actual" > "$RUNNER_TEMP/cyntch-android-foldable/apk.sha256"
+          printf 'CYNTCH_FOLDABLE_APK=%s\n' "$apk" >> "$GITHUB_ENV"
+          printf 'JAVA_HOME=%s\n' "$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+          printf '%s/bin\n' "$JAVA_HOME_17_X64" >> "$GITHUB_PATH"
+      - name: Install pinned device test runner
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 \
+            https://github.com/mobile-dev-inc/Maestro/releases/download/cli-2.12.1/maestro.zip \
+            -o "$RUNNER_TEMP/maestro.zip"
+          printf '%s  %s\n' '54dbb0716425626604973cbb374c585ca30272375d9ce15177a1152765ddd9d7' "$RUNNER_TEMP/maestro.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/maestro.zip" -d "$RUNNER_TEMP/maestro-cli"
+          "$RUNNER_TEMP/maestro-cli/maestro/bin/maestro" --version
+      - name: Enable emulator hardware acceleration
+        run: |
+          set -euo pipefail
+          printf '%s\n' 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Verify entered text survives folding and unfolding
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        timeout-minutes: 18
+        with:
+          api-level: '37.0'
+          target: google_apis_ps16k
+          arch: x86_64
+          profile: pixel_fold
+          avd-name: cyntch-foldable
+          cores: 2
+          ram-size: 2048M
+          disable-animations: true
+          disable-linux-hw-accel: false
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          working-directory: mobile
+          script: node scripts/android-foldable-smoke.cjs "$CYNTCH_FOLDABLE_APK" "$RUNNER_TEMP/maestro-cli/maestro/bin/maestro" "$RUNNER_TEMP/cyntch-android-foldable"
+      - name: Retain foldable device evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-android-foldable
+          path: ${{ runner.temp }}/cyntch-android-foldable/
           if-no-files-found: warn
           retention-days: 7

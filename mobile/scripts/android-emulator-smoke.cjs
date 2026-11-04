@@ -28,6 +28,7 @@ const report = {
   runs: [],
   passed: false,
 }
+let owned = false
 try {
   if (adb('get-state').trim() !== 'device' || adb('shell', 'getprop', 'ro.kernel.qemu').trim() !== '1') {
     throw new Error('Expected the disposable Android emulator.')
@@ -35,6 +36,12 @@ try {
   report.model = adb('shell', 'getprop', 'ro.product.model').trim()
   report.apiLevel = adb('shell', 'getprop', 'ro.build.version.sdk').trim()
   report.osVersion = adb('shell', 'getprop', 'ro.build.version.release').trim()
+  report.avd = adb('emu', 'avd', 'name').split(/\r?\n/)[0].trim()
+  report.pageSize = Number(adb('shell', 'getconf', 'PAGE_SIZE').trim())
+  if (!['cyntch-phone', 'cyntch-tablet'].includes(report.avd) || report.apiLevel !== '37' || report.pageSize !== 16384) {
+    throw new Error('Expected the owned API 37 phone or tablet with 16 KB memory pages.')
+  }
+  owned = true
   report.displaySize = adb('shell', 'wm', 'size').trim()
   report.displayDensity = adb('shell', 'wm', 'density').trim()
   report.orientations = androidOrientationParameters(report.displaySize)
@@ -93,13 +100,15 @@ try {
   console.error(error.message)
   process.exitCode = 1
 } finally {
-  try { fs.writeFileSync(path.join(output, 'logcat.txt'), adb('logcat', '-d', '-v', 'threadtime')) }
+  try { if (owned) fs.writeFileSync(path.join(output, 'logcat.txt'), adb('logcat', '-d', '-v', 'threadtime')) }
   catch { /* The flow log/result remain available if the emulator stopped. */ }
   try {
-    const screenshot = execFileSync('adb', ['-s', serial, 'exec-out', 'screencap', '-p'], {
-      timeout: 15_000, maxBuffer: 16 * 1024 * 1024,
-    })
-    fs.writeFileSync(path.join(output, 'last-screen.png'), screenshot)
+    if (owned) {
+      const screenshot = execFileSync('adb', ['-s', serial, 'exec-out', 'screencap', '-p'], {
+        timeout: 15_000, maxBuffer: 16 * 1024 * 1024,
+      })
+      fs.writeFileSync(path.join(output, 'last-screen.png'), screenshot)
+    }
   } catch { /* The emulator may not have booted successfully. */ }
   fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify(report, null, 2))
 }
