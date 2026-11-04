@@ -4,6 +4,23 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
+Settings includes live task edits in its saved-change count and sign-out warning,
+alongside completions, routine edits/creations and notification changes. Pending
+live edits show their title and household; rejected edits have retry and
+confirmed-discard controls even when their original board cannot be opened.
+Lost management access hides retry. Discarding a cached existing-task edit still
+requires a current server view; removing an unavailable household's rejected
+local edit remains possible offline. Rejected changes are described as needing
+attention, rather than silently reported as already synced.
+
+Verification: the actual Settings component was evaluated with isolated runtime
+snapshots for live-only pending/rejected/resolved edits, sign-out warnings,
+retry routing, offline discard restrictions and confirmation before cleanup
+after lost household access. All 18 live-editor SQLite/controller checks and
+mobile lint/types passed. Evidence is in
+`C:/Users/danie/.codex/tmp/cyntch-settings-live-edits-{render,regression}.log`.
+Native visual verification of these Settings additions remains pending.
+
 Use Node 22 and install this application's dependencies separately with `npm ci`.
 Copy `.env.example` to `.env.local` and set the API URL and the matching Clerk
 publishable key. Never place a Clerk secret key in the mobile application.
