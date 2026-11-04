@@ -18,6 +18,50 @@ const { expandNativeNotificationEvents: expand, claimNativeNotificationDeliverie
 const { defaultNotificationPreferences } = load('shared/mobile/notification-catalog.ts')
 const { parseNativeNotificationPayload } = load('shared/mobile/notification-payload.ts')
 const { processNativeNotifications: drain } = load('lib/native-notification-worker.ts')
+const { deleteHouseholdMemberships } = load('lib/household-member-departure.ts')
+
+test('membership departure causes survive commit and produce accurate private or detailed pushes', { skip: !url }, async t => {
+  const f = await fixture(t)
+  const transaction = async work => {
+    const client = await f.db.connect()
+    try { await client.query('begin'); const result = await work(client); await client.query('commit'); return result }
+    catch (error) { await client.query('rollback'); throw error } finally { client.release() }
+  }
+  await f.db.query('delete from native_notification_events')
+  await assert.rejects(transaction(async client => {
+    await deleteHouseholdMemberships(client, { userId: 'child', householdId: f.household, reason: 'removed' })
+    throw new Error('Interrupted removal')
+  }), /Interrupted removal/)
+  assert.equal((await f.db.query("select 1 from household_members where user_id='child'")).rowCount, 1)
+  assert.equal((await f.db.query('select 1 from native_notification_events')).rowCount, 0)
+  await transaction(async client => {
+    await deleteHouseholdMemberships(client, { userId: 'child', householdId: f.household, reason: 'removed' })
+    await client.query("insert into household_members(household_id,user_id,role) values($1,'child','member')", [f.household])
+  })
+  assert.equal((await f.db.query('select 1 from native_notification_events')).rowCount, 0, 'a net unchanged membership emits no departure')
+  for (const [index, reason] of ['removed', 'left', undefined].entries()) {
+    if (index) await f.db.query("insert into household_members(household_id,user_id,role) values($1,'child','member')", [f.household])
+    await f.db.query('delete from native_notification_events')
+    await f.preferences('parent', { ...f.parentPreferences, showDetails: reason === 'left' })
+    if (reason) {
+      assert.equal(await transaction(client => deleteHouseholdMemberships(client, { userId: 'child', householdId: f.household, reason })), 1)
+      assert.equal(await transaction(client => deleteHouseholdMemberships(client, { userId: 'child', householdId: f.household, reason })), 0)
+    } else await f.db.query("delete from household_members where household_id=$1 and user_id='child'", [f.household])
+    const events = (await f.db.query('select kind,subject from native_notification_events')).rows
+    assert.equal(events.length, 1)
+    assert.equal(events[0].kind, 'member_left')
+    assert.equal(events[0].subject.departureReason, reason)
+    await expand(f.db)
+    const claims = await claim(f.db)
+    assert.equal(claims.length, 1, 'only the enabled manager device receives the membership event')
+    const message = claims[0].message
+    assert.equal(message.body, reason === 'removed' ? 'A member was removed from your household.'
+      : reason === 'left' ? 'Alex: A member left your household.' : 'A member is no longer in your household.')
+    assert.equal(message.data.hasDetails, reason === 'left')
+    assert.equal(JSON.stringify(message.data).includes('Alex'), false)
+  }
+  assert.equal((await f.db.query('select 1 from native_notification_changes')).rowCount, 0)
+})
 
 async function fixture(t) {
   const target = new URL(url)

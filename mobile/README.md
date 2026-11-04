@@ -4,6 +4,20 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
+Membership departure notifications now describe the recorded cause: a parent
+removing someone produces "was removed", while self-requested account deletion
+produces "left" for surviving households. The cause commits with membership
+removal and its deferred notification event. Older events without a recorded
+cause say the member is no longer in the household. App history and push bodies
+use the same wording; private alerts still omit names. The existing web removal
+notification also describes removal accurately.
+
+Verification: 53 real PostgreSQL notification-event, outbox, history and account
+deletion checks passed, including rollback, retries, delete/reinsert without a
+net change, recipient restrictions and private/detailed wording. Root typecheck,
+focused lint and mobile lint/types passed. Log:
+`C:/Users/danie/.codex/tmp/cyntch-member-departure-tests.log`.
+
 Settings includes live task edits in its saved-change count and sign-out warning,
 alongside completions, routine edits/creations and notification changes. Pending
 live edits show their title and household; rejected edits have retry and

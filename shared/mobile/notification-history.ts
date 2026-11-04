@@ -38,5 +38,13 @@ export const notificationHistoryBodies: Record<MobileNotificationKind, string> =
   routine_superseded: "An older routine was completed because a newer copy was created.",
   routine_reopened: "A routine has incomplete tasks again.",
   member_joined: "A member joined your household.", member_added: "A profile was added to your household.",
-  member_left: "A member left or was removed from your household.",
+  member_left: "A member is no longer in your household.",
+}
+
+export function notificationHistoryBody(kind: MobileNotificationKind, departureReason?: unknown) {
+  if (kind === "member_left") {
+    if (departureReason === "removed") return "A member was removed from your household."
+    if (departureReason === "left") return "A member left your household."
+  }
+  return notificationHistoryBodies[kind]
 }

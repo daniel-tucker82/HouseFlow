@@ -4,7 +4,7 @@ import { normalizeRole } from "@/lib/household-authz"
 import { defaultNotificationPreferences, notificationCatalog, shouldPushNotification, type DeviceNotificationPreferences, type MobileNotificationKind } from "@/shared/mobile/notification-catalog"
 import { notificationMemberSelection, type NativeNotificationPayload } from "@/shared/mobile/notification-payload"
 import { notificationUuid, parseNotificationPreferences, restrictNotificationPreferences } from "@/shared/mobile/notification-settings"
-import { notificationHistoryBodies as genericBody } from "@/shared/mobile/notification-history"
+import { notificationHistoryBody } from "@/shared/mobile/notification-history"
 
 interface NativeEvent {
   id: string; household_id: string; kind: MobileNotificationKind; member_ids: string[];
@@ -82,7 +82,7 @@ function messageFor(id: string, event: NativeEvent, recipient: Recipient, prefer
   const occurrenceId = typeof event.subject.occurrenceId === "string" ? event.subject.occurrenceId : undefined
   const taskId = typeof event.subject.taskId === "string" ? event.subject.taskId : undefined
   const details = preferences.showDetails
-  return { to: recipient.expo_push_token!, title: "Cyntch", body: `${details && name ? `${name}: ` : ""}${genericBody[event.kind]}`,
+  return { to: recipient.expo_push_token!, title: "Cyntch", body: `${details && name ? `${name}: ` : ""}${notificationHistoryBody(event.kind, event.subject.departureReason)}`,
     sound: "default", priority: "high", channelId: `cyntch-${event.kind}`, collapseId: id, tag: id, threadId: event.household_id,
     ttl: Math.max(1, Math.floor((event.expires_at.getTime() - now.getTime()) / 1000)),
     data: { version: 3, sessionId: recipient.session_id!, deliveryId: id, accountId: recipient.user_id, householdId: event.household_id,

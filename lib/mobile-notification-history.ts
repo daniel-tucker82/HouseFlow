@@ -5,7 +5,7 @@ import { normalizeRole } from "@/lib/household-authz"
 import { verifyInstallation } from "@/lib/native-notification-settings"
 import { defaultNotificationPreferences, notificationCatalog, type MobileNotificationKind } from "@/shared/mobile/notification-catalog"
 import { notificationUuid, parseNotificationPreferences, restrictNotificationPreferences } from "@/shared/mobile/notification-settings"
-import { notificationHistoryBodies, notificationHistorySelections, notificationHistoryFilterKey, type NotificationHistoryAction, type NotificationHistoryItem, type NotificationHistoryPage,
+import { notificationHistoryBody, notificationHistorySelections, notificationHistoryFilterKey, type NotificationHistoryAction, type NotificationHistoryItem, type NotificationHistoryPage,
   type NotificationHistoryPoint, type NotificationHistoryScope, type NotificationHistorySource } from "@/shared/mobile/notification-history"
 
 export class NotificationHistoryError extends Error { constructor(message: string, public status = 400, public code?: "history_household_unavailable") { super(message) } }
@@ -51,7 +51,7 @@ async function access(client: PoolClient, scope: NotificationHistoryScope, secre
   return { role, selections }
 }
 function visibleSql(stream: NotificationHistorySource) {
-  return stream === "app" ? `select e.id,e.kind,e.subject->>'name' as title,null::text as body,e.occurred_at as created,
+  return stream === "app" ? `select e.id,e.kind,e.subject->>'name' as title,null::text as body,e.subject->>'departureReason' as "departureReason",e.occurred_at as created,
     to_char(e.occurred_at at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as "createdAt",
     coalesce(s.is_read,false) or (e.occurred_at,e.id)<=(coalesce(m.read_time,'-infinity'),coalesce(m.read_id,'${zero}')) as read,
     e.subject->>'occurrenceId' as "occurrenceId",e.subject->>'taskId' as "taskId"
@@ -74,10 +74,10 @@ function visibleSql(stream: NotificationHistorySource) {
 }
 function parameters(scope: NotificationHistoryScope, policy: Awaited<ReturnType<typeof access>>) { return [scope.householdId,scope.accountId,scope.deviceId,JSON.stringify(policy.selections),policy.role] }
 function safeText(value: string | null, fallback: string, max: number) { return value?.replace(/[\u0000-\u001f]/g," ").trim().slice(0,max) || fallback }
-function item(row: NotificationHistoryItem, stream: NotificationHistorySource): NotificationHistoryItem {
+function item(row: NotificationHistoryItem & { departureReason?: string }, stream: NotificationHistorySource): NotificationHistoryItem {
   return { id: row.id, kind: row.kind, createdAt: row.createdAt, read: row.read,
     title: safeText(row.title,stream === "app" ? notificationCatalog[row.kind as MobileNotificationKind].label : "Cyntch",180),
-    body: stream === "app" ? notificationHistoryBodies[row.kind as MobileNotificationKind] : safeText(row.body,"A household update.",1000),
+    body: stream === "app" ? notificationHistoryBody(row.kind as MobileNotificationKind,row.departureReason) : safeText(row.body,"A household update.",1000),
     ...(row.occurrenceId && notificationUuid.test(row.occurrenceId) ? { occurrenceId: row.occurrenceId } : {}),
     ...(row.taskId && notificationUuid.test(row.taskId) ? { taskId: row.taskId } : {}) }
 }

@@ -14,6 +14,9 @@ test('deletion acceptance atomically preserves chosen households and queues prov
  assert.equal((await f.db.query('select role from household_members where household_id=$1 and user_id=$2',[f.transfer,f.successor])).rows[0].role,'manager')
  assert.equal((await f.db.query('select 1 from households where id=$1',[f.deleting])).rowCount,0)
  assert.equal((await f.db.query('select 1 from household_members where user_id=$1',[f.owner])).rowCount,0)
+ const departures=(await f.db.query("select household_id,subject->>'departureReason' as reason from native_notification_events where kind='member_left' and subject->>'memberId'=$1",[f.owner])).rows
+ assert.deepEqual(departures.map(row=>row.household_id).sort(),[f.transfer,f.shared].sort())
+ assert(departures.every(row=>row.reason==='left'),'self-requested account deletion is recorded as leaving surviving households')
  assert.equal((await f.db.query('select 1 from household_invites where created_by=$1',[f.owner])).rowCount,0)
  for(const table of ['native_notification_devices','push_subscriptions','mobile_push_tokens']){
   assert.equal((await f.db.query(`select 1 from ${table} where user_id=$1`,[f.owner])).rowCount,0)

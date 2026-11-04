@@ -9,6 +9,7 @@ import type { AccountDeletionScope } from "@/shared/mobile/account-deletion"
 import { accountDeletionIssuer } from "@/lib/account-deletion-identity"
 import type { AppleRevocationRecord } from "@/lib/account-deletion-apple"
 import { accountDeletionRecoveryHash } from "@/lib/account-deletion-status"
+import { deleteHouseholdMemberships } from "@/lib/household-member-departure"
 
 export interface AccountDeletionReceipt {
   accountId: string; requestId: string; state: "pending" | "completed"; acceptedAt: string; completedAt: string | null
@@ -126,7 +127,7 @@ export async function acceptAccountDeletion(pool: Pool, scope: AccountDeletionSc
     }
     await client.query("delete from households where id=any($1::uuid[]) and leader_id=$2",[deleting,scope.accountId])
     await client.query("delete from household_invites where created_by=$1",[scope.accountId])
-    await client.query("delete from household_members where user_id=$1",[scope.accountId])
+    await deleteHouseholdMemberships(client,{userId:scope.accountId,reason:"left"})
     await client.query("delete from push_subscriptions where user_id=$1",[scope.accountId])
     await client.query("delete from mobile_push_tokens where user_id=$1",[scope.accountId])
     // Cascades queued deliveries too. The request tombstone blocks registration

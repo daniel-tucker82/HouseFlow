@@ -3,6 +3,17 @@ const {test}=require('node:test'),assert=require('node:assert/strict'),{randomUU
 const fs=require('node:fs'),path=require('node:path'),Module=require('node:module'),{Pool}=require('pg'),{buildSync}=require('esbuild')
 const root=path.resolve(__dirname,'..'),connectionString=process.env.CYNTCH_TEST_DATABASE_URL
 function load(files,mocks={}){const m=new Module(__filename,module);m.require=name=>mocks[name]??require(name);m._compile(buildSync({stdin:{contents:files.map(file=>`export * from ${JSON.stringify(path.join(root,file))}`).join(';'),resolveDir:root},bundle:true,platform:'node',format:'cjs',write:false,external:Object.keys(mocks)}).outputFiles[0].text,__filename);return m.exports}
+test('history explains known departures without inventing causes for older events',{skip:!connectionString},async t=>{
+ const f=await fixture(t)
+ const removed=await f.event('member_left',{subject:{name:'Alex',departureReason:'removed'}})
+ const left=await f.event('member_left',{subject:{name:'Taylor',departureReason:'left'}})
+ const old=await f.event('member_left',{subject:{name:'Sam'}})
+ const page=await f.read(),bodies=new Map(page.items.map(item=>[item.id,item.body]))
+ assert.equal(bodies.get(removed),'A member was removed from your household.')
+ assert.equal(bodies.get(left),'A member left your household.')
+ assert.equal(bodies.get(old),'A member is no longer in your household.')
+ assert(page.items.every(item=>!Object.hasOwn(item,'departureReason')),'internal cause metadata is rendered into copy, not added to the client contract')
+})
 async function fixture(t){
  const url=new URL(connectionString);assert.ok(['localhost','127.0.0.1','[::1]'].includes(url.hostname)&&url.pathname==='/cyntch_mobile_test')
  const admin=new Pool({connectionString}),schema=`history_${randomUUID().replaceAll('-','')}`

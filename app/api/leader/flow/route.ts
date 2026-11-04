@@ -49,6 +49,7 @@ import { runTaskSchema } from "@/lib/routine-planner"
 import { saveRoutineSchedule } from "@/lib/save-routine-schedule"
 import { findPlannerCreation, parsePlannerCreation, PlannerCreationError, recordPlannerCreation, taskBoardCreationInput, type PlannerCreation } from "@/lib/planner-creation"
 import { claimTaskEditVersion, validTaskEditVersion } from "@/lib/task-edit-version"
+import { deleteHouseholdMemberships } from "@/lib/household-member-departure"
 import { CompletionOperationError, parseCompletionOperation, findCompletionReceipt, claimCompletionVersion, recordCompletionReceipt } from "@/lib/completion-operations"
 
 type QueryClient = {
@@ -1470,13 +1471,17 @@ async function handleFlowPost(request: Request, context?: {
       return NextResponse.json({ error: "Member not found." }, { status: 404 })
     }
 
-    const deleteResult = await db.query(
-      `delete from household_members
-       where household_id = $1::uuid
-         and user_id = $2`,
-      [householdId, memberUserId],
-    )
-    if ((deleteResult.rowCount ?? 0) === 0) {
+    const client = await db.connect()
+    let deleted = 0
+    try {
+      await client.query("begin")
+      deleted = await deleteHouseholdMemberships(client, { userId: memberUserId, householdId, reason: "removed" })
+      await client.query("commit")
+    } catch (error) {
+      await client.query("rollback")
+      throw error
+    } finally { client.release() }
+    if (deleted === 0) {
       return NextResponse.json({ error: "Member not found." }, { status: 404 })
     }
 
@@ -1487,8 +1492,8 @@ async function handleFlowPost(request: Request, context?: {
       actorUserId: userId,
       kind: "member_left_household",
       subjectMemberId: memberUserId,
-      title: "Household member left",
-      body: `${memberName} has left your ${householdName} household.`,
+      title: "Household member removed",
+      body: `${memberName} was removed from your ${householdName} household.`,
       metadata: {
         memberName,
         householdName,
