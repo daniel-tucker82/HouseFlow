@@ -21,6 +21,22 @@ mobile lint/types passed. Evidence is in
 `C:/Users/danie/.codex/tmp/cyntch-settings-live-edits-{render,regression}.log`.
 Native visual verification of these Settings additions remains pending.
 
+The `Native Android verification` Actions workflow builds a minified x86_64
+Release APK with bundled JavaScript and the generated development signing key.
+It then runs the shared signed-out Maestro journey on separate Android API 36
+Pixel 6 and Pixel Tablet emulators, including rotation, opening native sign-in
+and restarting the app. The tablet run still executes if the phone flow fails.
+The build uses Cyntch's public development Clerk identifier and a reserved
+`.invalid` API address; it never submits sign-in credentials or reaches the
+production API. The APK is for this emulator verification, not store submission.
+
+The seven-day artifact retains the APK and hash, build logs, per-device model,
+OS and display metadata, JUnit results, screenshots, Maestro output and logcat.
+Local JavaScript/YAML/shell checks and mobile lint/types validate the setup;
+the first hosted build/device results must still be inspected before claiming
+these journeys pass. Authenticated workflows, physical-device performance,
+push delivery, billing and the remaining device matrix need separate evidence.
+
 Use Node 22 and install this application's dependencies separately with `npm ci`.
 Copy `.env.example` to `.env.local` and set the API URL and the matching Clerk
 publishable key. Never place a Clerk secret key in the mobile application.

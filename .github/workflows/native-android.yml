@@ -1,0 +1,149 @@
+name: Native Android verification
+
+on:
+  push:
+    branches: [codex/native-mobile-apps]
+    paths:
+      - mobile/**
+      - '!mobile/**/*.md'
+      - shared/**
+      - lib/recurrence.ts
+      - lib/time-rules.ts
+      - lib/types.ts
+      - .github/workflows/native-android.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: mobile
+        shell: bash
+    env:
+      CI: '1'
+      EXPO_NO_DOTENV: '1'
+      # Public development identifier. This flow never submits credentials.
+      EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ZW1lcmdpbmctdG9hZC05OC5jbGVyay5hY2NvdW50cy5kZXYk
+      EXPO_PUBLIC_API_URL: https://cyntch-simulator.invalid
+      MAESTRO_CLI_NO_ANALYTICS: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22.23.3'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - name: Select runner Java and verify mobile source
+        run: |
+          set -euo pipefail
+          printf 'JAVA_HOME=%s\n' "$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+          printf '%s/bin\n' "$JAVA_HOME_17_X64" >> "$GITHUB_PATH"
+          npm ci --no-audit --no-fund
+          npm run lint
+          npm run typecheck
+      - name: Generate the native Android project
+        run: |
+          set -euo pipefail
+          npx expo prebuild --platform android --no-install 2>&1 | tee "$RUNNER_TEMP/cyntch-android-prebuild.log"
+      - name: Compile optimized emulator APK with test signing
+        id: compile
+        working-directory: mobile/android
+        run: |
+          set -euo pipefail
+          java -version
+          chmod +x gradlew
+          ./gradlew :app:assembleRelease --no-daemon --max-workers=2 \
+            -Dorg.gradle.jvmargs='-Xmx3072m -XX:MaxMetaspaceSize=512m -XX:ActiveProcessorCount=2' \
+            -PreactNativeArchitectures=x86_64 \
+            -Pandroid.enableMinifyInReleaseBuilds=true \
+            2>&1 | tee "$RUNNER_TEMP/cyntch-android-build.log"
+          apk=app/build/outputs/apk/release/app-release.apk
+          test -s "$apk"
+          test "$(unzip -p "$apk" assets/index.android.bundle | wc -c)" -gt 0
+          mkdir -p "$RUNNER_TEMP/cyntch-android-apk"
+          cp "$apk" "$RUNNER_TEMP/cyntch-android-apk/cyntch-emulator-test-signed.apk"
+          sha256sum "$RUNNER_TEMP/cyntch-android-apk/cyntch-emulator-test-signed.apk" > "$RUNNER_TEMP/cyntch-android-apk/sha256.txt"
+          printf 'Source: %s\nRelease x86_64 APK; generated development signing key; reserved .invalid API URL.\nFor signed-out emulator verification only. Not a store artifact.\n' "$GITHUB_SHA" > "$RUNNER_TEMP/cyntch-android-apk/README.txt"
+      - name: Stop build daemons before running emulators
+        if: always()
+        working-directory: mobile
+        run: |
+          if [ -f android/gradlew ]; then
+            cd android
+            bash gradlew --stop
+          fi
+      - name: Install pinned device test runner
+        id: maestro
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 \
+            https://github.com/mobile-dev-inc/Maestro/releases/download/cli-2.12.1/maestro.zip \
+            -o "$RUNNER_TEMP/maestro.zip"
+          printf '%s  %s\n' '54dbb0716425626604973cbb374c585ca30272375d9ce15177a1152765ddd9d7' "$RUNNER_TEMP/maestro.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/maestro.zip" -d "$RUNNER_TEMP/maestro-cli"
+          "$RUNNER_TEMP/maestro-cli/maestro/bin/maestro" --version
+      - name: Enable emulator hardware acceleration
+        id: acceleration
+        run: |
+          set -euo pipefail
+          printf '%s\n' 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Verify Android phone startup and native sign-in
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        timeout-minutes: 12
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          avd-name: cyntch-phone
+          cores: 2
+          ram-size: 2048M
+          disable-animations: true
+          disable-linux-hw-accel: false
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          working-directory: mobile
+          script: node scripts/android-emulator-smoke.cjs "$RUNNER_TEMP/cyntch-android-apk/cyntch-emulator-test-signed.apk" "$RUNNER_TEMP/maestro-cli/maestro/bin/maestro" "$RUNNER_TEMP/cyntch-android-smoke/phone"
+      - name: Verify Android tablet startup and native sign-in
+        # Preserve tablet evidence even when the phone journey fails.
+        if: ${{ !cancelled() && steps.compile.conclusion == 'success' && steps.maestro.conclusion == 'success' && steps.acceleration.conclusion == 'success' }}
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        timeout-minutes: 12
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: pixel_tablet
+          avd-name: cyntch-tablet
+          cores: 2
+          ram-size: 2048M
+          disable-animations: true
+          disable-linux-hw-accel: false
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          working-directory: mobile
+          script: node scripts/android-emulator-smoke.cjs "$RUNNER_TEMP/cyntch-android-apk/cyntch-emulator-test-signed.apk" "$RUNNER_TEMP/maestro-cli/maestro/bin/maestro" "$RUNNER_TEMP/cyntch-android-smoke/tablet"
+      - name: Retain APK and device evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-android-verification
+          path: |
+            ${{ runner.temp }}/cyntch-android-prebuild.log
+            ${{ runner.temp }}/cyntch-android-build.log
+            ${{ runner.temp }}/cyntch-android-apk/
+            ${{ runner.temp }}/cyntch-android-smoke/
+            mobile/android/app/build/outputs/mapping/release/mapping.txt
+          if-no-files-found: warn
+          retention-days: 7
