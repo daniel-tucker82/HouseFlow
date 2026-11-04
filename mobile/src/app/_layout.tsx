@@ -14,7 +14,7 @@ import { NotificationSessionProvider, useNotificationSession } from "../provider
 import { NotificationInteractions } from "../components/notification-interactions"
 import { KioskProvider, useKiosk } from "../providers/kiosk"
 import { KioskScreen } from "../components/kiosk-screen"
-import { AccountDeletionRecoveryProvider, useAccountDeletionRecovery } from "../providers/account-deletion-recovery"
+import { AccountDeletionIdentityRecovery, AccountDeletionRecoveryProvider, useAccountDeletionRecovery } from "../providers/account-deletion-recovery"
 import { AccountDeletionStatusView } from "../components/account-deletion-status"
 import { AccountDeletionRecoveryActions } from "../components/account-deletion-recovery-actions"
 import { AccountDeletionRecoveryFallback } from "../components/account-deletion-recovery-fallback"
@@ -73,6 +73,7 @@ function Application() {
 export default function RootLayout() {
   const key = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY
   return <SafeAreaProvider><StatusBar style="auto" /><AccountDeletionRecoveryProvider>{key ? <ClerkProvider publishableKey={key} tokenCache={tokenCache} __experimental_resourceCache={nativeClerkResourceCache}>
+    <AccountDeletionIdentityRecovery />
     <KioskProvider><NotificationSessionProvider fallback={<AccountDeletionRecoveryFallback />}><Application /></NotificationSessionProvider></KioskProvider>
   </ClerkProvider> : <View style={styles.center}><Copy tone="heading">Cyntch setup is incomplete</Copy><Copy>This build is missing its sign-in configuration.</Copy></View>}</AccountDeletionRecoveryProvider></SafeAreaProvider>
 }

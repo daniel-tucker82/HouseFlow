@@ -1767,3 +1767,58 @@ were restored and Android confirmed an active network. Evidence:
 `cyntch-clerk-cache-loaded.xml` and `cyntch-clerk-cache-offline-board.xml` in the
 same temporary evidence directory. This verifies ordinary offline startup on
 Android, not real provider account deletion or iOS device behaviour.
+
+### Native Clerk identity verification during deletion recovery
+
+The local Expo module `modules/cyntch-clerk-state` inspects the existing native
+Clerk client. It returns only readiness and three account-presence flags; tokens,
+names, email addresses and other accounts' identifiers never cross this module's
+boundary. It does not configure a second Clerk instance or reset a credential.
+The JavaScript adapter checks the existing Clerk bridge's readiness before
+inspection, including before accessing `Clerk.shared` on iOS. Missing modules,
+loading state, malformed results and provider errors cannot establish cleanup.
+
+Accepted deletion now requires this additional check before reporting local
+cleanup complete. It first verifies the durable deleted-account fence, refreshes
+the native client through Clerk's bridge, awaits the supported JavaScript
+[`client.reload()`](https://clerk.com/docs/expo/reference/objects/client#reload)
+and rechecks both clients. A retained deleted account, unidentified session or
+unscoped sign-in/sign-up snapshot leaves the saved receipt available for retry.
+An eight-second UI timeout keeps the underlying verification operation serialized.
+Other independent cleanup phases still run even when this check fails.
+
+Recovery starts outside Clerk so account expiry cannot hide the receipt. A small
+component inside Clerk retries incomplete accepted cleanup when native/JS
+readiness or session identity changes, using
+[`useAuthViewState`](https://clerk.com/docs/reference/expo/native-hooks/use-auth-view-state).
+Cleanup's own busy/error publications do not trigger more requests. There is no
+polling timer or additional request during ordinary startup without an accepted
+deletion receipt.
+
+The module matches the installed native bridge's Android Clerk 1.3.0 and iOS
+ClerkKit 1.6.2 dependencies; review these pins together with Clerk upgrades. A
+native rebuild is required. Android compilation, APK installation and actual
+bridge inspection on the emulator passed. The bridge distinguished the existing
+account from an absent account, and the original household still displayed its
+two tasks. Apple autolinking and iOS JavaScript export are separate checks and
+do not prove Swift compilation or execution on iOS.
+
+**Deletion submission remains disabled.** This check observes loaded clients;
+it does not independently verify native SDK disk-cache writes, prove that no
+late SDK response can restore a profile, erase a shared device credential or
+complete remote provider deletion. Shared credentials can belong to other
+accounts and must not be cleared indiscriminately. Real deletion/restart tests,
+native persistence verification and out-of-band provider deletion handling are
+still required before release.
+
+Verification: the general regression run passed 520 tests without skips or
+cancellations. The final focused run passed 29 tests, including the subsequently
+added explicit JavaScript refresh and native recheck. Root/mobile lint and mobile
+TypeScript passed. Build/test/runtime evidence is under
+`C:/Users/danie/.codex/tmp/cyntch-clerk-native-*`; the native read-only result is
+`cyntch-clerk-native-runtime-evidence.json` and the household UI is
+`cyntch-clerk-native-loaded.xml`. No real account was deleted for these checks.
+The same emulator also passed native refresh followed by JavaScript reload,
+preserving the signed-in account (`cyntch-clerk-native-runtime-refresh-evidence.json`).
+Final Android and iOS Hermes exports passed in
+`C:/Users/danie/.codex/tmp/cyntch-clerk-native-export-final`.

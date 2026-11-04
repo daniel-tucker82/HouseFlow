@@ -1,0 +1,5 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": { "modules": ["CyntchClerkStateModule"] },
+  "android": { "modules": ["com.cyntch.clerkstate.CyntchClerkStateModule"] }
+}

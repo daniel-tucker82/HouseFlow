@@ -1,0 +1,26 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.cyntch.clerkstate'
+version = '1.0.0'
+
+android {
+  namespace 'com.cyntch.clerkstate'
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+  }
+}
+
+dependencies {
+  // Match @clerk/expo-native-components 0.4.3. Review together on upgrades.
+  implementation 'com.clerk:clerk-android-api:1.3.0'
+}
+
+// The installed Clerk API has Kotlin 2.3 metadata; match its Expo bridge's
+// compatibility setting until the app's Expo toolchain uses that compiler.
+tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+  compilerOptions.freeCompilerArgs.add('-Xskip-metadata-version-check')
+}
