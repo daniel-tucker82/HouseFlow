@@ -4,14 +4,19 @@ import type { LocalStore } from "../storage/local-store"
 import { TransportError } from "../storage/sync-engine"
 import type { BoardController, BoardState } from "./board-controller"
 
-interface RunsApi { runs(householdId: string, view: RunView, cursor?: string): Promise<RunPage>; run(householdId: string, occurrenceId: string): Promise<RunSnapshot> }
+interface RunsApi {
+  runs(householdId: string, view: RunView, cursor?: string): Promise<RunPage>
+  run(householdId: string, occurrenceId: string): Promise<RunSnapshot>
+  renameRun(householdId: string, occurrenceId: string, title: string): Promise<string>
+  deleteRun(householdId: string, occurrenceId: string): Promise<void>
+}
 export interface RunsState {
   household: HouseholdSummary | null; view: RunView; page: RunPage | null; runId: string | null; run: RunSnapshot | null;
   loading: boolean; refreshing: boolean; runLoading: boolean; error: string | null; runError: string | null;
-  focusedTaskId: string | null;
+  focusedTaskId: string | null; managing: "rename" | "delete" | null;
 }
 export class RunsController {
-  private state: RunsState = { household: null, view: "active", page: null, runId: null, run: null, loading: false, refreshing: false, runLoading: false, error: null, runError: null, focusedTaskId: null }
+  private state: RunsState = { household: null, view: "active", page: null, runId: null, run: null, loading: false, refreshing: false, runLoading: false, error: null, runError: null, focusedTaskId: null, managing: null }
   private listeners = new Set<() => void>()
   private visible = false
   private active = true
@@ -25,7 +30,8 @@ export class RunsController {
   private observedBoard: BoardSnapshot | null = null
   private optimistic = new Map<string, { id: number; completed: boolean }>()
   private editSequence = 0
-  constructor(private readonly store: LocalStore, private readonly accountId: string, private readonly api: RunsApi, private readonly board: BoardController) {}
+  constructor(private readonly store: LocalStore, private readonly accountId: string, private readonly api: RunsApi, private readonly board: BoardController,
+    private readonly canManage: (householdId: string) => boolean = () => true) {}
   getSnapshot = () => this.state
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
   private update(patch: Partial<RunsState>) { if (!this.stopped) { this.state = { ...this.state, ...patch }; this.listeners.forEach(listener => listener()) } }
@@ -69,7 +75,7 @@ export class RunsController {
   }
   async refresh(more = false) {
     const { household, view, page } = this.state
-    if (!household || !this.online || !this.visible || !this.active || this.stopped || (more && (!page?.nextCursor || this.state.refreshing))) return
+    if (!household || !this.online || !this.visible || !this.active || this.stopped || this.state.managing || (more && (!page?.nextCursor || this.state.refreshing))) return
     const revision = ++this.pageRevision
     this.update({ refreshing: true, error: null })
     try {
@@ -89,7 +95,7 @@ export class RunsController {
   closeRun() { this.runRevision++; this.localRevision++; this.update({ runId: null, run: null, focusedTaskId: null, runLoading: false, runError: null }) }
   async refreshRun() {
     const { household, runId } = this.state
-    if (!household || !runId || !this.online || !this.visible || !this.active || this.stopped) return
+    if (!household || !runId || !this.online || !this.visible || !this.active || this.stopped || this.state.managing) return
     const revision = ++this.runRevision
     this.update({ runLoading: true, runError: null })
     try {
@@ -107,12 +113,47 @@ export class RunsController {
     } finally { if (revision === this.runRevision) this.update({ runLoading: false }) }
   }
   async setCompleted(task: BoardTask, memberId: string, completed: boolean) {
-    if (!this.state.run || this.state.run.run.id !== task.occurrence_id || this.state.household?.id !== this.board.getSnapshot().board?.household.id) return
+    if (this.state.managing || !this.state.run || this.state.run.run.id !== task.occurrence_id || this.state.household?.id !== this.board.getSnapshot().board?.household.id) return
     const key = `${task.occurrence_id}:${task.id}`, id = ++this.editSequence
     this.optimistic.set(key, { id, completed })
     this.update({ runError: null, run: summarizeRun({ ...this.state.run, tasks: this.state.run.tasks.map(item => item.id === task.id ? { ...item, status: completed ? "completed" : "unlocked" } : item) }) })
     try { if (!await this.board.setCompleted(task, memberId, completed)) this.report(new Error(this.board.getSnapshot().error ?? "Unable to save this change."), true) }
     finally { if (this.optimistic.get(key)?.id === id) this.optimistic.delete(key); await this.readLocal() }
+  }
+  renameRun(occurrenceId: string, title: string) {
+    if (!title.trim()) return Promise.reject(new Error("Enter a name for this run."))
+    return this.manageRun(occurrenceId, "rename", title.trim())
+  }
+  deleteRun(occurrenceId: string) { return this.manageRun(occurrenceId, "delete") }
+  private async manageRun(occurrenceId: string, action: "rename" | "delete", title = "") {
+    const household = this.state.household
+    const current = () => !this.stopped && household && this.state.household?.id === household.id && this.canManage(household.id)
+      && this.state.household.role !== "member" && this.board.getSnapshot().board?.household.id === household.id
+    if (!current() || !household || !this.active || !this.visible || this.state.runId !== occurrenceId || !this.state.run) {
+      throw new Error("Open this run with parent access before changing it.")
+    }
+    if (!this.online) throw new Error("Connect to rename or delete a run. You can still update saved tasks offline.")
+    if (this.state.managing) throw new Error("Wait for the current run change to finish.")
+    this.pageRevision++; this.runRevision++; this.localRevision++
+    this.update({ managing: action, refreshing: false, runLoading: false, runError: null })
+    try {
+      const savedTitle = action === "rename" ? await this.api.renameRun(household.id, occurrenceId, title) : await this.api.deleteRun(household.id, occurrenceId)
+      if (!current()) return false
+      // Invalidate Today before the cache transaction as well as after it. Any
+      // already-admitted cache write precedes this transaction in SQLite's queue.
+      await this.board.reloadAfterRunChange()
+      if (action === "rename") await this.store.renameRun(this.accountId, household.id, occurrenceId, savedTitle as string)
+      else await this.store.removeRun(this.accountId, household.id, occurrenceId)
+      if (!current()) return false
+      this.pageRevision++; this.runRevision++; this.localRevision++
+      await this.board.reloadAfterRunChange()
+      if (action === "delete" && this.state.runId === occurrenceId) this.closeRun()
+      await this.readLocal()
+      return true
+    } catch (error) {
+      if (current()) this.report(error, true)
+      throw error
+    } finally { this.update({ managing: null }) }
   }
   stop() { this.stopped = true; this.pageRevision++; this.runRevision++; this.localRevision++; this.listeners.clear() }
 }

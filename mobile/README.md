@@ -1891,3 +1891,44 @@ node --test tests/integration/account-deletion-worker.cjs
 
 The test creates and removes its own schema and local server. It never enables
 processing on a deployed environment or calls a real provider deletion API.
+
+### Native run rename and deletion
+
+Managers and supervisors can rename or delete an opened active or historical run
+from the native Runs screen. These actions use the existing authenticated flow
+handlers and their household, session and kiosk checks. Members have no management
+controls. Both actions require a connection; ordinary task completion remains
+available offline. Deletion requires a confirmation explaining that the template
+and other runs stay, while this run and its history are removed for everyone.
+
+The name editor keeps its entry during rotation and failed saves. It uses a
+focused, scrollable native view with keyboard avoidance on iOS and disables
+Android's fullscreen text extraction so the name stays visible in landscape.
+A failed or ambiguous reply leaves the view available with a Refresh run action;
+the client never automatically retries a destructive request.
+
+Confirmed changes update Today, run details and cached lists in SQLite. Renaming
+preserves pending task completion changes. Deletion removes the matching run from
+the caches and marks unsent changes for that run as rejected for explicit review.
+Each local update is transactional; a write failure rolls it back. In-flight
+reads are invalidated around the update so an older response cannot put the old
+name or deleted run back. Runtime identity/parent-access checks prevent a delayed
+confirmation from operating on a newly selected account or household.
+
+Verification on 4 November 2026: 536 general regression tests passed without skips,
+including real SQLite restart/rollback and late-response checks. The native
+transport also exercised the real flow handlers against an isolated PostgreSQL
+schema: member and kiosk denials, household isolation, and preservation of the
+template and other runs after deletion. Root and mobile lint/type checks passed,
+as did Android and iOS Hermes exports. No native binary or production deployment
+was changed for this checkpoint.
+
+On the running Android emulator, a disposable local run was renamed through the
+native editor, its draft survived rotation, and the corrected landscape editor
+kept the name above the keyboard. Cancelling deletion retained it; confirming
+deletion removed its server row, snapshot task and native list entry. The original
+three runs were retained and the device's rotation settings restored. Evidence:
+`C:/Users/danie/.codex/tmp/cyntch-run-ui-fixture.json`, with screenshots
+`cyntch-run-controls.png` and `cyntch-run-landscape-keyboard.png` in that directory.
+Physical iOS/Android device, accessibility and household pilot verification remain
+part of the full release goal.

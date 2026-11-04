@@ -62,7 +62,11 @@ export function RuntimeProvider({ children, accountId, sessionId, restricted = f
       if (cancelled) return
       controller = new BoardController(store, accountId, deviceId, api, randomUUID)
       planner = new PlannerController(store.planner, accountId, deviceId, api, randomUUID, async () => { await controller?.refresh() })
-      runs = new RunsController(store, accountId, api, controller)
+      runs = new RunsController(store, accountId, api, controller, householdId => {
+        const protection = kiosk.getSnapshot()
+        return matchesIdentity() && !restricted && canSync && protection.ready && !protection.changing && !protection.record
+          && controller?.getSelectedHouseholdId() === householdId
+      })
       notifications = new NotificationController(store.notifications.forSession(accountId, sessionId), accountId, api, createNotificationDevice(store.notificationSessions), randomUUID,
         Date.now, selection => digestStringAsync(CryptoDigestAlgorithm.SHA256, selection))
       billing = new BillingController(store.billing, { accountId, sessionId, deviceId }, api, nativeBillingSdk, householdId => {

@@ -156,6 +156,19 @@ export class MobileApi implements SyncTransport {
     return snapshot
   }
 
+  async renameRun(householdId: string, occurrenceId: string, title: string): Promise<string> {
+    const result = await this.request<{ occurrence: { id: string; household_id: string; title: string } }>("/api/leader/flow",
+      { action: "renameTaskBoard", householdId, occurrenceId, title })
+    if (result.occurrence?.id !== occurrenceId || result.occurrence.household_id !== householdId || result.occurrence.title !== title.trim()) {
+      throw new Error("The saved name did not match this run. Refresh before trying again.")
+    }
+    return result.occurrence.title
+  }
+  async deleteRun(householdId: string, occurrenceId: string): Promise<void> {
+    const result = await this.request<{ ok: boolean }>("/api/leader/flow", { action: "deleteOccurrence", householdId, occurrenceId })
+    if (result.ok !== true) throw new Error("Deletion was not confirmed. Refresh this run before trying again.")
+  }
+
   async planner(householdId: string): Promise<PlannerSnapshot> {
     const data = await this.request<PlannerSnapshot>(`/api/leader/flow?householdId=${encodeURIComponent(householdId)}`)
     return { householdId, routines: data.routines, tasks: data.tasks, dependencies: data.dependencies,

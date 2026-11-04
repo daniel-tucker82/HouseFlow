@@ -266,12 +266,38 @@ export class LocalStore {
   async removeRun(accountId: string, householdId: string, occurrenceId: string) {
     await this.database.withExclusiveTransactionAsync(tx => this.removeRunInTransaction(tx, accountId, householdId, occurrenceId))
   }
+  /** Apply a confirmed rename to every cached view without changing task state. */
+  async renameRun(accountId: string, householdId: string, occurrenceId: string, title: string) {
+    if (!title.trim()) throw new Error("Enter a name for this run.")
+    await this.database.withExclusiveTransactionAsync(async tx => {
+      await requireKioskParentAccess(tx)
+      if (await this.isHouseholdRevoked(accountId, householdId, tx)) throw new Error("Access to this household has been removed.")
+      const rename = <T extends BoardSnapshot>(snapshot: T): T => ({ ...snapshot,
+        tasks: snapshot.tasks.map(task => task.occurrence_id === occurrenceId ? { ...task, occurrence_title: title } : task) })
+      const cached = await this.runCache(accountId, householdId, occurrenceId, tx)
+      if (cached) await this.writeRun(tx, accountId, { ...rename(cached.server), run: { ...cached.server.run, title } })
+      for (const view of ["active", "past"] as const) {
+        const page = await this.getRunPage(accountId, householdId, view, tx)
+        if (page) await tx.runAsync("UPDATE run_pages SET data=? WHERE account_id=? AND household_id=? AND view=?",
+          JSON.stringify({ ...page, items: page.items.map(run => run.id === occurrenceId ? { ...run, title } : run) }), accountId, householdId, view)
+      }
+      const today = await this.getCachedBoard(accountId, householdId, tx)
+      if (today) await this.writeBoard(tx, accountId, rename(today.server))
+    })
+  }
   private async removeRunInTransaction(tx: SqlConnection, accountId: string, householdId: string, occurrenceId: string) {
     await tx.runAsync("DELETE FROM run_snapshots WHERE account_id=? AND household_id=? AND occurrence_id=?", accountId, householdId, occurrenceId)
     for (const view of ["active", "past"] as const) {
       const page = await this.getRunPage(accountId, householdId, view, tx)
       if (page) await tx.runAsync("UPDATE run_pages SET data=? WHERE account_id=? AND household_id=? AND view=?", JSON.stringify({ ...page, items: page.items.filter(item => item.id !== occurrenceId) }), accountId, householdId, view)
     }
+    // Keep unsent intent available for review, but stop uploading it to a run
+    // the server has confirmed is unavailable. A reused task ID in another run
+    // and another account's caches are unaffected.
+    await tx.runAsync("UPDATE pending_completions SET state='rejected',error=? WHERE account_id=? AND household_id=? AND occurrence_id=?",
+      "This run is no longer available. Its saved changes cannot be applied.", accountId, householdId, occurrenceId)
+    const today = await this.getCachedBoard(accountId, householdId, tx)
+    if (today) await this.writeBoard(tx, accountId, { ...today.server, tasks: today.server.tasks.filter(task => task.occurrence_id !== occurrenceId) })
   }
 
   private async revokeKioskHousehold(transaction: SqlConnection, accountId: string, householdId: string) {

@@ -447,6 +447,104 @@ function historicalRun(status = 'completed', version = '10') {
 }
 const historyPage = (view, items = []) => ({ householdId: 'h1', view, items, nextCursor: null, fetchedAt: '2026-11-03T00:00:00Z' })
 
+async function manageableRun(t) {
+  const f = await fixture(t), run = { ...snapshot(), run: { ...historicalRun('active').run, id: 'r1', title: 'Morning' } }
+  await f.store.cacheRunPage('parent', historyPage('active', [run.run]))
+  await f.store.cacheRunPage('parent', historyPage('past'))
+  await f.store.cacheRun('parent', run)
+  return { ...f, store: f.store, run, reopen: f.reopen }
+}
+
+test('R09 confirmed renames update Today and run history atomically, preserving queued tasks and other accounts', async t => {
+  const f = await manageableRun(t)
+  await f.store.cacheRun('another-parent', f.run)
+  await f.store.enqueueCompletion(change())
+  f.adapter.failOnBoardWrite = true
+  await assert.rejects(f.store.renameRun('parent', 'h1', 'r1', 'School morning'), /disk write/)
+  assert.equal((await f.store.getRun('parent', 'h1', 'r1')).run.title, 'Morning')
+  f.adapter.failOnBoardWrite = false
+  await f.store.renameRun('parent', 'h1', 'r1', 'School morning')
+  const store = await f.reopen()
+  const renamed = await store.getRun('parent', 'h1', 'r1')
+  assert.equal(renamed.run.title, 'School morning'); assert.equal(renamed.tasks[0].occurrence_title, 'School morning')
+  assert.equal(renamed.tasks[0].status, 'completed'); assert.equal((await store.pending('parent')).length, 1)
+  assert.equal((await store.getRunPage('parent', 'h1', 'past')).items[0].title, 'School morning')
+  assert.equal((await store.getBoard('parent', 'h1')).tasks[0].occurrence_title, 'School morning')
+  assert.equal((await store.getRun('another-parent', 'h1', 'r1')).run.title, 'Morning')
+})
+
+test('R10 confirmed deletion clears all matching views and retains unsent intent for review across restart', async t => {
+  const f = await manageableRun(t)
+  await f.store.cacheRun('parent', historicalRun())
+  await f.store.cacheRun('another-parent', f.run)
+  await f.store.enqueueCompletion(change())
+  await f.store.enqueueCompletion({ ...change('other-run', false), occurrenceId: 'old-run' })
+  f.adapter.failOnBoardWrite = true
+  await assert.rejects(f.store.removeRun('parent', 'h1', 'r1'), /disk write/)
+  assert.ok(await f.store.getRun('parent', 'h1', 'r1')); assert.equal((await f.store.pending('parent'))[0].state, 'pending')
+  f.adapter.failOnBoardWrite = false
+  await f.store.removeRun('parent', 'h1', 'r1')
+  const store = await f.reopen()
+  assert.equal(await store.getRun('parent', 'h1', 'r1'), null)
+  assert.equal((await store.getBoard('parent', 'h1')).tasks.length, 0)
+  assert.equal((await store.getRunPage('parent', 'h1', 'active')).items.some(run => run.id === 'r1'), false)
+  assert.equal((await store.getRunPage('parent', 'h1', 'past')).items.some(run => run.id === 'r1'), false)
+  assert.equal((await store.pending('parent')).find(row => row.id === 'op-1').state, 'rejected')
+  assert.equal((await store.pending('parent')).find(row => row.id === 'other-run').state, 'pending')
+  assert.ok(await store.getRun('parent', 'h1', 'old-run')); assert.ok(await store.getRun('another-parent', 'h1', 'r1'))
+})
+
+test('R11 native run changes fence late Today/history reads and reject repeat clicks', async t => {
+  const f = await manageableRun(t), requests = [], calls = []
+  const board = new BoardController(f.store, 'parent', 'device', { bootstrap: () => new Promise(resolve => requests.push({ type: 'board', resolve })) }, () => 'unused')
+  let completeRename
+  const runs = new RunsController(f.store, 'parent', {
+    runs: () => new Promise(resolve => requests.push({ type: 'page', resolve })),
+    run: () => new Promise(resolve => requests.push({ type: 'run', resolve })),
+    renameRun: async (...args) => { calls.push(args); return new Promise(resolve => { completeRename = resolve }) },
+    deleteRun: async () => { calls.push('delete') },
+  }, board)
+  const unsubscribe = board.subscribe(() => runs.observe(board.getSnapshot()))
+  t.after(() => { unsubscribe(); runs.stop(); board.stop() })
+  await board.start(); runs.setVisible(true); await runs.openRun('r1')
+  board.setConnectivity(true); await new Promise(resolve => setImmediate(resolve))
+  const rename = runs.renameRun('r1', '  School morning  ')
+  assert.equal(runs.getSnapshot().managing, 'rename')
+  await assert.rejects(runs.deleteRun('r1'), /Wait for/)
+  completeRename('School morning'); assert.equal(await rename, true)
+  const settleOld = () => { for (const request of requests.splice(0)) request.resolve(request.type === 'board' ? { accountId: 'parent', households: [snapshot().household], board: snapshot() } : request.type === 'page' ? historyPage('active', [f.run.run]) : f.run) }
+  settleOld(); await new Promise(resolve => setImmediate(resolve))
+  assert.equal(runs.getSnapshot().run.run.title, 'School morning')
+  assert.equal(board.getSnapshot().board.tasks[0].occurrence_title, 'School morning')
+  assert.deepEqual(calls, [['h1', 'r1', 'School morning']])
+  assert.equal(await runs.deleteRun('r1'), true)
+  assert.equal(runs.getSnapshot().runId, null); assert.equal(board.getSnapshot().board.tasks.length, 0)
+  settleOld()
+})
+
+test('R12 run management requires current parent access and preserves data after an uncertain reply', async t => {
+  const f = await manageableRun(t), board = new BoardController(f.store, 'parent', 'device', {}, () => 'unused')
+  let allowed = true, calls = 0, finish
+  const runs = new RunsController(f.store, 'parent', {
+    renameRun: async () => { calls++; throw new Error('Connection interrupted; check status') },
+    deleteRun: async () => { calls++; await new Promise(resolve => { finish = resolve }) },
+  }, board, () => allowed)
+  t.after(() => { runs.stop(); board.stop() })
+  await board.start(); runs.observe(board.getSnapshot()); runs.setVisible(true); await runs.openRun('r1')
+  await assert.rejects(runs.deleteRun('r1'), /Connect/); assert.equal(calls, 0)
+  runs.observe({ ...board.getSnapshot(), online: true }); allowed = false
+  await assert.rejects(runs.deleteRun('r1'), /parent access/); allowed = true
+  runs.observe({ ...board.getSnapshot(), online: true, board: { ...snapshot(), household: { ...snapshot().household, role: 'member' } } })
+  await assert.rejects(runs.deleteRun('r1'), /parent access/); assert.equal(calls, 0)
+  runs.observe({ ...board.getSnapshot(), online: true })
+  await assert.rejects(runs.renameRun('r1', '  '), /Enter a name/)
+  await assert.rejects(runs.renameRun('r1', 'New name'), /Connection interrupted/)
+  assert.equal((await f.store.getRun('parent', 'h1', 'r1')).run.title, 'Morning')
+  const deletion = runs.deleteRun('r1'); allowed = false; finish()
+  assert.equal(await deletion, false); assert.ok(await f.store.getRun('parent', 'h1', 'r1'))
+  assert.equal(calls, 2)
+})
+
 test('R01 reopening a saved historical task is atomic, survives restart, and updates both run lists', async t => {
   const f = await fixture(t), historical = historicalRun()
   await f.store.cacheRunPage('parent', historyPage('past', [historical.run]))

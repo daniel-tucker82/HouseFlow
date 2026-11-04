@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react"
-import { Alert, FlatList, Modal, Pressable, RefreshControl, View, useWindowDimensions } from "react-native"
+import { Alert, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, TextInput, View, useWindowDimensions } from "react-native"
 import { useFocusEffect } from "expo-router"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { ChevronRight } from "lucide-react-native"
@@ -11,7 +11,7 @@ import { PlannerSelect } from "./planner-inputs"
 import { Action, Card, Copy, Loading, styles, usePalette } from "./ui"
 
 const dateLabel = (run: RunSummary, timezone: string) => new Date(run.scheduled_for).toLocaleString(undefined, { timeZone: timezone, year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
-function report(error: unknown) { Alert.alert("Unable to open runs", error instanceof Error ? error.message : "Please try again.") }
+function report(error: unknown) { Alert.alert("Unable to update runs", error instanceof Error ? error.message : "Please try again.") }
 
 export default function RunsScreen() {
   const { runs } = useRuntime(), state = useRuns(), board = useBoard(), colors = usePalette()
@@ -47,21 +47,46 @@ export default function RunsScreen() {
 function RunDetails({ snapshot }: { snapshot: RunSnapshot }) {
   const { runs, controller } = useRuntime(), state = useRuns(), board = useBoard(), colors = usePalette()
   const [selectedMember, setMember] = useState("all")
+  const [renaming, setRenaming] = useState(false), [name, setName] = useState(snapshot.run.title)
+  const managing = Boolean(state.managing), canManage = snapshot.household.role !== "member"
   const memberId = snapshot.members.some(member => member.id === selectedMember) ? selectedMember : "all"
   const tasks = snapshot.tasks.filter(task => memberId === "all" || task.assignee_ids.includes(memberId))
   const focused = tasks.find(task => task.id === state.focusedTaskId)
   const pending = new Map(board.pending.filter(change => change.householdId === snapshot.household.id && change.occurrenceId === snapshot.run.id).map(change => [change.taskId, change]))
   const taskRow = (task: BoardTask) => <BoardTaskRow task={task} timezone={snapshot.household.timezone} saving={pending.has(task.id)}
     memberNames={snapshot.members.filter(member => task.assignee_ids.includes(member.id)).map(member => member.name).join(", ")}
-    canEdit={snapshot.run.status !== "cancelled" && (snapshot.household.role !== "member" || task.assignee_ids.includes(controller.accountId))}
+    canEdit={!managing && snapshot.run.status !== "cancelled" && (snapshot.household.role !== "member" || task.assignee_ids.includes(controller.accountId))}
     onPress={() => void runs.setCompleted(task, memberId !== "all" ? memberId : snapshot.household.role === "member" ? controller.accountId : task.assignee_ids[0] ?? controller.accountId, task.status !== "completed").catch(report)} />
-  return <FlatList data={tasks.filter(task => task.id !== focused?.id)} keyExtractor={task => task.id} contentContainerStyle={[styles.content, { maxWidth: 800 }]} refreshControl={<RefreshControl refreshing={state.runLoading} onRefresh={() => void runs.refreshRun()} tintColor={colors.primary} />}
-    ListHeaderComponent={<View style={{ gap: 16 }}><View style={[styles.row, { flexWrap: "wrap" }]}><Copy tone="heading" style={{ flex: 1, minWidth: 160 }}>{snapshot.run.title}</Copy><Action secondary label="Close run" onPress={() => runs.closeRun()} /></View>
+  const rename = () => void runs.renameRun(snapshot.run.id, name).then(saved => { if (saved) setRenaming(false) }).catch(report)
+  const remove = () => Alert.alert("Delete this run?", `“${snapshot.run.title}” and its task history will be removed for everyone in this household. The routine template and other runs will stay.${pending.size ? " Saved task changes for this run will no longer be applied." : ""}`,
+    [{ text: "Keep run", style: "cancel" }, { text: "Delete run", style: "destructive", onPress: () => void runs.deleteRun(snapshot.run.id).catch(report) }])
+  if (canManage && renaming) return <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+    <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={[styles.content, { maxWidth: 800, gap: 12 }]}>
+      <Copy tone="label">Run name</Copy>
+      <TextInput accessibilityLabel="Run name" value={name} onChangeText={setName} editable={!managing} autoFocus returnKeyType="done" disableFullscreenUI
+        onSubmitEditing={() => { if (board.online && !managing && name.trim()) rename() }}
+        style={{ minHeight: 52, borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 14, fontSize: 16, color: colors.text, backgroundColor: colors.surface }} />
+      <View style={[styles.row, { flexWrap: "wrap" }]}><Action label={state.managing === "rename" ? "Saving name…" : "Save name"} disabled={!board.online || managing || !name.trim()} onPress={rename} />
+        <Action secondary label="Cancel rename" disabled={managing} onPress={() => setRenaming(false)} /></View>
+      <Copy tone="muted">This changes the name of this run. The routine template keeps its name.</Copy>
+      {!board.online ? <Copy tone="muted">Connect to save this name. Your entry is kept here.</Copy> : null}
+      {state.runError ? <View accessibilityRole="alert"><Copy style={{ color: colors.danger }}>{state.runError}</Copy>
+        <Action secondary label="Refresh run" disabled={!board.online || managing} onPress={() => void runs.refreshRun()} /></View> : null}
+    </ScrollView>
+  </KeyboardAvoidingView>
+  return <FlatList data={tasks.filter(task => task.id !== focused?.id)} keyExtractor={task => task.id} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={[styles.content, { maxWidth: 800 }]} refreshControl={<RefreshControl refreshing={state.runLoading} onRefresh={() => void runs.refreshRun()} tintColor={colors.primary} />}
+    ListHeaderComponent={<View style={{ gap: 16 }}><View style={[styles.row, { flexWrap: "wrap" }]}><Copy tone="heading" style={{ flex: 1, minWidth: 160 }}>{snapshot.run.title}</Copy><Action secondary label="Close run" disabled={managing} onPress={() => runs.closeRun()} /></View>
       <Copy tone="muted">{dateLabel(snapshot.run, snapshot.household.timezone)} · {snapshot.household.timezone}</Copy>
       <Copy>{snapshot.run.status === "cancelled" ? "This run was cancelled. Its tasks cannot be changed." : `${snapshot.run.completed_tasks} of ${snapshot.run.total_tasks} done`}</Copy>
       {!board.online ? <Copy tone="muted">{snapshot.run.status === "cancelled" ? "Saved on this device for viewing offline." : "Saved on this device. You can update these tasks offline."}</Copy> : null}
       {[...pending.values()].some(change => change.state === "rejected") ? <Copy style={{ color: colors.danger }}>A saved change needs attention in Settings.</Copy> : null}
-      {state.runError ? <View accessibilityRole="alert"><Copy style={{ color: colors.danger }}>{state.runError}</Copy></View> : null}
+      {state.runError ? <View accessibilityRole="alert"><Copy style={{ color: colors.danger }}>{state.runError}</Copy>
+        <Action secondary label="Refresh run" disabled={!board.online || managing} onPress={() => void runs.refreshRun()} /></View> : null}
+      {canManage ? <View style={[styles.row, { flexWrap: "wrap" }]}>
+        <Action secondary label="Rename run" disabled={!board.online || managing} onPress={() => { setName(snapshot.run.title); setRenaming(true) }} />
+        <Action secondary label={state.managing === "delete" ? "Deleting run…" : "Delete run"} disabled={!board.online || managing} onPress={remove} />
+      </View> : null}
+      {canManage && !board.online ? <Copy tone="muted">Connect to rename or delete this run.</Copy> : null}
       <PlannerSelect label="Show tasks for" value={memberId} options={[{ value: "all", label: "Everyone" }, ...snapshot.members.map(member => ({ value: member.id, label: member.name }))]} onChange={setMember} />
       {focused ? <View style={{ gap: 12 }}><Copy tone="label">From your notification</Copy>{taskRow(focused)}{tasks.length > 1 ? <Copy tone="label">Other tasks in this run</Copy> : null}</View> : null}
       {state.focusedTaskId && !snapshot.tasks.some(task => task.id === state.focusedTaskId) ? <Copy tone="muted">The task in this notification is no longer part of this run.</Copy> : null}

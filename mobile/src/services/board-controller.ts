@@ -142,6 +142,14 @@ export class BoardController {
     finally { if (revision === this.refreshRevision) this.update({ refreshing: false }) }
   }
 
+  /** A confirmed run mutation updates SQLite first. Invalidate earlier network
+   * reads before publishing it so Today cannot restore an old name/deleted run. */
+  async reloadAfterRunChange() {
+    this.mutationRevision++; this.refreshRevision++
+    this.update({ refreshing: false })
+    await this.readLocal()
+  }
+
   async setCompleted(task: BoardTask, memberId: string, completed: boolean) {
     const householdId = this.state.board?.household.id
     if (!householdId || this.stopped) return false
