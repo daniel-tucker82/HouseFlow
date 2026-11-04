@@ -9,6 +9,7 @@ import { useNotificationSession } from "../providers/notification-session"
 import { KioskSettingsCard } from "../components/kiosk-settings"
 import { BillingSettingsCard } from "../components/billing-settings"
 import { useRouter } from "expo-router"
+import { AccountCleanupNotice } from "../components/account-cleanup-notice"
 
 export default function SettingsScreen() {
   const router = useRouter()
@@ -24,6 +25,7 @@ export default function SettingsScreen() {
   function report(error: unknown) { Alert.alert("Unable to update", error instanceof Error ? error.message : "Please try again.") }
   return <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1, backgroundColor: colors.background }}><ScrollView contentContainerStyle={styles.content}>
     <Copy tone="title">Settings</Copy>
+    <AccountCleanupNotice />
     <Card><View style={styles.row}><UserButton /><View style={{ flex: 1 }}><Copy tone="heading">Your account</Copy><Copy tone="muted">Manage your profile and sign-in details.</Copy></View></View></Card>
     <Action secondary label="Review account deletion" onPress={() => router.navigate("/account-deletion")} />
     <BillingSettingsCard />

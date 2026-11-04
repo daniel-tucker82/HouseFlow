@@ -159,6 +159,28 @@ billing review. Verify a provider configuration that requires Cyntch's complete
 deletion flow before release, and retain recovery for administrative/out-of-band
 provider deletion. No live Clerk configuration was changed by this inspection.
 
+Receipt dismissal no longer stops device identity recovery. The controller reads
+the durable deleted-account list after restart and repairs retired Clerk caches,
+biometric credentials and billing identity without resetting the current user's
+notifications or kiosk. Recovery runs on native sign-in readiness/identity changes
+and foreground transitions, with one listener and no polling. Events received
+during repair coalesce into a trailing pass; cleanup's own state updates cannot
+create a retry loop. Timed-out native checks for the same account share their
+still-running operation until it settles. A later event can inspect it again.
+Signed-out and Settings screens show a retry notice if a dismissed account still
+needs cleanup. Other household members can keep using the app during that repair.
+
+Seventy SQLite/controller/cache/identity checks passed, including restart after
+receipt dismissal, late simulated SDK profiles, failure/retry, coalesced events,
+native adapter wiring and preservation of another account's notification session
+and kiosk. Mobile lint/types, focused test lint and both platform JavaScript exports
+passed. Evidence logs are `C:/Users/danie/.codex/tmp/cyntch-retired-identity-*.log`.
+This is lifecycle-triggered repair, not a native SDK write fence: ClerkKit 1.6.2's
+[`enroll` / `saveLocalCredential`](https://github.com/clerk/clerk-ios/blob/1.6.2/Sources/ClerkKit/Core/BiometricCredentials.swift)
+can still finish storing credentials after an earlier cleanup. Immediate prevention
+of that write, out-of-band deletion and physical-device verification remain open;
+the account-deletion submission gate is unchanged.
+
 ### Closed-client scheduler verification
 
 The public `/api/cron` endpoint now reports partial household, native billing or

@@ -20,7 +20,7 @@ export function AccountDeletionStatusView({onClose,onWithdraw,onSignOut,onReview
       {status ? <Copy tone="muted">Requested {new Date(status.acceptedAt).toLocaleString()}{status.completedAt ? `\nCompleted ${new Date(status.completedAt).toLocaleString()}` : ""}</Copy> : null}
       {state.error ? <View accessibilityRole="alert"><Copy style={{color:colors.danger}}>{state.error}</Copy></View> : null}
       {record?.submitted ? <Action label={working ? "Checking…" : "Check status"} disabled={working} onPress={() => void controller.check().catch(() => undefined)} /> : null}
-      {record?.status && !state.localCleanupComplete ? <Action secondary label="Retry device cleanup" disabled={working} onPress={() => void controller.refresh().catch(() => undefined)} /> : null}
+      {(record?.status || state.deletedAccounts.length > 0) && !state.localCleanupComplete ? <Action secondary label="Retry device cleanup" disabled={working} onPress={() => void controller.recoverIdentity().catch(() => undefined)} /> : null}
       {record && !record.submitted ? <>
         {onReview ? <Action label="Return to review" disabled={working} onPress={onReview} /> : null}
         {!readOnly ? <Action secondary label="Cancel saved choices" disabled={working} onPress={() => Alert.alert("Cancel these choices?","No deletion has been submitted. Your account and households will stay as they are.",[

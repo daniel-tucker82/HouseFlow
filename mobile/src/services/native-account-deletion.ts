@@ -55,5 +55,15 @@ export function nativeAccountDeletionRecovery() {
         waitForNativeNotification(resetNativeNotificationSession(store.notificationSessions)),
       ])
       if (results.some(result => result.status === "rejected")) throw new Error("Some device cleanup still needs another attempt. Your saved deletion receipt has been kept.")
-    },() => store.deletedAccounts.accounts())).catch(error => { recoveryController = undefined;throw error })
+    },() => store.deletedAccounts.accounts(),async accountId => {
+      // These adapters each verify the durable deletion fence and preserve
+      // other accounts. Receipt-free recovery must not reset notifications,
+      // current kiosk state, or a different account's billing identity.
+      const results = await Promise.allSettled([
+        eraseNativeBillingIdentity(accountId),
+        eraseNativeClerkOfflineCache(accountId),
+        verifyNativeClerkDeletion(accountId),
+      ])
+      if (results.some(result => result.status === "rejected")) throw new Error("Saved sign-in cleanup needs another attempt.")
+    })).catch(error => { recoveryController = undefined;throw error })
 }

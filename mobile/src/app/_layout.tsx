@@ -18,6 +18,7 @@ import { AccountDeletionIdentityRecovery, AccountDeletionRecoveryProvider, useAc
 import { AccountDeletionStatusView } from "../components/account-deletion-status"
 import { AccountDeletionRecoveryActions } from "../components/account-deletion-recovery-actions"
 import { AccountDeletionRecoveryFallback } from "../components/account-deletion-recovery-fallback"
+import { AccountCleanupNotice } from "../components/account-cleanup-notice"
 
 function Application() {
   const { isLoaded, isSignedIn, userId, sessionId } = useAuth({ treatPendingAsSignedOut: false })
@@ -59,6 +60,7 @@ function Application() {
         <Copy tone="muted">Family routines, shared tasks and small wins. All in one place.</Copy>
         <Action label="Sign in or create an account" onPress={() => setAuthOpen(true)} />
         <Copy tone="muted">Children can use a parent’s device or the family tablet. They don’t need an email address.</Copy>
+        <AccountCleanupNotice />
         {deletion.record ? <Action secondary label="Check saved account deletion" onPress={() => setRecoveryOpen(true)} /> : null}
       </View>
       </ScrollView>

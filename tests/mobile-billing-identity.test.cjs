@@ -205,9 +205,9 @@ test('billing or Clerk cleanup failure cannot prevent kiosk/notification cleanup
  const f=await fixture(t),secure=new Map(),calls=[];let failBilling=true,failCache=false,failNative=false
  const native=load(['mobile/src/services/native-account-deletion.ts'],{
   '../storage/native-store':{openLocalStore:async()=>f.local,nativeKioskVault:{remove:async id=>calls.push(['pin',id])}},
-  './native-billing-identity':{eraseNativeBillingIdentity:async()=>{calls.push(['billing']);if(failBilling)throw Error('Billing unavailable')}},
-  './native-clerk-offline-cache':{eraseNativeClerkOfflineCache:async()=>{calls.push(['clerk-cache']);if(failCache)throw Error('Keychain unavailable')}},
-  './native-clerk-deletion':{verifyNativeClerkDeletion:async()=>{calls.push(['clerk-native']);if(failNative)throw Error('Native profile still present')}},
+  './native-billing-identity':{eraseNativeBillingIdentity:async id=>{calls.push(['billing',id]);if(failBilling)throw Error('Billing unavailable')}},
+  './native-clerk-offline-cache':{eraseNativeClerkOfflineCache:async id=>{calls.push(['clerk-cache',id]);if(failCache)throw Error('Keychain unavailable')}},
+  './native-clerk-deletion':{verifyNativeClerkDeletion:async id=>{calls.push(['clerk-native',id]);if(failNative)throw Error('Native profile still present')}},
   './notification-native-session':{resetNativeNotificationSession:async()=>{calls.push(['notifications'])},waitForNativeNotification:work=>work},
   'expo-crypto':{CryptoDigestAlgorithm:{SHA256:'sha256'},digestStringAsync:async(algorithm,value)=>createHash(algorithm).update(value).digest('hex'),getRandomBytesAsync:async size=>randomBytes(size)},
   'expo-secure-store':{WHEN_UNLOCKED_THIS_DEVICE_ONLY:1,getItemAsync:async key=>secure.get(key)??null,setItemAsync:async(key,value)=>secure.set(key,value),deleteItemAsync:async key=>secure.delete(key)},
@@ -229,4 +229,17 @@ test('billing or Clerk cleanup failure cannot prevent kiosk/notification cleanup
  assert.equal(calls.filter(call=>call[0]==='notifications').length,3)
  failNative=false;await recovery.refresh();assert.equal(recovery.getSnapshot().localCleanupComplete,true)
  assert.equal(calls.filter(call=>call[0]==='pin').length,1)
+
+ await recovery.rememberStatus(saved,{requestId,state:'completed',acceptedAt:'2026-11-04T01:00:00.000Z',completedAt:'2026-11-04T02:00:00.000Z',availableUntil:'2027-02-02T02:00:00.000Z',appleRevocationRequired:false})
+ await recovery.dismissCompleted(saved);assert.equal(await native.nativeAccountDeletionVault.read(),null)
+ await f.local.notificationSessions.activate(f.b)
+ await f.local.cacheBoard(f.b.accountId,{household:{id:f.b.householdId,name:'Other family',role:'manager',leaderId:f.b.accountId,timezone:'Australia/Sydney'},members:[],tasks:[],fetchedAt:'2026-11-04T02:00:00.000Z'})
+ await f.local.kiosk.begin({...f.b,id:randomUUID(),state:'locked',visibleMemberIds:[],editableMemberIds:[]})
+ const notifications=await f.db.getAllAsync('SELECT * FROM notification_sessions'),kiosk=await f.local.kiosk.get()
+ calls.length=0;failNative=true
+ await assert.rejects(recovery.recoverIdentity(),/still need cleanup/)
+ assert.deepEqual(calls,[['billing',f.a.accountId],['clerk-cache',f.a.accountId],['clerk-native',f.a.accountId]])
+ assert.deepEqual(await f.db.getAllAsync('SELECT * FROM notification_sessions'),notifications,'Retired cleanup cannot reset the current member\'s notification session')
+ assert.deepEqual(await f.local.kiosk.get(),kiosk,'Retired cleanup cannot unlock another member\'s kiosk')
+ failNative=false;await recovery.recoverIdentity();assert.equal(recovery.getSnapshot().localCleanupComplete,true)
 })

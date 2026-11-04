@@ -15,7 +15,8 @@ class Database{
 const deferred=()=>{let resolve;const promise=new Promise(done=>{resolve=done});return {promise,resolve}}
 async function fixture(t){
  const folder=fs.mkdtempSync(path.join(os.tmpdir(),'cyntch-delete-controller-')),file=path.join(folder,'device.db'),secure=new Map(),calls=[]
- const control={failWrite:false,failRemove:false,failCleanup:false,holdCleanup:null,holdStatus:null,statusCode:200,cleanupCalls:0}
+ const control={failWrite:false,failRemove:false,failCleanup:false,holdCleanup:null,holdStatus:null,statusCode:200,cleanupCalls:0,
+  retiredCalls:[],holdRetired:null,failRetired:new Set(),sdkProfiles:new Map()}
  const origin='https://www.cyntch.test',scope={accountId:'user_parent',sessionId:'sess_parent',deviceId:randomUUID()}
  const submission={...scope,origin,intent:{operationId:randomUUID(),revision:'a'.repeat(64),ownership:[],confirmAccountDeletion:true,acknowledgeSubscriptions:true}}
  const status={requestId:submission.intent.operationId,state:'pending',acceptedAt:'2026-11-04T01:00:00.000Z',completedAt:null,availableUntil:null,appleRevocationRequired:false}
@@ -30,7 +31,12 @@ async function fixture(t){
    control.cleanupCalls++;assert.ok((await vault.read()).status,'Acceptance must be durable before erasure')
    await control.holdCleanup?.promise;if(control.failCleanup)throw Error('Device cleanup interrupted')
    await local.deletedAccounts.eraseAccepted(record)
-  },()=>local.deletedAccounts.accounts())
+  },()=>local.deletedAccounts.accounts(),async accountId=>{
+   assert.equal(await local.deletedAccounts.isDeleted(accountId),true,'Only a durable deleted account can be cleaned')
+   control.retiredCalls.push(accountId);await control.holdRetired?.promise
+   if(control.failRetired.has(accountId))throw Error('Private SDK error: '+accountId)
+   control.sdkProfiles.delete(accountId)
+  })
  }
  await restart();t.after(()=>{db.raw.close();assert.equal(path.dirname(path.resolve(folder)),path.resolve(os.tmpdir()));assert.ok(path.basename(folder).startsWith('cyntch-delete-controller-'));fs.rmSync(folder,{recursive:true,force:true})})
  await local.notificationSessions.activate(scope)
@@ -51,6 +57,45 @@ test('signed-out recovery fences UI before cleanup, retains receipt and survives
  await f.restart();await f.controller.refresh();assert.deepEqual(f.controller.getSnapshot().deletedAccounts,[f.scope.accountId])
  await assert.rejects(f.db.runAsync('INSERT INTO device_settings(account_id,setting_key,data) VALUES(?,?,?)',f.scope.accountId,'late','{}'),/deleted/)
  assert.equal(f.calls.length,1,'Startup resumes cleanup without automatically resending deletion or polling status')
+})
+
+test('dismissed receipts still recover a late SDK profile after restart without touching another account or calling deletion status',async t=>{
+ const f=await fixture(t),complete={...f.status,state:'completed',completedAt:'2026-11-04T02:00:00.000Z',availableUntil:'2027-02-02T02:00:00.000Z'}
+ await f.controller.rememberStatus(f.saved,complete);await f.controller.dismissCompleted(f.saved)
+ assert.equal(await f.vault.read(),null)
+ f.control.retiredCalls.length=0
+ f.control.sdkProfiles.set(f.scope.accountId,{name:'Late SDK profile'});f.control.sdkProfiles.set('user_other',{name:'Other member'})
+ await f.restart();await f.controller.recoverIdentity()
+ assert.equal(f.controller.getSnapshot().record,null);assert.equal(f.controller.getSnapshot().localCleanupComplete,true)
+ assert.deepEqual(f.control.retiredCalls,[f.scope.accountId]);assert.deepEqual([...f.control.sdkProfiles.keys()],['user_other'])
+ assert.equal(f.calls.length,0,'Receipt-free recovery must not query or submit deletion')
+ assert.equal((await f.db.getAllAsync('SELECT account_id FROM device_settings'))[0].account_id,'user_other')
+})
+
+test('receipt-free failures remain visible, attempt every retired identity and can recover without a receipt',async t=>{
+ const f=await fixture(t),complete={...f.status,state:'completed',completedAt:'2026-11-04T02:00:00.000Z',availableUntil:'2027-02-02T02:00:00.000Z'}
+ await f.controller.rememberStatus(f.saved,complete);await f.controller.dismissCompleted(f.saved)
+ await f.db.runAsync('INSERT INTO native_deleted_accounts(account_id,request_id) VALUES(?,?)','user_retired',randomUUID())
+ f.control.failRetired.add(f.scope.accountId);f.control.retiredCalls.length=0
+ await assert.rejects(f.controller.recoverIdentity(),error=>/still need cleanup/.test(error.message)&&!error.message.includes('Private SDK'))
+ assert.deepEqual(new Set(f.control.retiredCalls),new Set([f.scope.accountId,'user_retired']))
+ assert.equal(f.controller.getSnapshot().localCleanupComplete,false);assert.equal(f.controller.getSnapshot().record,null)
+ assert.ok(f.controller.getSnapshot().error);f.control.failRetired.clear()
+ await f.controller.recoverIdentity();assert.equal(f.controller.getSnapshot().error,null);assert.equal(f.controller.getSnapshot().localCleanupComplete,true)
+})
+
+test('identity changes during a repair coalesce into one trailing pass and can repair another late callback',async t=>{
+ const f=await fixture(t),complete={...f.status,state:'completed',completedAt:'2026-11-04T02:00:00.000Z',availableUntil:'2027-02-02T02:00:00.000Z'}
+ await f.controller.rememberStatus(f.saved,complete);await f.controller.dismissCompleted(f.saved)
+ f.control.retiredCalls.length=0;f.control.holdRetired=deferred()
+ const first=f.controller.recoverIdentity()
+ while(!f.control.retiredCalls.length)await new Promise(resolve=>setImmediate(resolve))
+ for(let i=0;i<10;i++)assert.equal(f.controller.recoverIdentity(),first)
+ f.control.holdRetired.resolve();await first
+ assert.equal(f.control.retiredCalls.length,2,'Repeated lifecycle events must not create an unbounded queue')
+ f.control.sdkProfiles.set(f.scope.accountId,{name:'New late callback'})
+ await f.controller.recoverIdentity();assert.equal(f.control.retiredCalls.length,3)
+ assert.equal(f.control.sdkProfiles.has(f.scope.accountId),false)
 })
 test('failed status persistence does not erase data; a later status check recovers the same request',async t=>{
  const f=await fixture(t);await f.controller.refresh();f.control.failWrite=true

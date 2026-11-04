@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useSyncExternalStore, type PropsWithChildren } from "react"
-import { View } from "react-native"
+import { AppState, View } from "react-native"
 import { useAuth } from "@clerk/expo"
 import { useAuthViewState } from "@clerk/expo/native-components"
 import type { AccountDeletionRecoveryController } from "../services/account-deletion-recovery"
@@ -27,16 +27,26 @@ function RecoveryReady({children}: PropsWithChildren) {
   return children
 }
 /** Mounted inside Clerk, independently of the signed-in application runtime.
- * Startup recovery can precede native initialization; retry on identity readiness
- * changes, never on cleanup's own busy/error updates or a polling timer. */
+ * Retry on readiness, identity and foreground transitions, including dismissed
+ * receipts. No polling or dependency on cleanup's own busy/error publications. */
 export function AccountDeletionIdentityRecovery() {
   const {controller} = useAccountDeletionRecovery()
   const {isLoaded,isAuthFlowComplete} = useAuthViewState()
   const {userId,sessionId} = useAuth({treatPendingAsSignedOut:false})
   useEffect(() => {
     if (!isLoaded) return
-    const state = controller.getSnapshot()
-    if (state.record?.status && !state.localCleanupComplete) void controller.refresh().catch(() => undefined)
+    const recover = () => {
+      const state = controller.getSnapshot()
+      if (state.record?.status || state.deletedAccounts.length) void controller.recoverIdentity().catch(() => undefined)
+    }
+    recover()
+    let previous = AppState.currentState
+    const subscription = AppState.addEventListener("change", next => {
+      const becameActive = next === "active" && previous !== "active"
+      previous = next
+      if (becameActive) recover()
+    })
+    return () => subscription.remove()
   },[controller,isLoaded,isAuthFlowComplete,userId,sessionId])
   return null
 }

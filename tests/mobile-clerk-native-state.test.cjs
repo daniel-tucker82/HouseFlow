@@ -104,10 +104,10 @@ test('private-key cleanup remains serialized after a timeout, and a failed netwo
  const first=assert.rejects(f.api.verifyNativeClerkDeletion('user_a',20),/still being verified/)
  await entered.promise;await first
  const second=f.api.verifyNativeClerkDeletion('user_a',2000);await new Promise(resolve=>setImmediate(resolve));assert.equal(erasures,1);assert.deepEqual(f.calls,[])
- finish.resolve();await second;assert.equal(erasures,2)
+ finish.resolve();await second;assert.equal(erasures,1,'Retries join the same timed-out operation until it settles')
  f.bridge.refreshClient=async()=>{throw Error('offline')}
- await assert.rejects(f.api.verifyNativeClerkDeletion('user_a'),/still being verified/);assert.equal(erasures,3)
- f.bridge.refreshClient=async()=>{};await f.api.verifyNativeClerkDeletion('user_a');assert.equal(erasures,4)
+ await assert.rejects(f.api.verifyNativeClerkDeletion('user_a'),/still being verified/);assert.equal(erasures,2)
+ f.bridge.refreshClient=async()=>{};await f.api.verifyNativeClerkDeletion('user_a');assert.equal(erasures,3)
 })
 test('a UI timeout retains the native verification queue until the original refresh finishes',async()=>{
  const f=fixture(),entered=deferred(),finish=deferred();let started=0
@@ -115,18 +115,21 @@ test('a UI timeout retains the native verification queue until the original refr
  const first=f.api.verifyNativeClerkDeletion('user_a',20);const failed=assert.rejects(first,/still being verified/)
  await entered.promise;await failed
  const second=f.api.verifyNativeClerkDeletion('user_a',2000);await new Promise(resolve=>setImmediate(resolve));assert.equal(started,1)
- finish.resolve();await second;assert.equal(started,2)
+ finish.resolve();await second;assert.equal(started,1)
+ await f.api.verifyNativeClerkDeletion('user_a');assert.equal(started,2,'A later lifecycle event can perform a fresh inspection')
 })
 
-test('identity readiness retries accepted cleanup without subscribing retries to cleanup state changes',async()=>{
- const state={record:{status:{state:'pending'}},localCleanupComplete:false,busy:false,error:null}
+test('readiness, identity and foreground events recover accepted and dismissed accounts without polling or render loops',async()=>{
+ const state={record:{status:{state:'pending'}},deletedAccounts:[],localCleanupComplete:false,busy:false,error:null}
  const auth={userId:'user_a',sessionId:'sess_a'},native={isLoaded:false,isAuthFlowComplete:false}
- let previous=[],retries=0
- const controller={getSnapshot:()=>state,subscribe:()=>()=>{},refresh:async()=>{retries++;state.error='Still verifying'}}
+ let previous=[],retries=0,dispose
+ const listeners=new Set(),appState={currentState:'active',addEventListener:(name,listener)=>{assert.equal(name,'change');listeners.add(listener);return {remove:()=>listeners.delete(listener)}}}
+ const emit=value=>{appState.currentState=value;for(const listener of listeners)listener(value)}
+ const controller={getSnapshot:()=>state,subscribe:()=>()=>{},recoverIdentity:async()=>{retries++;state.error='Still verifying'}}
  const api=load(['mobile/src/providers/account-deletion-recovery.tsx'],{
   react:{createContext:()=>({}),useContext:()=>controller,useSyncExternalStore:(_subscribe,get)=>get(),
-   useEffect:(effect,deps)=>{if(deps.some((value,index)=>value!==previous[index])){previous=deps;effect()}}},
-  'react-native':{},'react/jsx-runtime':{},'@clerk/expo':{useAuth:()=>auth},
+   useEffect:(effect,deps)=>{if(deps.some((value,index)=>value!==previous[index])){dispose?.();previous=deps;dispose=effect()}}},
+  'react-native':{AppState:appState},'react/jsx-runtime':{},'@clerk/expo':{useAuth:()=>auth},
   '@clerk/expo/native-components':{useAuthViewState:()=>native},
   '../services/native-account-deletion':{},'../components/ui':{},
  })
@@ -136,6 +139,11 @@ test('identity readiness retries accepted cleanup without subscribing retries to
  state.busy=true;api.AccountDeletionIdentityRecovery();state.busy=false;api.AccountDeletionIdentityRecovery();assert.equal(retries,1)
  native.isAuthFlowComplete=true;api.AccountDeletionIdentityRecovery();assert.equal(retries,2)
  auth.userId='user_b';auth.sessionId='sess_b';api.AccountDeletionIdentityRecovery();assert.equal(retries,3)
- state.localCleanupComplete=true;auth.sessionId='sess_b_new';api.AccountDeletionIdentityRecovery();assert.equal(retries,3)
- state.localCleanupComplete=false;state.record={status:null};native.isAuthFlowComplete=false;api.AccountDeletionIdentityRecovery();assert.equal(retries,3)
+ state.localCleanupComplete=true;auth.sessionId='sess_b_new';api.AccountDeletionIdentityRecovery();assert.equal(retries,4,'A prior success cannot suppress cleanup after a new identity event')
+ state.localCleanupComplete=false;state.record={status:null};native.isAuthFlowComplete=false;api.AccountDeletionIdentityRecovery();assert.equal(retries,4)
+ state.record=null;state.deletedAccounts=['user_a'];emit('background');emit('active');assert.equal(retries,5,'Dismissed receipts still need foreground recovery')
+ emit('active');assert.equal(retries,5,'Repeated active events are not foreground transitions')
+ state.busy=true;api.AccountDeletionIdentityRecovery();state.busy=false;api.AccountDeletionIdentityRecovery();assert.equal(retries,5)
+ assert.equal(listeners.size,1);native.isLoaded=false;api.AccountDeletionIdentityRecovery();assert.equal(listeners.size,0)
+ emit('background');emit('active');assert.equal(retries,5)
 })
