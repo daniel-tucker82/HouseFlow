@@ -4,6 +4,14 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
+The current phone/tablet suite also includes an independent keyboard journey at
+each text size. It types a reserved `.invalid` address without submitting it,
+requires software-keyboard keys in portrait and landscape, checks that the entry
+survives rotation in both directions, and reaches Continue after keyboard
+dismissal. Three additional screenshots are required for each case; the earlier
+signed-out screenshots cannot satisfy this coverage. YAML, runner syntax and
+mobile lint/types pass. Actual device execution of this new journey is pending.
+
 Android run `41841090786` (source `70f2ef4`) passed the signed-out startup,
 rotation, native sign-in and restart journeys on Pixel 6 and Pixel Tablet at
 1x and 1.6x text. Each case retained seven correctly oriented screenshots.

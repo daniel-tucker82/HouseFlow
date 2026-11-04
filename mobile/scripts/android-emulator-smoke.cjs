@@ -56,7 +56,7 @@ try {
           '--device', serial, 'test', '--format', 'junit', '--output', path.join(folder, 'report.xml'),
           '-e', `PORTRAIT_ORIENTATION=${report.orientations.portrait}`,
           '-e', `LANDSCAPE_ORIENTATION=${report.orientations.landscape}`,
-          '--test-output-dir', folder, '--debug-output', folder, path.resolve('.maestro/signed-out.yaml'),
+          '--test-output-dir', folder, '--debug-output', folder, path.resolve('.maestro'),
         ], { stdio: ['ignore', log, log], timeout: 300_000, env: process.env })
       } finally { fs.closeSync(log) }
       console.log(fs.readFileSync(path.join(folder, 'maestro.log'), 'utf8'))
@@ -64,6 +64,9 @@ try {
       result.orientationEvidence = inspectScreenshotOrientations(folder, {
         'native-social-sign-in-portrait.png': 'portrait',
         'native-social-sign-in-landscape.png': 'landscape',
+        'native-keyboard-portrait.png': 'portrait',
+        'native-keyboard-landscape.png': 'landscape',
+        'native-keyboard-dismissed-landscape.png': 'landscape',
       })
       if (run.error || run.status !== 0) throw new Error(`Android flow failed (${run.error?.code ?? run.status}).`)
       if (!result.orientationEvidence.passed) throw new Error('Screenshots do not prove both requested orientations.')

@@ -110,12 +110,16 @@ for (const [index, template] of devices.entries()) {
         try {
           run = spawnSync(maestro, [
             '--device', ownedDevice, 'test', '--format', 'junit', '--output', path.join(caseFolder, 'report.xml'),
-            '--test-output-dir', caseFolder, '--debug-output', caseFolder, path.resolve('.maestro/signed-out.yaml'),
+            '--test-output-dir', caseFolder, '--debug-output', caseFolder, path.resolve('.maestro'),
           ], { stdio: ['ignore', log, log], timeout: 300_000, env: process.env })
         } finally { fs.closeSync(log) }
         console.log(fs.readFileSync(path.join(caseFolder, 'maestro.log'), 'utf8'))
         textResult.exitCode = run.status
-        textResult.orientationEvidence = inspectScreenshotOrientations(caseFolder)
+        textResult.orientationEvidence = inspectScreenshotOrientations(caseFolder, {
+          'native-keyboard-portrait.png': 'portrait',
+          'native-keyboard-landscape.png': 'landscape',
+          'native-keyboard-dismissed-landscape.png': 'landscape',
+        })
         if (run.error || run.status !== 0) throw new Error(`Simulator flow failed (${run.error?.code ?? run.status}).`)
         if (!textResult.orientationEvidence.passed) throw new Error('Screenshots do not prove both requested orientations.')
         textResult.passed = true

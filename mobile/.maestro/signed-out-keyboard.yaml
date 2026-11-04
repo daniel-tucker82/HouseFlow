@@ -1,0 +1,66 @@
+appId: com.cyntch.app
+name: Native sign-in keyboard and rotation retain entered text
+env:
+  PORTRAIT_ORIENTATION: ${PORTRAIT_ORIENTATION || "PORTRAIT"}
+  LANDSCAPE_ORIENTATION: ${LANDSCAPE_ORIENTATION || "LANDSCAPE_LEFT"}
+---
+- launchApp:
+    permissions:
+      all: deny
+- setOrientation: ${PORTRAIT_ORIENTATION}
+- extendedWaitUntil:
+    visible: "Sign in or create an account"
+    timeout: 60000
+- tapOn: "Sign in or create an account"
+- extendedWaitUntil:
+    visible:
+      id: "clerk.auth.start.identifier"
+    timeout: 60000
+- tapOn:
+    id: "clerk.auth.start.identifier"
+# This reserved address is only typed locally. The flow never taps Continue,
+# submits authentication, creates an account or sends an email.
+- inputText: "layout-check@example.invalid"
+- assertVisible:
+    id: "clerk.auth.start.identifier"
+    text: 'layout-check@example\.invalid'
+# The disposable test images use English keyboards. Require actual keyboard
+# keys so a hardware-keyboard-only run cannot claim software-keyboard coverage.
+- assertVisible: "q"
+- assertVisible: "p"
+- takeScreenshot: native-keyboard-portrait
+- setOrientation: ${LANDSCAPE_ORIENTATION}
+- scrollUntilVisible:
+    element:
+      id: "clerk.auth.start.identifier"
+    direction: UP
+    timeout: 10000
+    visibilityPercentage: 100
+- assertVisible:
+    id: "clerk.auth.start.identifier"
+    text: 'layout-check@example\.invalid'
+- assertVisible: "q"
+- assertVisible: "p"
+- takeScreenshot: native-keyboard-landscape
+- hideKeyboard
+- scrollUntilVisible:
+    element: "Continue"
+    direction: DOWN
+    timeout: 10000
+    visibilityPercentage: 100
+    centerElement: true
+- assertVisible:
+    id: "clerk.auth.start.continue"
+    enabled: true
+- takeScreenshot: native-keyboard-dismissed-landscape
+- setOrientation: ${PORTRAIT_ORIENTATION}
+- scrollUntilVisible:
+    element:
+      id: "clerk.auth.start.identifier"
+    direction: UP
+    timeout: 10000
+    visibilityPercentage: 100
+- assertVisible:
+    id: "clerk.auth.start.identifier"
+    text: 'layout-check@example\.invalid'
+- stopApp
