@@ -135,8 +135,12 @@ cleanup, never while saving tasks; they still need device latency verification.
 
 The Mac workflow adds 14 failure/retry/ownership checks against the production
 coordinator and three Security API checks using newly created random fixture
-services and software keys. These new tests and the updated native build are
-pending execution. The Security fixtures are removed on success and failure;
+services and software keys. All 27 native checks and the complete updated
+unsigned arm64 Simulator build passed in run `41810970540`, commit `4216998`.
+The downloaded compiler/test artifact has SHA-256
+`c822e7b640f44e97c89ac6c1f68cb4994e69e33b199cc75b8ba1bf20b36e52d2`.
+Its logs confirm all three test groups passed and `BUILD SUCCEEDED`.
+The Security fixtures are removed on success and failure;
 they do not enroll biometric credentials or touch an existing account.
 Mobile lint and TypeScript passed after the adapter change.
 
@@ -146,6 +150,47 @@ not configure one. Late SDK enrollment callbacks, native-profile refresh after
 remote deletion, real biometric keys and physical-device behavior still require
 implementation/verification before the deletion release gate can open. The
 current erasure pass is not proof that a later SDK callback cannot write again.
+ClerkKit's native `UserProfileSecurityView` also offers provider-side deletion
+when `user.deleteSelfEnabled` is true. That route bypasses Cyntch's household and
+billing review. Verify a provider configuration that requires Cyntch's complete
+deletion flow before release, and retain recovery for administrative/out-of-band
+provider deletion. No live Clerk configuration was changed by this inspection.
+
+### Closed-client scheduler verification
+
+The public `/api/cron` endpoint now reports partial household, native billing or
+account-deletion failure with HTTP 503 and an uncached response. A healthy batch
+returns 200. Task/occurrence counters advance only after the household commits;
+a failed transaction no longer reports its rolled-back task changes as completed
+work. Legacy web push retains its committed-record lookup, including candidates
+from an uncertain commit acknowledgement. Native notification events remain in
+the same database transaction as their task/routine changes.
+
+`tests/integration/recurrence-worker.cjs` runs the built production Next server
+on a temporary loopback port with a newly created isolated database schema.
+It uses a real clock and Australia/Sydney recurrence, with no browser or mobile
+client. It checks early/then-due activation, expiry, recurrence generation,
+newer-copy completion, distinct durable native events and retry deduplication.
+Injected database failures verify rollback, committed-only counters, partial
+failure health and recovery. External provider credentials are explicitly empty;
+the test does not send pushes, charge a card or delete a provider identity.
+
+Run `npm run build` first, then set
+`CYNTCH_TEST_DATABASE_URL=postgresql://cyntch_test@localhost:55439/cyntch_mobile_test`
+and `CYNTCH_RECURRENCE_HTTP_TEST=true` before
+`node --test tests/integration/recurrence-worker.cjs`. The temporary server stops
+and the isolated schema is dropped after the test. This small-fixture check does
+not establish external scheduler cadence, load/p95 timing, real push delivery or
+the outstanding 30-second scheduler/45-second processing-budget alignment.
+Production rollout and enabling/verifying failure/recovery alerts remain open.
+The HTTP scenario, ten calendar/database recurrence checks, root lint and the
+production Next build passed on 2026-11-04. The deliberate late-transaction
+failure first reproduced an incorrect `tasksUnlocked: 1` despite rollback;
+the corrected handler reports zero and its next tick applies the change once.
+Final HTTP evidence is
+`C:/Users/danie/AppData/Local/Temp/cyntch-recurrence-worker-a30eb3c5-8357-4e38-a805-ff74ddba2854.json`.
+No production scheduler settings, alert recipients or application deployment were
+changed. Documentation-only mobile edits no longer trigger the native iOS build.
 
 ### Android optimized startup verification
 

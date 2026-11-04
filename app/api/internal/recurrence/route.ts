@@ -703,16 +703,20 @@ export async function GET(request: Request) {
         household.id,
         household.leader_id ?? null,
       )
+      // Dispatch looks these candidates up in the committed notifications
+      // table. Keep that lookup even if COMMIT's acknowledgement is lost.
       pushNotificationIds.push(...timerResult.notificationIds)
-      occurrencesProcessed += timerResult.occurrencesProcessed
-      tasksUnlocked += timerResult.tasksUnlocked
-      tasksCompleted += timerResult.tasksCompleted
       const after = await client.query(`select
         (select count(*)::int from routine_occurrences where household_id=$1::uuid) as runs,
         (select count(*)::int from tasks where household_id=$1::uuid) as tasks`,[household.id])
       await recordHouseholdUsage(client,household.id,entitlement.tier,Date.now()-started,
         Math.max(0,after.rows[0].runs-before.rows[0].runs),Math.max(0,after.rows[0].tasks-before.rows[0].tasks))
       await client.query("COMMIT")
+      // Do not count uncommitted changes if usage recording, a deferred trigger
+      // or COMMIT rejects this household.
+      occurrencesProcessed += timerResult.occurrencesProcessed
+      tasksUnlocked += timerResult.tasksUnlocked
+      tasksCompleted += timerResult.tasksCompleted
       householdsProcessed += 1
     } catch (error) {
       destroyClient = isConnectionFailure(error)
@@ -765,5 +769,8 @@ export async function GET(request: Request) {
     notificationsDispatched: pushNotificationIds.length,
   }
   console.info("[cron][recurrence] run complete", { ...body, atIso: new Date().toISOString() })
-  return NextResponse.json(body)
+  // The external minute scheduler observes HTTP status, not this JSON flag.
+  // Preserve committed households and let the next tick retry failed work,
+  // while making a partial failure visible to its health/alerting checks.
+  return NextResponse.json(body, { status: body.ok ? 200 : 503, headers: { "Cache-Control": "no-store" } })
 }

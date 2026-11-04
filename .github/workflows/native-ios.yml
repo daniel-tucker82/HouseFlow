@@ -5,6 +5,7 @@ on:
     branches: [codex/native-mobile-apps]
     paths:
       - mobile/**
+      - '!mobile/**/*.md'
       - shared/**
       - lib/recurrence.ts
       - lib/time-rules.ts
