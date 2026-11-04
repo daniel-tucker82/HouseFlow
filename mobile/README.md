@@ -116,7 +116,14 @@ and R8 removed its no-argument constructor. The optimizer's usage report confirm
 the removal. `expo-build-properties` now preserves that exact constructor through
 `extraProguardRules`; generated native files are not edited by hand. WorkManager
 2.10.5 already supplies constructor rules for its input mergers and workers.
-The corrected APK still requires compilation and startup verification.
+The corrected optimized APK passed compilation and Android API 36 emulator
+checks: welcome, native test-account sign-in, household board, offline completion,
+force-stop/restart with the pending change, and automatic upload on reconnect.
+Read-only checks of the isolated PostgreSQL database confirmed acceptance and
+the dependent reward becoming available. The task was restored through the app;
+server state, the restored board and another online restart were verified. No
+new crash or ANR was recorded during this corrected-build session. The bundle
+runs with Metro stopped and the APK is non-debuggable.
 
 The initial 1.5 GiB Gradle heap failed during optimization. The successful first
 APK used a 3 GiB heap, 512 MiB metaspace, two active processors and one Gradle
@@ -128,6 +135,12 @@ APK and R8 reports are `cyntch-release-first.apk` and
 `cyntch-release-first-r8.zip` in the local evidence directory. The captured
 failure is `cyntch-release-first-crash.log`. This distinct release crash does
 not explain or resolve the earlier development-client blank screen or ANRs.
+The final evidence and hashes are in
+`C:/Users/danie/.codex/tmp/cyntch-release-evidence.json`. The emulator and temporary
+HTTPS tunnel were stopped, and device networking was restored. The installed
+test APK still contains that temporary endpoint; further online release checks
+need a live matching endpoint or a new build. These emulator checks do not
+establish physical-device performance, remote push, live billing or store readiness.
 
 Local validation used EAS CLI 27.4.1's profile resolver and actual Git archive
 copy implementation. The 138-file archive installed from its lockfile and
