@@ -9,8 +9,13 @@ env:
       all: deny
 - setOrientation: ${PORTRAIT_ORIENTATION}
 - extendedWaitUntil:
-    visible: "Sign in or create an account"
+    visible: "CYNTCH"
     timeout: 60000
+- scrollUntilVisible:
+    element: "Sign in or create an account"
+    direction: DOWN
+    timeout: 10000
+    visibilityPercentage: 100
 - tapOn: "Sign in or create an account"
 - extendedWaitUntil:
     visible:

@@ -65,10 +65,28 @@ retaining both stored and displayed dimensions. It also rejects malformed EXIF
 instead of guessing. The run remains failed: the iPad did not finish its initial
 simulator boot within five minutes, before application installation. The runner
 now retains boot logs and rechecks a live device for one further observation
-period without rebooting it, bounded by a ten-minute setup budget. Actual iPad
-execution and enlarged iOS text remain unverified. Artifact SHA-256:
+period without rebooting it, bounded by a ten-minute setup budget. The later run
+below supplies the first iPad and enlarged-text evidence. Artifact SHA-256:
 `82280cb88ffa4d1746f4817045dba7f38de38e01dd713e5fa94e7f6028c10425`.
 Evidence: `C:/Users/danie/.codex/tmp/cyntch-ios-evidence-41839062482`.
+
+iOS run `41845177445` (source `13f46ac`) subsequently compiled and passed signing,
+then completed the native sign-in/rotation/restart flow on iPhone 17 at default
+text and iPad (A16) at both default and accessibility-extra-large text on iOS
+26.5. Rechecking the 15 original captures with the corrected EXIF reader passes
+their actual display orientations; the original failed report is preserved.
+The iPhone enlarged-text case failed before sign-in: the welcome heading and
+description pushed the action below the first screenful. The welcome layout now
+uses the existing smaller heading style at enlarged text sizes and places the
+sign-in action before supporting copy. System font scaling remains enabled and
+the page remains scrollable. Both test journeys explicitly scroll to the action
+before using it, including after rotation/restart. Lint, types and YAML parsing
+pass; native verification of this correction is pending. This run does not
+prove authenticated workflows, keyboard handling or minimum-iOS support.
+Artifact SHA-256:
+`07eeea5fb6cada2e95c339ef2e8e29f13f88ad52647e23b9a33d8b363152e164`.
+Evidence: `C:/Users/danie/.codex/tmp/cyntch-ios-evidence-41845177445`;
+separate image recheck: `C:/Users/danie/.codex/tmp/cyntch-ios-41845177445-orientation-recheck.json`.
 
 The Android native sign-in form now has a centered maximum width of 600dp;
 the earlier tablet screenshots showed its fields stretching almost edge to edge.
@@ -82,17 +100,18 @@ setting before each case, retains the installed `simctl ui` help, and saves each
 case's screenshots, orientation checks and test log separately. One failed case
 does not suppress the remaining text size or device. Local runner-control checks
 cover timeout isolation, setting mismatch, screenshot/cleanup failures and host
-guards; mobile lint/types pass. Actual enlarged-text device execution is still
-pending, so these checks do not yet establish readable iOS layouts.
+guards; mobile lint/types pass. Run `41845177445` verifies the iPad journey at
+both text sizes; the iPhone enlarged-text correction still needs device proof.
 
 The Android workflow also runs the optimized APK on an API 24 (Android 7)
 Nexus 5 emulator, matching the current native minimum SDK. The compatibility
 script uses Android's UIAutomator hierarchy and ADB input rather than assuming
 the modern Maestro driver's OS support matches the application's. It requires
 installation, welcome/native sign-in in both orientations, and force-stop/relaunch,
-retaining screenshots, UI hierarchy, logcat and an APK hash. This added check is
-awaiting hosted execution; it does not establish authenticated-workflow or
-performance coverage on the minimum OS. The Clerk iOS dependency requires iOS 17;
+retaining screenshots, UI hierarchy, logcat and an APK hash. Run `41845177451`
+passed that flow, with the subsequent Close-control fix still awaiting native
+verification. It does not establish authenticated-workflow or performance
+coverage on the minimum OS. The Clerk iOS dependency requires iOS 17;
 the new minimum-iOS job still needs successful runtime verification.
 
 Android run `41836733823` (source `0d257f0`) compiled the patched Clerk UI and
@@ -125,8 +144,8 @@ is for the simulator only, not TestFlight or App Store distribution. A separate
 iPad setup timeout prompted a five-minute cold-boot allowance and per-command
 timings/stage reporting. Run `41839062482` (source `c88394d`) has now compiled and
 passed the embedded-entitlement/signature checks and the iPhone startup/sign-in
-journey, resolving the earlier startup failure there. iPad runtime remains
-unverified because its simulator did not finish booting.
+journey, resolving the earlier startup failure there. The later iPad execution
+in run `41845177445` is described above.
 Failed-run evidence: `C:/Users/danie/.codex/tmp/cyntch-ios-evidence-41822109295`.
 
 The locally signed Release build in run `41832990843` (source `50e4173`)

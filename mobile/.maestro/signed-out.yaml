@@ -9,14 +9,29 @@ env:
       all: deny
 - setOrientation: ${PORTRAIT_ORIENTATION}
 - extendedWaitUntil:
-    visible: "Sign in or create an account"
+    visible: "CYNTCH"
     timeout: 60000
 - assertVisible: "A little more together."
+- scrollUntilVisible:
+    element: "Sign in or create an account"
+    direction: DOWN
+    timeout: 10000
+    visibilityPercentage: 100
 - takeScreenshot: welcome-portrait
 - setOrientation: ${LANDSCAPE_ORIENTATION}
+- scrollUntilVisible:
+    element: "Sign in or create an account"
+    direction: DOWN
+    timeout: 10000
+    visibilityPercentage: 100
 - assertVisible: "Sign in or create an account"
 - takeScreenshot: welcome-landscape
 - setOrientation: ${PORTRAIT_ORIENTATION}
+- scrollUntilVisible:
+    element: "Sign in or create an account"
+    direction: DOWN
+    timeout: 10000
+    visibilityPercentage: 100
 - tapOn: "Sign in or create an account"
 - extendedWaitUntil:
     visible:
@@ -74,6 +89,11 @@ env:
       - takeScreenshot: native-social-sign-in-landscape
       # Close must remain tappable beside a landscape system navigation bar.
       - tapOn: "Close"
+      - scrollUntilVisible:
+          element: "Sign in or create an account"
+          direction: DOWN
+          timeout: 10000
+          visibilityPercentage: 100
       - assertVisible: "Sign in or create an account"
       - takeScreenshot: welcome-after-dismiss-landscape
       - tapOn: "Sign in or create an account"
@@ -87,7 +107,12 @@ env:
     permissions:
       all: deny
 - extendedWaitUntil:
-    visible: "Sign in or create an account"
+    visible: "CYNTCH"
     timeout: 60000
 - assertVisible: "A little more together."
+- scrollUntilVisible:
+    element: "Sign in or create an account"
+    direction: DOWN
+    timeout: 10000
+    visibilityPercentage: 100
 - takeScreenshot: welcome-after-restart

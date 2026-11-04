@@ -5,7 +5,7 @@ import { nativeClerkResourceCache } from "../services/native-clerk-offline-cache
 import { Tabs } from "expo-router"
 import { StatusBar } from "expo-status-bar"
 import { useState } from "react"
-import { Alert, Modal, ScrollView, View } from "react-native"
+import { Alert, Modal, ScrollView, useWindowDimensions, View } from "react-native"
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context"
 import { CircleCheck, History, ListChecks, Settings, Users } from "lucide-react-native"
 import { Action, Copy, Loading, styles, usePalette } from "../components/ui"
@@ -25,6 +25,7 @@ function Application() {
   const [authOpen, setAuthOpen] = useState(false)
   const [recoveryOpen,setRecoveryOpen] = useState(false)
   const colors = usePalette()
+  const { fontScale } = useWindowDimensions(), largeText = fontScale > 1.4
   const kiosk = useKiosk(), { signOut } = useNotificationSession()
   const {state:deletion} = useAccountDeletionRecovery()
   if (!kiosk.state.ready || kiosk.state.changing) return <View style={{ flex: 1, backgroundColor: colors.background }}><Loading label={kiosk.state.changing ? "Protecting this device…" : "Checking this device…"} />
@@ -56,9 +57,10 @@ function Application() {
       <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center", alignItems: "center", padding: 24 }}>
       <View style={{ maxWidth: 430, width: "100%", gap: 24 }}>
         <Copy tone="label" style={{ color: colors.primary, letterSpacing: 2 }}>CYNTCH</Copy>
-        <Copy tone="title">A little more together.</Copy>
-        <Copy tone="muted">Family routines, shared tasks and small wins. All in one place.</Copy>
+        <Copy tone={largeText ? "heading" : "title"}>A little more together.</Copy>
+        {!largeText ? <Copy tone="muted">Family routines, shared tasks and small wins. All in one place.</Copy> : null}
         <Action label="Sign in or create an account" onPress={() => setAuthOpen(true)} />
+        {largeText ? <Copy tone="muted">Family routines, shared tasks and small wins. All in one place.</Copy> : null}
         <Copy tone="muted">Children can use a parent’s device or the family tablet. They don’t need an email address.</Copy>
         <AccountCleanupNotice />
         {deletion.record ? <Action secondary label="Check saved account deletion" onPress={() => setRecoveryOpen(true)} /> : null}
