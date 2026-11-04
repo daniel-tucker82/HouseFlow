@@ -8,6 +8,7 @@ import { MobileApi } from "../services/api"
 import { BoardController } from "../services/board-controller"
 import { PlannerController } from "../services/planner-controller"
 import { RunsController } from "../services/runs-controller"
+import { RunEditorController } from "../services/run-editor-controller"
 import { NotificationController } from "../services/notification-controller"
 import { NotificationHistoryController } from "../services/notification-history-controller"
 import { createNotificationDevice } from "../services/notification-device"
@@ -19,7 +20,7 @@ import { getDeviceId, getInstallationSecret, openLocalStore } from "../storage/n
 import type { LocalStore } from "../storage/local-store"
 import { Action, Copy, Loading, styles } from "../components/ui"
 
-interface Runtime { controller: BoardController; planner: PlannerController; runs: RunsController; notifications: NotificationController; history: NotificationHistoryController; billing: BillingController; api: MobileApi; store: LocalStore; keepAwake: boolean; syncPaused: boolean; setKeepAwake: (enabled: boolean) => Promise<void> }
+interface Runtime { controller: BoardController; planner: PlannerController; runs: RunsController; runEditor: RunEditorController; notifications: NotificationController; history: NotificationHistoryController; billing: BillingController; api: MobileApi; store: LocalStore; keepAwake: boolean; syncPaused: boolean; setKeepAwake: (enabled: boolean) => Promise<void> }
 const RuntimeContext = createContext<Runtime | null>(null)
 
 export function RuntimeProvider({ children, accountId, sessionId, restricted = false, canSync = true }: PropsWithChildren<{ accountId: string; sessionId: string; restricted?: boolean; canSync?: boolean }>) {
@@ -43,6 +44,7 @@ export function RuntimeProvider({ children, accountId, sessionId, restricted = f
     let controller: BoardController | undefined
     let planner: PlannerController | undefined
     let runs: RunsController | undefined
+    let runEditor: RunEditorController | undefined
     let notifications: NotificationController | undefined
     let billing: BillingController | undefined
     let history: NotificationHistoryController | undefined
@@ -68,6 +70,13 @@ export function RuntimeProvider({ children, accountId, sessionId, restricted = f
         return matchesIdentity() && !restricted && canSync && protection.ready && !protection.changing && !protection.record
           && controller?.getSelectedHouseholdId() === householdId
       })
+      runEditor = new RunEditorController(store.runEditor, accountId, deviceId, api, randomUUID,
+        async () => { await Promise.all([controller?.refresh(), runs?.reloadAfterCreation()]) }, () => runs?.invalidateCreationReads(),
+        async (householdId, occurrenceId, taskId) => {
+          await controller?.reloadAfterRunChange()
+          await store.removeRunTask(accountId, householdId, occurrenceId, taskId)
+          await controller?.reloadAfterRunChange()
+        })
       notifications = new NotificationController(store.notifications.forSession(accountId, sessionId), accountId, api, createNotificationDevice(store.notificationSessions), randomUUID,
         Date.now, selection => digestStringAsync(CryptoDigestAlgorithm.SHA256, selection))
       billing = new BillingController(store.billing, { accountId, sessionId, deviceId }, api, nativeBillingSdk, householdId => {
@@ -90,26 +99,29 @@ export function RuntimeProvider({ children, accountId, sessionId, restricted = f
         const state = notifications?.getSnapshot()
         if (state) history?.observe(state.household, state.preferences, state.pending.some(row => row.scope === "device" || row.scope === state.household?.id))
       })
-      boardSubscription = controller.subscribe(() => { if (controller && !restricted) { void planner?.selectHousehold(controller.getSnapshot().board?.household ?? null); runs?.observe(controller.getSnapshot()); billing?.selectHousehold(controller.getSnapshot().board?.household ?? null); if (canSync) notifications?.observe(controller.getSnapshot()) } })
+      boardSubscription = controller.subscribe(() => { if (controller && !restricted) { void planner?.selectHousehold(controller.getSnapshot().board?.household ?? null); runs?.observe(controller.getSnapshot()); runEditor?.observe(controller.getSnapshot().board?.household ?? null); billing?.selectHousehold(controller.getSnapshot().board?.household ?? null); if (canSync) notifications?.observe(controller.getSnapshot()) } })
       const connected = (state: Network.NetworkState) => {
         const online = canSync && state.isConnected === true && state.isInternetReachable !== false
         controller?.setConnectivity(online); planner?.setConnectivity(!restricted && online); notifications?.setConnectivity(!restricted && online); billing?.setConnectivity(!restricted && online); history?.setConnectivity(!restricted && online)
+        runEditor?.setConnectivity(!restricted && online)
       }
       network = Network.addNetworkStateListener(connected)
-      app = AppState.addEventListener("change", state => { setActive(state === "active"); controller?.setActive(state === "active"); planner?.setActive(!restricted && state === "active"); runs?.setActive(!restricted && state === "active"); notifications?.setActive(!restricted && canSync && state === "active"); billing?.setActive(!restricted && canSync && state === "active"); history?.setActive(!restricted && canSync && state === "active") })
+      app = AppState.addEventListener("change", state => { setActive(state === "active"); controller?.setActive(state === "active"); planner?.setActive(!restricted && state === "active"); runs?.setActive(!restricted && state === "active"); runEditor?.setActive(!restricted && state === "active"); notifications?.setActive(!restricted && canSync && state === "active"); billing?.setActive(!restricted && canSync && state === "active"); history?.setActive(!restricted && canSync && state === "active") })
       setAwake(displaySetting === true)
-      setRuntime({ controller, planner, runs, notifications, billing, history, api, store })
+      setRuntime({ controller, planner, runs, runEditor, notifications, billing, history, api, store })
       controller.setActive(AppState.currentState === "active")
       planner.setActive(!restricted && AppState.currentState === "active")
       runs.setActive(!restricted && AppState.currentState === "active")
+      runEditor.setActive(!restricted && AppState.currentState === "active")
       notifications.setActive(!restricted && canSync && AppState.currentState === "active")
       billing.setActive(!restricted && canSync && AppState.currentState === "active")
       history.setActive(!restricted && canSync && AppState.currentState === "active")
       await controller.start()
+      if (!restricted) await runEditor.start()
       if (!restricted && canSync) await notifications.start()
       connected(await Network.getNetworkStateAsync())
     })().catch(cause => { if (!cancelled) setError(cause instanceof Error ? cause.message : "Unable to open your saved household") })
-    return () => { cancelled = true; network?.remove(); app?.remove(); boardSubscription?.(); notificationSubscription?.(); controller?.stop(); planner?.stop(); runs?.stop(); notifications?.stop(); billing?.stop(); history?.stop() }
+    return () => { cancelled = true; network?.remove(); app?.remove(); boardSubscription?.(); notificationSubscription?.(); controller?.stop(); planner?.stop(); runs?.stop(); runEditor?.stop(); notifications?.stop(); billing?.stop(); history?.stop() }
   }, [accountId, sessionId, attempt, restricted, canSync, kiosk, isSessionActive])
 
   useEffect(() => {
@@ -145,6 +157,10 @@ export function usePlanner() {
 export function useRuns() {
   const { runs } = useRuntime()
   return useSyncExternalStore(runs.subscribe, runs.getSnapshot, runs.getSnapshot)
+}
+export function useRunEditor() {
+  const { runEditor } = useRuntime()
+  return useSyncExternalStore(runEditor.subscribe, runEditor.getSnapshot, runEditor.getSnapshot)
 }
 export function useNotifications() {
   const { notifications } = useRuntime()

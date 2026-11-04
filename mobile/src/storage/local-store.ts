@@ -1,6 +1,7 @@
 import type { BoardSnapshot, CompletionChange, CompletionResult, HouseholdSummary } from "../../../shared/mobile/contracts"
 import { retryDelayMs } from "../../../shared/mobile/sync-policy"
 import { PlannerStore } from "./planner-store"
+import { RunEditorStore } from "./run-editor-store"
 import { NotificationStore } from "./notification-store"
 import { NotificationSessionStore } from "./notification-session-store"
 import { NotificationInbox } from "./notification-inbox"
@@ -86,6 +87,7 @@ function acknowledged<T extends BoardSnapshot>(server: T, occurrenceId: string, 
 /** The device database is the durable outbox. Network callbacks never own it. */
 export class LocalStore {
   readonly planner: PlannerStore
+  readonly runEditor: RunEditorStore
   readonly notifications: NotificationStore
   readonly notificationSessions: NotificationSessionStore
   readonly notificationInbox: NotificationInbox
@@ -95,7 +97,7 @@ export class LocalStore {
   readonly accountDeletion: AccountDeletionStore
   readonly deletedAccounts: AccountDeletionLocalStore
   readonly billingIdentity: BillingIdentityStore
-  constructor(private readonly database: LocalDatabase) { this.planner = new PlannerStore(database); this.notifications = new NotificationStore(database); this.notificationSessions = new NotificationSessionStore(database); this.notificationInbox = new NotificationInbox(database); this.notificationHistory = new NotificationHistoryStore(database); this.kiosk = new KioskStore(database); this.billing = new BillingStore(database); this.accountDeletion = new AccountDeletionStore(database); this.deletedAccounts = new AccountDeletionLocalStore(database); this.billingIdentity = new BillingIdentityStore(database) }
+  constructor(private readonly database: LocalDatabase) { this.planner = new PlannerStore(database); this.runEditor = new RunEditorStore(database, this.planner); this.notifications = new NotificationStore(database); this.notificationSessions = new NotificationSessionStore(database); this.notificationInbox = new NotificationInbox(database); this.notificationHistory = new NotificationHistoryStore(database); this.kiosk = new KioskStore(database); this.billing = new BillingStore(database); this.accountDeletion = new AccountDeletionStore(database); this.deletedAccounts = new AccountDeletionLocalStore(database); this.billingIdentity = new BillingIdentityStore(database) }
 
   async initialize() {
     await this.database.execAsync(`
@@ -138,6 +140,7 @@ export class LocalStore {
     `)
     await this.kiosk.initialize()
     await this.planner.initialize()
+    await this.runEditor.initialize()
     await this.notifications.initialize()
     await this.notificationSessions.initialize()
     await this.notificationInbox.initialize()
@@ -146,7 +149,7 @@ export class LocalStore {
     await this.accountDeletion.initialize()
     await this.deletedAccounts.initialize()
     await this.billingIdentity.initialize()
-    await this.database.execAsync("PRAGMA user_version = 14;")
+    await this.database.execAsync("PRAGMA user_version = 15;")
   }
 
   async getBoard(accountId: string, householdId: string, connection: SqlConnection = this.database) {
@@ -267,6 +270,17 @@ export class LocalStore {
   async removeRun(accountId: string, householdId: string, occurrenceId: string) {
     await this.database.withExclusiveTransactionAsync(tx => this.removeRunInTransaction(tx, accountId, householdId, occurrenceId))
   }
+  async removeRunTask(accountId: string, householdId: string, occurrenceId: string, taskId: string) {
+    await this.database.withExclusiveTransactionAsync(async tx => {
+      if (!await this.runEditor.allowed(accountId, householdId, tx)) throw new Error("Parent access to this household is required.")
+      await this.runEditor.removeTask(accountId, householdId, occurrenceId, taskId, tx)
+      await tx.runAsync("UPDATE pending_completions SET state='rejected',error=? WHERE account_id=? AND household_id=? AND occurrence_id=? AND task_id=?", "This task was removed from the board.", accountId, householdId, occurrenceId, taskId)
+      const cached = await this.runCache(accountId, householdId, occurrenceId, tx)
+      if (cached) await this.writeRun(tx, accountId, { ...cached.server, tasks: cached.server.tasks.filter(task => task.id !== taskId) })
+      const today = await this.getCachedBoard(accountId, householdId, tx)
+      if (today) await this.writeBoard(tx, accountId, { ...today.server, tasks: today.server.tasks.filter(task => task.id !== taskId || task.occurrence_id !== occurrenceId) })
+    })
+  }
   /** Apply a confirmed rename to every cached view without changing task state. */
   async renameRun(accountId: string, householdId: string, occurrenceId: string, title: string) {
     if (!title.trim()) throw new Error("Enter a name for this run.")
@@ -287,6 +301,7 @@ export class LocalStore {
     })
   }
   private async removeRunInTransaction(tx: SqlConnection, accountId: string, householdId: string, occurrenceId: string) {
+    await this.runEditor.remove(accountId, householdId, occurrenceId, tx)
     await tx.runAsync("DELETE FROM run_snapshots WHERE account_id=? AND household_id=? AND occurrence_id=?", accountId, householdId, occurrenceId)
     for (const view of ["active", "past"] as const) {
       const page = await this.getRunPage(accountId, householdId, view, tx)
@@ -328,6 +343,7 @@ export class LocalStore {
       await this.notifications.reconcile(accountId, households, transaction)
       await this.notificationHistory.reconcile(accountId, households, transaction)
       await this.planner.reconcile(accountId, households, transaction)
+      await this.runEditor.reconcile(accountId, households, transaction)
       const allowed = new Map(households.map(household => [household.id, household]))
       const known = await transaction.getAllAsync<{ household_id: string }>(`
         SELECT household_id FROM board_snapshots WHERE account_id = ?

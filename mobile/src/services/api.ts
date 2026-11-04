@@ -1,6 +1,7 @@
 import type { BoardSnapshot, CompletionChange, CompletionResult, HouseholdSummary } from "../../../shared/mobile/contracts"
 import { TransportError, type SyncTransport } from "../storage/sync-engine"
 import type { PlannerEdit, PlannerSnapshot } from "../../../shared/mobile/planner"
+import { validateRunSnapshot, type RunEdit, type RunEditorSnapshot } from "../../../shared/mobile/run-editor"
 import type { RunPage, RunSnapshot, RunView } from "../../../shared/mobile/runs"
 import type { NativeNotificationDevice, NotificationSettingsOperation, NotificationSettingsSnapshot } from "../../../shared/mobile/notification-settings"
 import type { NotificationHistoryAction, NotificationHistoryPage, NotificationHistoryScope, NotificationHistorySource } from "../../../shared/mobile/notification-history"
@@ -179,6 +180,24 @@ export class MobileApi implements SyncTransport {
     if (edit.accountId !== this.accountId) throw new Error("Your account changed. Sign in again to save this edit.")
     return this.request("/api/leader/flow", { ...edit.draft, action: "updateTask", householdId: edit.householdId,
       saveStreamId: edit.deviceId, saveRevision: edit.revision, saveId: edit.id })
+  }
+  async runEditor(householdId: string, occurrenceId: string): Promise<RunEditorSnapshot> {
+    const data = await this.request<PlannerSnapshot>(`/api/leader/flow?${new URLSearchParams({ householdId, occurrenceId })}`)
+    const occurrence = data.occurrences?.find(row => row.id === occurrenceId)
+    if (!occurrence) throw new TransportError("This task board is no longer available.", 404)
+    const snapshot = { householdId, occurrence, tasks: data.tasks, dependencies: data.dependencies, taskAssignees: data.taskAssignees, members: data.members }
+    validateRunSnapshot(snapshot, householdId, occurrenceId)
+    return snapshot
+  }
+  saveRunEdit(edit: RunEdit) {
+    if (edit.accountId !== this.accountId) throw new Error("Sign back into the account that saved this change.")
+    return this.request("/api/leader/flow", { ...edit.draft, householdId: edit.householdId,
+      ...(edit.draft.isNew ? { action: "createTask", creationId: edit.id }
+        : { action: "updateTask", saveStreamId: edit.deviceId, saveRevision: edit.revision, saveId: edit.id }) })
+  }
+  async deleteRunTask(householdId: string, occurrenceId: string, taskId: string) {
+    const result = await this.request<{ ok: boolean }>("/api/leader/flow", { action: "deleteTask", householdId, occurrenceId, taskId })
+    if (result.ok !== true) throw new Error("Task deletion was not confirmed. Refresh this board before trying again.")
   }
 
   send(change: CompletionChange) {

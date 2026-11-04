@@ -51,7 +51,7 @@ export interface PlannerCreation {
   error: string | null
 }
 
-export function validatePlannerDraft(draft: PlannerTaskDraft) {
+export function validatePlannerDraft(draft: Omit<PlannerTaskDraft, "routineId">) {
   if (!draft.title.trim()) throw new Error("Enter a task name.")
   if (draft.title.trim().length > 200 || draft.notes.length > 4000) throw new Error("Use a name up to 200 characters and notes up to 4,000 characters.")
   if (draft.prerequisiteIds.includes(draft.taskId)) throw new Error("A task cannot depend on itself.")

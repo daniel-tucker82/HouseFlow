@@ -8,6 +8,7 @@ import type { LocalDatabase, SqlConnection } from "./local-store"
 export const deletionAccountTables = [
   "board_snapshots", "device_sequences", "pending_completions", "device_settings", "revoked_households", "run_snapshots", "run_pages",
   "planner_access", "planner_snapshots", "planner_edits", "planner_creations", "native_notification_settings", "notification_sessions",
+  "run_editor_snapshots", "run_editor_edits",
   "notification_taps", "notification_history_cache", "notification_history_actions", "native_billing_operations",
 ] as const
 

@@ -49,10 +49,10 @@ export class KioskStore {
       if (await readLocalKiosk(tx)) throw new Error("Finish unlocking the current kiosk before enabling another.")
       // No saved edit is discarded or stranded behind a new account/device lock.
       const pending = await tx.getFirstAsync(`SELECT 1 FROM pending_completions UNION ALL SELECT 1 FROM planner_edits
-        UNION ALL SELECT 1 FROM planner_creations LIMIT 1`)
+        UNION ALL SELECT 1 FROM planner_creations UNION ALL SELECT 1 FROM run_editor_edits LIMIT 1`)
       const notifications = await tx.getAllAsync<{ data: string }>("SELECT data FROM native_notification_settings")
       if (pending || notifications.some(row => JSON.parse(row.data).desired !== null)) throw new Error("Sync or review saved changes on this device before enabling kiosk mode.")
-      const drafts = await tx.getAllAsync<{ data: string }>("SELECT data FROM device_settings WHERE setting_key LIKE 'planner-%-draft:%'")
+      const drafts = await tx.getAllAsync<{ data: string }>("SELECT data FROM device_settings WHERE setting_key LIKE 'planner-%-draft:%' OR setting_key LIKE 'run-task-draft:%'")
       if (drafts.some(row => JSON.parse(row.data) !== null)) throw new Error("Finish or discard saved routine drafts before enabling kiosk mode.")
       const row = await tx.getFirstAsync<{ data: string }>("SELECT data FROM board_snapshots WHERE account_id=? AND household_id=?", kiosk.accountId, kiosk.householdId)
       if (!row) throw new Error("Load this household's tasks before enabling kiosk mode.")
@@ -64,7 +64,7 @@ export class KioskStore {
       await this.save(tx, { kiosk, intent: "lock", activationPending: true, attempts: 0, nextAttemptMs: 0, error: null, blocked: false, recoverySignOutSessionId: null })
       await tx.runAsync("DELETE FROM board_snapshots WHERE account_id<>? OR household_id<>?", kiosk.accountId, kiosk.householdId)
       await tx.runAsync("UPDATE board_snapshots SET data=? WHERE account_id=? AND household_id=?", JSON.stringify({ format: 3, server: restricted, board: restricted }), kiosk.accountId, kiosk.householdId)
-      for (const table of ["planner_snapshots", "run_snapshots", "run_pages", "native_notification_settings", "notification_taps", "notification_history_cache"]) await tx.runAsync(`DELETE FROM ${table}`)
+      for (const table of ["planner_snapshots", "run_editor_snapshots", "run_snapshots", "run_pages", "native_notification_settings", "notification_taps", "notification_history_cache"]) await tx.runAsync(`DELETE FROM ${table}`)
       await tx.runAsync("UPDATE planner_access SET allowed=0")
       await tx.runAsync("UPDATE notification_native_cleanup SET generation=generation+1 WHERE id=1")
       await tx.runAsync("INSERT INTO device_settings VALUES(?,?,?) ON CONFLICT(account_id,setting_key) DO UPDATE SET data=excluded.data", kiosk.accountId, "selected-household", JSON.stringify(kiosk.householdId))

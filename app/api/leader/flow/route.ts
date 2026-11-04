@@ -2603,10 +2603,17 @@ async function handleFlowPost(request: Request, context?: {
     const client = await db.connect()
     try {
       await client.query("BEGIN")
+      if (occurrenceId) {
+        const occurrence = (await client.query<{ status: string }>("select status from routine_occurrences where id=$1::uuid and household_id=$2::uuid for update", [occurrenceId, householdId])).rows[0]
+        if (!occurrence || occurrence.status === "cancelled") {
+          await client.query("ROLLBACK")
+          return NextResponse.json({ error: occurrence ? "A cancelled run cannot be edited." : "This task board is no longer available." }, { status: occurrence ? 409 : 404 })
+        }
+      }
       await client.query(`select ro.id from routine_occurrences ro
         join occurrence_tasks ot on ot.occurrence_id=ro.id
         where ot.task_id=$1::uuid and ro.household_id=$2::uuid order by ro.id for update of ro`, [taskId, householdId])
-      await client.query(
+      const removed = await client.query(
         `delete from tasks
          where id = $1
            and household_id = $2
@@ -2616,6 +2623,11 @@ async function handleFlowPost(request: Request, context?: {
            )`,
         [taskId, householdId, occurrenceId],
       )
+      if (occurrenceId && removed.rowCount) {
+        await recomputeOccurrenceStatuses(client, occurrenceId)
+        await materializeDeferredExpiryForUnlockedTasks(client, occurrenceId)
+        await applyRewardAutoCompletion(client, occurrenceId)
+      }
       await client.query("COMMIT")
     } catch (error) { await client.query("ROLLBACK"); throw error }
     finally { client.release() }

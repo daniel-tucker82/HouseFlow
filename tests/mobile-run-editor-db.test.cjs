@@ -75,3 +75,58 @@ test('flow authorizes board writes and receipt replays under the household lock'
   revoke=true
   assert.equal((await send()).status,403,'a stored receipt cannot bypass a newly revoked role')
 })
+
+test('native live editor reads, revision recovery and deletion preserve scope and atomically unlock dependants', {skip:!connectionString}, async t=>{
+  const f=await fixture(t),{POST,GET}=f.load(['app/api/leader/flow/route.ts'],next),{MobileApi}=f.load(['mobile/src/services/api.ts'])
+  await f.db.query("update household_billing set paid_through=now()+interval '5 days' where household_id=$1",[f.transfer])
+  const original=global.fetch
+  global.fetch=async(url,init)=>{assert.equal(new URL(url).origin,'https://fixture.cyntch.test');return (init?.method==='POST'?POST:GET)(new Request(url,init))}
+  t.after(()=>{global.fetch=original})
+  const api=new MobileApi('https://fixture.cyntch.test',f.owner,f.scope.deviceId,async()=>'fixture',async()=>f.secret,f.scope.sessionId)
+  const createBoard=async title=>(await api.request('/api/leader/flow',{action:'createTaskBoard',householdId:f.transfer,title,creationId:randomUUID()})).occurrence.id
+  const run=await createBoard('Live editor'),otherRun=await createBoard('Other board'),source=randomUUID(),target=randomUUID(),otherTask=randomUUID()
+  const change=(taskId,title,prerequisites=[],revision=1)=>({id:randomUUID(),accountId:f.owner,householdId:f.transfer,deviceId:f.scope.deviceId,revision,deviceTimeMs:Date.now(),state:'pending',attempts:0,nextAttemptMs:0,error:null,
+    draft:{taskId,occurrenceId:run,routineId:null,isNew:true,title,notes:'Test notes',isReward:false,assigneeIds:[f.successor],prerequisiteIds:prerequisites}})
+  await api.saveRunEdit(change(source,'First task'))
+  await api.saveRunEdit(change(target,'Wait for first',[source]))
+  const other=change(otherTask,'Other task');other.draft.occurrenceId=otherRun;await api.saveRunEdit(other)
+  let data=await api.runEditor(f.transfer,run)
+  assert.equal(data.occurrence.id,run);assert.deepEqual(new Set(data.tasks.map(task=>task.id)),new Set([source,target]))
+  assert.deepEqual(data.dependencies,[{source_task_id:source,target_task_id:target}])
+  assert.ok(data.tasks.every(task=>task.routine_occurrence_id===run))
+  const earlier=change(target,'Earlier edit',[],10);earlier.draft.isNew=false
+  await api.saveRunEdit(earlier)
+  const later={...earlier,id:randomUUID(),revision:11,draft:{...earlier.draft,title:'Latest task',assigneeIds:[f.owner],prerequisiteIds:[source]}}
+  await api.saveRunEdit(later)
+  const recovered=await api.saveRunEdit(earlier)
+  assert.equal(recovered.task.title,'Latest task');assert.deepEqual(recovered.task.assignee_ids,[f.owner]);assert.deepEqual(recovered.task.prerequisite_ids,[source])
+  assert.equal(recovered.occurrenceTaskStatus.status,'locked')
+  assert.throws(()=>api.saveRunEdit({...earlier,accountId:f.other}),/Sign back/)
+  const routine=(await f.db.query('select id from routines where household_id=$1 limit 1',[f.transfer])).rows[0].id,template=randomUUID()
+  await f.db.query("insert into tasks(id,household_id,routine_id,title,created_by) values($1,$2,$3,'Template stays',$4)",[template,f.transfer,routine,f.owner])
+  await api.deleteRunTask(f.transfer,run,template)
+  await api.deleteRunTask(f.transfer,otherRun,source)
+  assert.equal((await f.db.query('select count(*)::int n from tasks where id=any($1::uuid[])',[[template,source]])).rows[0].n,2)
+  await f.db.query("update household_members set role='member' where household_id=$1 and user_id=$2",[f.transfer,f.owner])
+  await assert.rejects(api.deleteRunTask(f.transfer,run,source),e=>e.status===403)
+  await assert.rejects(api.runEditor(randomUUID(),run),e=>e.status===403)
+  await f.db.query("update household_members set role='manager' where household_id=$1 and user_id=$2",[f.transfer,f.owner])
+  await f.db.query("update routine_occurrences set status='cancelled' where id=$1",[run])
+  await assert.rejects(api.deleteRunTask(f.transfer,run,source),e=>e.status===409)
+  await f.db.query("update routine_occurrences set status='active' where id=$1",[run])
+  await f.db.query(`create function fail_live_unlock() returns trigger language plpgsql as $$begin raise exception 'interrupted unlock'; end$$;
+    create trigger interrupt_live_unlock before update on occurrence_tasks for each row execute function fail_live_unlock()`)
+  await assert.rejects(api.deleteRunTask(f.transfer,run,source),e=>e.status>=500)
+  assert.equal((await f.db.query('select count(*)::int n from tasks where id=$1',[source])).rows[0].n,1)
+  assert.equal((await f.db.query('select count(*)::int n from task_dependencies where source_task_id=$1',[source])).rows[0].n,1)
+  await f.db.query('drop trigger interrupt_live_unlock on occurrence_tasks')
+  const events=async()=>(await f.db.query('select event_key,kind from native_notification_events where household_id=$1 order by event_key',[f.transfer])).rows
+  await api.deleteRunTask(f.transfer,run,source)
+  const notified=await events();await api.deleteRunTask(f.transfer,run,source);assert.deepEqual(await events(),notified)
+  assert.equal((await f.db.query('select status from occurrence_tasks where occurrence_id=$1 and task_id=$2',[run,target])).rows[0].status,'unlocked')
+  assert.ok(notified.some(event=>event.kind==='task_available'))
+  data=await api.runEditor(f.transfer,run)
+  assert.deepEqual(data.tasks.map(task=>task.id),[target]);assert.deepEqual(data.dependencies,[])
+  assert.equal((await api.runEditor(f.transfer,otherRun)).tasks[0].id,otherTask)
+  assert.equal((await f.db.query('select title from tasks where id=$1',[template])).rows[0].title,'Template stays')
+})

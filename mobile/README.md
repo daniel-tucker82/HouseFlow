@@ -2067,8 +2067,8 @@ migration has been applied for this work.
 
 Server checkpoint validation: 550 general regression tests and 19 isolated
 billing tests passed, as did root lint/types and the production web build. The
-broader native workflow continues below; native task editing within a live run
-is still incomplete.
+broader native workflow continues below; live task editing was not yet wired to
+the native interface at this server checkpoint.
 
 ### Native one-off board creation
 
@@ -2088,9 +2088,8 @@ activation checks and are cleared when management access is revoked.
 
 The creation sheet is mounted outside the list's column-count key, preserving
 the open form and text during rotation. Large text and short landscape windows
-can scroll to every action. The native form does not yet provide live task
-creation/editing: the server transaction exists, but its native editor, durable
-run-scoped edit cache/queue and device tests remain required for full parity.
+can scroll to every action. At this checkpoint the native form did not yet
+provide live task creation/editing; that work continues below.
 
 Validation for this increment: 556 general tests passed (including real
 PostgreSQL and SQLite), 19 isolated billing regression tests passed, and root
@@ -2118,3 +2117,62 @@ compilation finished and the emulator was restarted. The ANR investigation,
 release-build performance and physical Android/iOS checks remain outstanding.
 Diagnostic files are `cyntch-board-create-anr.txt` and
 `cyntch-board-create-anr-dropbox.txt` in the same temporary evidence directory.
+
+### Native live task editor
+
+Parents and supervisors can open **Edit tasks** within a run to add, edit or
+delete its tasks and rewards. The editor supports names, notes, multiple
+assignees, prerequisites and activation/expiry rules using the shared native
+form. Changes target that run; template tasks and other runs are preserved.
+Existing-task edits can be saved offline. New tasks require connectivity, but
+their unfinished forms can be entered and retained offline. Deletion requires
+connectivity, a confirmation and no unfinished/saved editor changes to that run.
+
+Live drafts, snapshots and queued edits have separate account/household/run
+storage. Enqueue, optimistic editor state and draft removal share one SQLite
+transaction. The controller returns after local persistence and uploads in the
+background, with retry backoff only while work exists. Repeated edits retain
+device order; uncertain creation requests retain their original ID and body.
+Revocation, kiosk mode and account deletion fence access to this storage.
+Failed draft writes retain the visible text and show that it has not been saved.
+
+Save acknowledgements include authoritative assignments and prerequisites, so
+an older revision cannot restore its stale graph. A recovered creation receipt
+does not replace a newer already-loaded server task. Confirmed deletion updates
+the editor, Today and run caches atomically, clears the deleted task's unfinished
+draft and prevents late replies from restoring it. The server recomputes
+dependent task availability in the deletion transaction, including rollback if
+that recomputation fails. Cancelling navigation during delete admission sends
+nothing; navigation after submission still applies cleanup to the original run.
+
+The editor stays outside the list's responsive column key. Android Back closes
+the keyboard first, then the task form, then the task workspace. A closed form
+remains available as an unfinished draft. The embedded editor uses the run
+sheet's safe area rather than adding a second set of insets.
+
+Verification: 568 general regression tests and 19 isolated billing tests passed.
+Root/mobile lint and type checking, the production web build and Android/iOS
+Hermes exports also passed. The exports are in
+`C:/Users/danie/.codex/tmp/cyntch-live-editor-export-final`.
+The new real SQLite tests cover restart, failed transactions, coalesced timing,
+late/stale receipts, role revocation, kiosk restrictions, deleted tasks and
+navigation races. PostgreSQL tests exercise native API reads/writes, assignment
+and dependency recovery, run isolation and atomic deletion/unlocking.
+
+Android development-client checks confirmed offline save through force-stop and
+relaunch, reconnection/upload, template/sibling-run isolation, portrait keyboard
+handling, landscape rotation, enlarged text and scrolling to Save. A new reward
+was created with the selected assignee and prerequisite, verified as locked on
+the server, and deleted through the native confirmation flow. The original test
+task title was restored through the editor; both the local edit queue and draft
+list were empty afterwards. Device display/network settings were restored and
+the emulator stopped. Evidence and hashes are recorded in
+`C:/Users/danie/.codex/tmp/cyntch-live-editor-runtime.json`.
+
+Remaining work includes showing pending metadata edits consistently in Today
+and run details (these currently retain the last server metadata until sync),
+the complete native feature-parity audit, live timing controls on devices,
+physical Android/iOS testing and release-build performance. No ANR/crash was
+reported in this emulator session's event log; the earlier ANR's cause remains
+unresolved. These checks do not establish store readiness or fulfil the complete
+mobile release specification.

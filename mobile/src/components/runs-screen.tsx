@@ -1,5 +1,5 @@
-import { useCallback, useState } from "react"
-import { Alert, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, TextInput, View, useWindowDimensions } from "react-native"
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
+import { Alert, FlatList, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, TextInput, View, useWindowDimensions } from "react-native"
 import { useFocusEffect } from "expo-router"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { ChevronRight } from "lucide-react-native"
@@ -9,6 +9,7 @@ import { useBoard, useRuns, useRuntime } from "../providers/runtime"
 import { BoardTaskRow } from "./board-screen"
 import { PlannerSelect } from "./planner-inputs"
 import { NewTaskBoard } from "./new-task-board"
+import { RunTaskWorkspace } from "./run-task-workspace"
 import { Action, Card, Copy, Loading, styles, usePalette } from "./ui"
 
 const dateLabel = (run: RunSummary, timezone: string) => new Date(run.scheduled_for).toLocaleString(undefined, { timeZone: timezone, year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
@@ -17,6 +18,7 @@ function report(error: unknown) { Alert.alert("Unable to update runs", error ins
 export default function RunsScreen() {
   const { runs } = useRuntime(), state = useRuns(), board = useBoard(), colors = usePalette()
   const household = state.household
+  const backActionRef = useRef<(() => void) | null>(null)
   const { width, fontScale } = useWindowDimensions(), columns = width / Math.max(1, fontScale) >= 840 ? 2 : 1
   useFocusEffect(useCallback(() => { runs.setVisible(true); return () => runs.setVisible(false) }, [runs]))
   if (!household) return <View style={[styles.center, { backgroundColor: colors.background }]}><Copy tone="heading">Your household’s runs</Copy><Copy tone="muted">Choose a household in Today to see its active runs and history.</Copy></View>
@@ -39,9 +41,13 @@ export default function RunsScreen() {
         <Copy tone="muted">{dateLabel(run, state.household!.timezone)}</Copy><Copy>{run.status === "cancelled" ? "Cancelled" : `${run.completed_tasks} of ${run.total_tasks} done`}</Copy>
       </Card></Pressable>} />
     }</NewTaskBoard>
-    <Modal visible={Boolean(state.runId)} animationType="slide" presentationStyle="pageSheet" supportedOrientations={["portrait", "landscape-left", "landscape-right"]} onRequestClose={() => runs.closeRun()}>
+    <Modal visible={Boolean(state.runId)} animationType="slide" presentationStyle="pageSheet" supportedOrientations={["portrait", "landscape-left", "landscape-right"]} onRequestClose={() => {
+      if (Keyboard.isVisible()) Keyboard.dismiss()
+      else if (backActionRef.current) backActionRef.current()
+      else runs.closeRun()
+    }}>
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
-        {state.run ? <RunDetails key={`${state.runId}:${state.focusedTaskId ?? ""}`} snapshot={state.run} /> : <View style={[styles.content, { flex: 1 }]}><Action secondary label="Close run" onPress={() => runs.closeRun()} />
+        {state.run ? <RunDetails key={`${state.runId}:${state.focusedTaskId ?? ""}`} snapshot={state.run} backActionRef={backActionRef} /> : <View style={[styles.content, { flex: 1 }]}><Action secondary label="Close run" onPress={() => runs.closeRun()} />
           {state.runLoading ? <Loading label="Opening this run…" /> : <><Copy>{state.runError ?? "This run is not available on this device."}</Copy>{board.online ? <Action label="Try again" onPress={() => void runs.refreshRun()} /> : null}</>}
         </View>}
       </SafeAreaView>
@@ -49,11 +55,18 @@ export default function RunsScreen() {
   </SafeAreaView>
 }
 
-function RunDetails({ snapshot }: { snapshot: RunSnapshot }) {
+function RunDetails({ snapshot, backActionRef }: { snapshot: RunSnapshot; backActionRef: RefObject<(() => void) | null> }) {
   const { runs, controller } = useRuntime(), state = useRuns(), board = useBoard(), colors = usePalette()
   const [selectedMember, setMember] = useState("all")
   const [renaming, setRenaming] = useState(false), [name, setName] = useState(snapshot.run.title)
+  const [editingTasks, setEditingTasks] = useState(false)
   const managing = Boolean(state.managing), canManage = snapshot.household.role !== "member"
+  useEffect(() => {
+    if (canManage && editingTasks) return
+    const back = () => { if (!managing) { if (renaming) setRenaming(false); else runs.closeRun() } }
+    backActionRef.current = back
+    return () => { if (backActionRef.current === back) backActionRef.current = null }
+  }, [backActionRef, canManage, editingTasks, managing, renaming, runs])
   const memberId = snapshot.members.some(member => member.id === selectedMember) ? selectedMember : "all"
   const tasks = snapshot.tasks.filter(task => memberId === "all" || task.assignee_ids.includes(memberId))
   const focused = tasks.find(task => task.id === state.focusedTaskId)
@@ -65,6 +78,7 @@ function RunDetails({ snapshot }: { snapshot: RunSnapshot }) {
   const rename = () => void runs.renameRun(snapshot.run.id, name).then(saved => { if (saved) setRenaming(false) }).catch(report)
   const remove = () => Alert.alert("Delete this run?", `“${snapshot.run.title}” and its task history will be removed for everyone in this household. The routine template and other runs will stay.${pending.size ? " Saved task changes for this run will no longer be applied." : ""}`,
     [{ text: "Keep run", style: "cancel" }, { text: "Delete run", style: "destructive", onPress: () => void runs.deleteRun(snapshot.run.id).catch(report) }])
+  if (canManage && editingTasks) return <RunTaskWorkspace household={snapshot.household} occurrenceId={snapshot.run.id} backActionRef={backActionRef} onClose={() => { setEditingTasks(false); void runs.refreshRun() }} />
   if (canManage && renaming) return <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
     <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={[styles.content, { maxWidth: 800, gap: 12 }]}>
       <Copy tone="label">Run name</Copy>
@@ -89,6 +103,7 @@ function RunDetails({ snapshot }: { snapshot: RunSnapshot }) {
         <Action secondary label="Refresh run" disabled={!board.online || managing} onPress={() => void runs.refreshRun()} /></View> : null}
       {canManage ? <View style={[styles.row, { flexWrap: "wrap" }]}>
         <Action secondary label="Rename run" disabled={!board.online || managing} onPress={() => { setName(snapshot.run.title); setRenaming(true) }} />
+        <Action secondary label="Edit tasks" disabled={managing || snapshot.run.status === "cancelled"} onPress={() => setEditingTasks(true)} />
         <Action secondary label={state.managing === "delete" ? "Deleting run…" : "Delete run"} disabled={!board.online || managing} onPress={remove} />
       </View> : null}
       {canManage && !board.online ? <Copy tone="muted">Connect to rename or delete this run.</Copy> : null}

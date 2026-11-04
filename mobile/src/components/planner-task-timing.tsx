@@ -36,17 +36,17 @@ function defaultRule(kind: Kind, timezone: string): ExpiryRule | null {
   }
 }
 
-function RuleEditor({ label, rule, expiry = false, timezone, onChange }: {
-  label: string; rule: ExpiryRule | null; expiry?: boolean; timezone: string; onChange: (rule: ExpiryRule | null) => void
+function RuleEditor({ label, rule, expiry = false, timezone, onChange, live = false }: {
+  label: string; rule: ExpiryRule | null; expiry?: boolean; timezone: string; onChange: (rule: ExpiryRule | null) => void; live?: boolean
 }) {
   return <View style={{ gap: 14 }}>
-    <PlannerSelect label={label} value={rule?.kind ?? "none"} options={expiry ? expiryOptions : commonOptions} onChange={kind => onChange(defaultRule(kind, timezone))} />
+    <PlannerSelect label={label} value={rule?.kind ?? "none"} options={(expiry ? expiryOptions : commonOptions).map(option => live ? { ...option, label: option.label.replace("the run starts", "timing is saved").replace("task creation", "timing is saved") } : option)} onChange={kind => onChange(defaultRule(kind, timezone))} />
     {rule?.kind === "fixed" ? <PlannerDateTime label={`${label} date`} mode="date" value={rule.date} onChange={date => onChange({ ...rule, date })} /> : null}
-    {rule?.kind === "after_generation_days" ? <PlannerNumber label={`${label}: days after run starts`} value={rule.days} onChange={days => onChange({ ...rule, days })} /> : null}
+    {rule?.kind === "after_generation_days" ? <PlannerNumber label={`${label}: days after ${live ? "timing is saved" : "run starts"}`} value={rule.days} onChange={days => onChange({ ...rule, days })} /> : null}
     {rule?.kind === "weekday_after_generation" || rule?.kind === "weekday_after_unlock" ? <>
       <PlannerSelect label={`${label} weekday`} value={String(rule.weekday)} options={weekdayOptions} onChange={weekday => onChange({ ...rule, weekday: Number(weekday) })} />
       <PlannerNumber label={`${label}: which occurrence of this weekday?`} minimum={1} maximum={5200} value={rule.nth} onChange={nth => onChange({ ...rule, nth })} />
-      <Copy tone="muted">1 means the first matching weekday at or after {rule.kind === "weekday_after_unlock" ? "the task becomes available" : "the run starts"}. A time that has already passed is skipped.</Copy>
+      <Copy tone="muted">1 means the first matching weekday at or after {rule.kind === "weekday_after_unlock" ? "the task becomes available" : live ? "the timing changes are saved" : "the run starts"}. A time that has already passed is skipped.</Copy>
     </> : null}
     {rule?.kind === "month_day_after_generation" || rule?.kind === "month_day_after_unlock" ? <>
       <PlannerNumber label={`${label} day of month`} minimum={1} maximum={31} value={rule.dayOfMonth} onChange={dayOfMonth => onChange({ ...rule, dayOfMonth })} />
@@ -59,8 +59,8 @@ function RuleEditor({ label, rule, expiry = false, timezone, onChange }: {
   </View>
 }
 
-export function PlannerTaskTiming({ value, timezone, legacy, onChange }: {
-  value: TaskTiming; timezone: string; legacy: boolean; onChange: (value: TaskTiming) => void
+export function PlannerTaskTiming({ value, timezone, legacy, onChange, live = false }: {
+  value: TaskTiming; timezone: string; legacy: boolean; onChange: (value: TaskTiming) => void; live?: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
   const active = Boolean((value.unlockRule && value.unlockRule.kind !== "none") || (value.expiryRule && value.expiryRule.kind !== "none") || legacy)
@@ -68,13 +68,13 @@ export function PlannerTaskTiming({ value, timezone, legacy, onChange }: {
     <Copy tone="muted">{active ? "This task has timing settings." : "Add activation or expiry rules with Premium."}</Copy>
     <Action secondary label={expanded ? "Hide timing settings" : "Edit timing settings"} onPress={() => setExpanded(!expanded)} />
     {expanded ? <>
-      <Copy tone="muted">Times use your household timezone: {timezone}. Changes apply to future runs.</Copy>
-      {legacy ? <Copy tone="muted">This template also has an older saved time. Changing timing here replaces it; clearing timing removes it.</Copy> : null}
-      <RuleEditor label="Activation" rule={value.unlockRule} timezone={timezone} onChange={unlockRule => onChange({ ...value, unlockRule: unlockRule as UnlockRule | null })} />
+      <Copy tone="muted">Times use your household timezone: {timezone}. {live ? "Changes apply to this run only. Relative dates restart when the timing changes are saved." : "Changes apply to future runs."}</Copy>
+      {legacy ? <Copy tone="muted">{live ? "This task already has a saved activation or expiry time." : "This template also has an older saved time."} Changing timing here replaces it; clearing timing removes it.</Copy> : null}
+      <RuleEditor label="Activation" rule={value.unlockRule} live={live} timezone={timezone} onChange={unlockRule => onChange({ ...value, unlockRule: unlockRule as UnlockRule | null })} />
       {value.unlockRule && value.unlockRule.kind !== "none" ? <PlannerSelect label="Combine time and prerequisites" value={value.unlockCombiner}
         options={[{ value: "and", label: "Both must be ready" }, { value: "or", label: "Either can make the task available" }]}
         onChange={unlockCombiner => onChange({ ...value, unlockCombiner })} /> : null}
-      <RuleEditor label="Expiry" rule={value.expiryRule} expiry timezone={timezone} onChange={expiryRule => onChange({ ...value, expiryRule })} />
+      <RuleEditor label="Expiry" rule={value.expiryRule} live={live} expiry timezone={timezone} onChange={expiryRule => onChange({ ...value, expiryRule })} />
       <Copy tone="muted">Expiry marks the task complete automatically. Rules based on availability wait until the task actually becomes available. When clocks change, a missing time moves forward by the gap; a repeated time uses its first occurrence.</Copy>
       {active ? <Action secondary label="Clear all timing" onPress={() => onChange({ unlockRule: null, expiryRule: null, unlockCombiner: "and" })} /> : null}
     </> : null}

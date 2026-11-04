@@ -29,7 +29,10 @@ export async function saveRunTask(householdId: string, userId: string, raw: unkn
     if (!input.isNew && !existing.rowCount) throw new PlannerSaveError("This task was removed from the board. Refresh your runs.", 404)
     if (input.isNew && existing.rowCount) throw new PlannerSaveError("This task has already been saved. Refresh your runs.", 409)
     const resultForTask = async () => ({
-      task: (await client.query("select * from tasks where id=$1::uuid and household_id=$2::uuid and routine_occurrence_id=$3::uuid", [input.taskId, householdId, input.occurrenceId])).rows[0],
+      task: (await client.query(`select t.*,
+        coalesce((select array_agg(a.user_id order by a.user_id) from task_assignees a where a.task_id=t.id),'{}'::text[]) as assignee_ids,
+        coalesce((select array_agg(d.source_task_id order by d.source_task_id) from task_dependencies d where d.target_task_id=t.id),'{}'::uuid[]) as prerequisite_ids
+        from tasks t where t.id=$1::uuid and t.household_id=$2::uuid and t.routine_occurrence_id=$3::uuid`, [input.taskId, householdId, input.occurrenceId])).rows[0],
       occurrenceTaskStatus: (await client.query("select task_id,status::text as status from occurrence_tasks where occurrence_id=$1::uuid and task_id=$2::uuid", [input.occurrenceId, input.taskId])).rows[0] ?? null,
     })
     if (!input.isNew && !await claimTaskEditVersion(client, userId, raw as Record<string, unknown>)) {
