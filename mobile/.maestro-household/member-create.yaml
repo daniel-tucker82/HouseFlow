@@ -7,7 +7,10 @@ appId: com.cyntch.app
 - tapOn:
     id: "Their name"
 - inputText: "Native member check"
-- hideKeyboard
+- runFlow:
+    file: dismiss-field-keyboard.yaml
+    env:
+      FIELD_LABEL_PATTERN: "^Their name$"
 - scrollUntilVisible:
     element: "^Add member$"
     direction: DOWN

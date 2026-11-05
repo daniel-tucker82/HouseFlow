@@ -232,10 +232,26 @@ No iPhone name change, invitation or deletion was submitted in the failed run.
 Keep the original-household deletion attestations blocked until the resumed
 journey removes this temporary membership and the complete saved hash matches.
 
-The guarded resume `42037063750` at `90ef649` reuses that simulator app and the
+The guarded resume `42037063750` at `90ef649` reused that simulator app and the
 same test member. The fresh preflight confirmed that excluding only this known
-temporary membership restores the exact original snapshot. Its result remains
-outstanding; no further household or account deletion has been submitted.
+temporary membership restores the exact original snapshot. It passed sign-in
+and exact replacement of the draft name, then failed after keyboard dismissal
+and the attempted cancel. Artifact `13418909636` was verified against
+`163319747ba5ac86a3624ec83435832e7c74957a351cebe721cf318cfb5e4a61`.
+The screenshot shows an unconfirmed **Remove Alex?** alert and the unchanged
+test member's draft. No removal, saved rename or deletion was submitted; the
+database confirms both original members and the temporary member are intact.
+
+The iOS form harness now dismisses the keyboard by tapping the static field label
+and waiting for the animation. It no longer uses `hideKeyboard`'s screen-centre
+gestures, which can interact with these buttons. It checks that the unexpected
+alert is absent and saves pre-tap captures for cancel/save. This also applies to
+the upcoming numeric invitation fields. The isolated ordinary gateway now rejects
+member mutations except for this exact temporary member, and rejects household
+and account deletion; its unauthenticated denial probe returned the guard's 403.
+The pinned parser passed. Continue with the same temporary member, never create
+another to compensate for this interrupted journey. The simulator was removed
+by CI, so the unconfirmed native alert no longer exists.
 
 Focused household, account-deletion and offline journeys now perform real native
 email-code sign-in and require its four rendered captures, then proceed directly

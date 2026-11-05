@@ -9,12 +9,18 @@ appId: com.cyntch.app
     id: "Maximum uses"
 - eraseText
 - inputText: "3"
-- hideKeyboard
+- runFlow:
+    file: dismiss-field-keyboard.yaml
+    env:
+      FIELD_LABEL_PATTERN: "^Maximum uses$"
 - tapOn:
     id: '^Expires after \(days\)$'
 - eraseText
 - inputText: "7"
-- hideKeyboard
+- runFlow:
+    file: dismiss-field-keyboard.yaml
+    env:
+      FIELD_LABEL_PATTERN: '^Expires after \(days\)$'
 - scrollUntilVisible:
     element: "^Create invitation$"
     direction: DOWN

@@ -1,0 +1,20 @@
+appId: com.cyntch.app
+---
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - hideKeyboard
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      # iOS hideKeyboard uses screen-centre gestures and opened a member-removal
+      # alert in this form. The first matching node is the static field label,
+      # above the input; it has no action. Keep dismissal away from buttons.
+      - tapOn:
+          text: ${FIELD_LABEL_PATTERN}
+          index: 0
+      - waitForAnimationToEnd:
+          timeout: 5000
+- assertNotVisible: "^Remove Alex[?]$"

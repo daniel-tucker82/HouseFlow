@@ -29,11 +29,17 @@ name: A parent can rename a no-email member and choose a persistent colour
 - copyTextFrom:
     id: "Name for Native member check"
 - assertTrue: ${maestro.copiedText === 'Cancelled name'}
-- hideKeyboard
+- runFlow:
+    file: dismiss-field-keyboard.yaml
+    env:
+      FIELD_LABEL_PATTERN: "^Name for Native member check$"
 - scrollUntilVisible:
     element: "Cancel name change"
     direction: DOWN
     centerElement: true
+- waitForAnimationToEnd:
+    timeout: 5000
+- takeScreenshot: member-cancel-name-ready
 - tapOn: "Cancel name change"
 - assertVisible: "Rename Native member check"
 - assertNotVisible: "Rename Cancelled name"
@@ -43,11 +49,17 @@ name: A parent can rename a no-email member and choose a persistent colour
 - copyTextFrom:
     id: "Name for Native member check"
 - assertTrue: ${maestro.copiedText === 'Native member renamed'}
-- hideKeyboard
+- runFlow:
+    file: dismiss-field-keyboard.yaml
+    env:
+      FIELD_LABEL_PATTERN: "^Name for Native member check$"
 - scrollUntilVisible:
     element: "Save name"
     direction: DOWN
     centerElement: true
+- waitForAnimationToEnd:
+    timeout: 5000
+- takeScreenshot: member-save-name-ready
 - tapOn: "Save name"
 - extendedWaitUntil:
     visible: "Rename Native member renamed"
