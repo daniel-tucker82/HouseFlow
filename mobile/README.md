@@ -62,6 +62,18 @@ next checks give API 37 guests 4 GB RAM, stage the phone/tablet APK before
 installation and dismiss the disposable foldable's keyguard after a posture
 change. The sign-in and retained-text assertions remain required.
 
+For an Android distribution-format check, dispatch the Android workflow with
+`verify_arm64_bundle` enabled. It compiles ARM64 plus x86-64, validates the
+development-signed AAB with pinned Google bundletool, and generates the
+device-selected APK set for an ARM64 API 37 phone. Each split must pass
+`zipalign -c -P 16`; all load segments of every shipped ARM64 library must
+support at least 16 KB pages. Results and the test AAB are retained separately
+as `native-android-test-bundle`. This is a packaging check, not a Play upload.
+Locally, the earlier API 37 x86-64 APK passed ZIP alignment and all 90 load
+segments in its 30 libraries passed ELF alignment. Five ARM64 libraries in
+React Native 0.88.1's release AAR passed; a deliberately misaligned library
+was rejected. These checks do not substitute for examining the final ARM bundle.
+
 ### Live task boards
 
 When `CYNTCH_BOARD_EVENTS_ENABLED=true`, bootstrap advertises live board
@@ -91,6 +103,13 @@ HTTP, real PostgreSQL, real SQLite, test identity). The same client picked up
 task and household renames, caught up on foreground/focus/reconnect, and made
 zero clock requests. This does not measure physical rendering, hosted network
 latency or concurrent web UI performance.
+
+The production-mode Next build at `9b5493f` was also verified on loopback with
+a real development email-code session and middleware: ten peer commits reached
+the streamed hint and authenticated board read at median 332 ms and p95 454 ms.
+The temporary session was revoked and the test schema removed. With the new
+database triggers installed, the closed-client 580-item scheduler fixture
+again recorded 192 transitions exactly once, p95 56.780 s and max 58.957 s.
 
 Cyntch's 16 modal presentations now use the system reduced-motion preference.
 One root provider reads the setting at startup, listens for changes and refreshes

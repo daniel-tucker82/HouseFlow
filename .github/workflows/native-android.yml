@@ -13,6 +13,10 @@ on:
       - .github/workflows/native-android.yml
   workflow_dispatch:
     inputs:
+      verify_arm64_bundle:
+        description: Also build an ARM64 App Bundle and check Play-style device splits
+        type: boolean
+        default: false
       fixture_url:
         description: Optional temporary HTTPS tunnel to the isolated development backend
         type: string
@@ -48,6 +52,7 @@ jobs:
       EXPO_PUBLIC_API_URL: ${{ inputs.fixture_url || 'https://cyntch-simulator.invalid' }}
       CYNTCH_NATIVE_TEST_EMAIL: ${{ inputs.fixture_email || '' }}
       MAESTRO_CLI_NO_ANALYTICS: '1'
+      CYNTCH_CHECK_BUNDLE: ${{ inputs.verify_arm64_bundle && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -91,13 +96,19 @@ jobs:
           set -euo pipefail
           java -version
           chmod +x gradlew
+          abis=x86_64
+          bundle_tasks=()
+          if [[ "$CYNTCH_CHECK_BUNDLE" == true ]]; then
+            abis=x86_64,arm64-v8a
+            bundle_tasks=(:app:bundleRelease)
+          fi
           ./gradlew -p ../vendor/clerk-android-ui assembleRelease --build-cache --no-daemon --max-workers=2 \
             -Dorg.gradle.jvmargs='-Xmx3072m -XX:MaxMetaspaceSize=512m -XX:ActiveProcessorCount=2' \
             2>&1 | tee "$RUNNER_TEMP/cyntch-clerk-ui-build.log"
           ./gradlew :app:dependencyInsight --dependency clerk --configuration releaseRuntimeClasspath \
-            :app:assembleRelease --build-cache --no-daemon --max-workers=2 \
+            :app:assembleRelease "${bundle_tasks[@]}" --build-cache --no-daemon --max-workers=2 \
             -Dorg.gradle.jvmargs='-Xmx3072m -XX:MaxMetaspaceSize=512m -XX:ActiveProcessorCount=2' \
-            -PreactNativeArchitectures=x86_64 \
+            -PreactNativeArchitectures="$abis" \
             -Pandroid.enableMinifyInReleaseBuilds=true \
             2>&1 | tee "$RUNNER_TEMP/cyntch-android-build.log"
           apk=app/build/outputs/apk/release/app-release.apk
@@ -106,8 +117,19 @@ jobs:
           mkdir -p "$RUNNER_TEMP/cyntch-android-apk"
           cp "$apk" "$RUNNER_TEMP/cyntch-android-apk/cyntch-emulator-test-signed.apk"
           sha256sum "$RUNNER_TEMP/cyntch-android-apk/cyntch-emulator-test-signed.apk" > "$RUNNER_TEMP/cyntch-android-apk/sha256.txt"
-          printf 'Source: %s\nRelease x86_64 APK; generated development signing key.\nSigned-out verification, with optional isolated-backend development-test sign-in. Not a store artifact.\n' "$GITHUB_SHA" > "$RUNNER_TEMP/cyntch-android-apk/README.txt"
+          printf 'Source: %s\nRelease APK (%s); generated development signing key.\nSigned-out verification, with optional isolated-backend development-test sign-in. Not a store artifact.\n' "$GITHUB_SHA" "$abis" > "$RUNNER_TEMP/cyntch-android-apk/README.txt"
           echo 'apk_ready=true' >> "$GITHUB_OUTPUT"
+      - name: Verify the ARM64 bundle and device-specific split APKs
+        if: inputs.verify_arm64_bundle
+        run: bash scripts/android-bundle-compat.sh
+      - name: Retain bundle and 16 KB compatibility evidence
+        if: ${{ always() && inputs.verify_arm64_bundle }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-android-test-bundle
+          path: ${{ runner.temp }}/cyntch-bundle-evidence/
+          if-no-files-found: warn
+          retention-days: 7
       - name: Retain compiled APK and build evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
