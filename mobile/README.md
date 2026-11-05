@@ -77,6 +77,13 @@ all eight captures, category/member assertions and both restart checks. Its
 artifact `13391342763`, SHA-256
 `a4795bea460bdc99881f7b7dde06cc9e067add7dc6ee70b94b7a84338236131d`,
 also proves the real notification permission and system settings journey.
+An independent read-only PostgreSQL check matched that installation through its
+final task-sync receipt and verified all nine saved preference revisions against
+the native UI sequence. Parent-only startable alerts, child-only completion
+alerts, all five required household categories, and the final category-off choice
+match the persisted revision 9 exactly. Member-selection ordering is immaterial;
+the complete selections and all other preference fields were compared. This
+adds server-persistence evidence, not another-device UI or push-delivery proof.
 
 The full authenticated Android phone check also runs the prepared offline
 task journey after notification checks, using the same compiled APK. The separate
