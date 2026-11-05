@@ -70,7 +70,7 @@ export class SyncEngine {
         if (response.outcome === "rejected") break
       } catch (error) {
         if (this.cancelled) return
-        if (error instanceof TransportError && [400, 403, 404, 409, 410, 422].includes(error.status)) {
+        if (error instanceof TransportError && [400, 402, 403, 404, 409, 410, 422].includes(error.status)) {
           await this.store.acknowledge(this.accountId, { operationId: change.id, outcome: "rejected",
             error: error.message, occurrenceTaskStatuses: [] })
         } else {

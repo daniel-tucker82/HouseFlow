@@ -153,6 +153,27 @@ same checkbox after completion and reopening, preserving its checked-state
 assertions. The isolated server still had no receipts; no fixture was reset.
 This attempt does not establish force-stop recovery or successful synchronization.
 
+Replay `41967101792` did establish offline completion, an actual ADB force-stop,
+cached sign-in and completion after relaunch, and automatic upload on reconnect.
+Artifact `13388167699`, SHA-256
+`49492e1ee9734497db1395d279d2392cad7bf312c93777cf1aadeced799de3eb`,
+was verified and its restart/reconnection captures inspected. PostgreSQL recorded
+one applied completion. The later reopening remained queued and failed its
+60-second acknowledgement check; this is not a passing complete journey.
+
+A separate authenticated HTTP probe against the same packaged backend reproduced
+HTTP 402 on reopening a task while its run still had an unfinished task. The
+quota gate counted other active runs without first checking whether this run was
+already active. It now checks capacity only when reopening a completed run. The
+native sync engine retains genuine 402 rejections for attention in Settings,
+instead of repeatedly showing “Syncing…”. Explicit retry preserves the operation
+and its frozen clock correction. Both regressions failed before the changes;
+all 43 PostgreSQL route/SQLite synchronization checks now pass, including quota
+enforcement for a genuinely additional run and retry after capacity is available.
+Root/mobile type checks and focused root/mobile lint pass. Updated packaged
+backend and native verification are still required. The failing native fixture
+was left intact; only the separate two-task HTTP probe was removed.
+
 Android run `41867082612` (`93777e1`) passed the optimized API 36 phone/tablet
 matrix at 1x/1.6x text, including software-keyboard rotation, retained input,
 keyboard dismissal and app Back handling. Both devices also passed real native

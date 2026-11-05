@@ -50,7 +50,9 @@ test('F01 O05 O07 native completion endpoint enforces real membership, prerequis
   const operationModule = new Module(operationFile, module)
   operationModule._compile(bundled.outputFiles[0].text, operationFile)
   let userId = parent, sessionId = null
-  class EntitlementError extends Error {}
+  class EntitlementError extends Error {
+    constructor(message, status = 403) { super(message); this.status = status }
+  }
   const mocks = {
     '@/lib/db': { db, kioskGateDb },
     '@clerk/nextjs/server': { auth: async () => ({ userId, sessionId }) },
@@ -151,6 +153,33 @@ test('F01 O05 O07 native completion endpoint enforces real membership, prerequis
   assert.equal((await db.query("select count(*)::int n from tasks where title='Must roll back'")).rows[0].n, 0)
   assert.equal((await db.query('select count(*)::int n from native_notification_events')).rows[0].n, 0)
   await db.query('drop trigger fail_native_task on occurrence_tasks')
+
+  // Exercise the real quota SQL rather than the premium admission stub above.
+  // A downgrade can leave several active runs: undoing one task in an already
+  // active run does not consume another slot, while reopening a closed run does.
+  const premiumAdmission = mocks['@/lib/flow-entitlements'].enforceFlowEntitlements
+  const freeAdmission = compile('lib/flow-entitlements.ts', {
+    ...mocks,
+    '@/lib/entitlements': { EntitlementError, getHouseholdEntitlement: async () => ({ tier: 'free', limits: { activeExecutions: 1 } }) },
+  }).enforceFlowEntitlements
+  mocks['@/lib/flow-entitlements'].enforceFlowEntitlements = freeAdmission
+  const otherRun = randomUUID(), sentinel = randomUUID()
+  await db.query("insert into routine_occurrences(id,household_id,kind,title,scheduled_for) values($1,$2,'manual','Existing active run',now())", [otherRun, householdId])
+  await db.query("insert into tasks(id,household_id,routine_occurrence_id,title) values($1,$2,$3,'Keep run active')", [sentinel, householdId, occurrenceId])
+  await db.query("insert into occurrence_tasks(occurrence_id,task_id,status) values($1,$2,'unlocked')", [occurrenceId, sentinel])
+  assert.equal((await send(change({ taskId: prerequisiteId }))).status, 200)
+  const undoInActiveRun = await send(change({ taskId: prerequisiteId, completed: false }))
+  assert.equal(undoInActiveRun.status, 200, JSON.stringify(undoInActiveRun.data))
+  assert.equal(undoInActiveRun.data.occurrenceTaskStatuses.find(task => task.task_id === prerequisiteId).status, 'unlocked')
+  await db.query('delete from tasks where id=$1', [sentinel])
+  assert.equal((await send(change({ taskId: prerequisiteId }))).status, 200)
+  assert.equal((await db.query('select status from routine_occurrences where id=$1', [occurrenceId])).rows[0].status, 'completed')
+  const reopenRun = change({ taskId: prerequisiteId, completed: false })
+  assert.equal((await send(reopenRun)).status, 402, 'a genuinely additional active run still needs capacity')
+  await db.query("update routine_occurrences set status='completed' where id=$1", [otherRun])
+  assert.equal((await send(reopenRun)).status, 200, 'the saved operation can be retried once capacity is available')
+  mocks['@/lib/flow-entitlements'].enforceFlowEntitlements = premiumAdmission
+
   sessionId = 'sess_kiosk_route'
   const kioskId = randomUUID(), exitSecret = 'b'.repeat(64), installationSecret = 'a'.repeat(64)
   await kiosk.saveNativeKiosk(db, parent, sessionId, deviceId, installationSecret, { action: 'activate', id: kioskId,

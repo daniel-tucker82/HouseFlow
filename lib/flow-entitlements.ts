@@ -20,9 +20,15 @@ export async function enforceFlowEntitlements(client: PoolClient, householdId: s
     await assertRetainedTaskCapacity(client,householdId,tier,additional)
   }
   if (action === "setOccurrenceTaskCompleted" && !body.completed) {
-    const active = await client.query(`select count(*)::int as n from routine_occurrences
-      where household_id = $1::uuid and status = 'active' and id <> $2::uuid`, [householdId,String(body.occurrenceId ?? "")])
-    if (active.rows[0].n >= limits.activeExecutions) throw new EntitlementError("Finish an active run before reopening this one.",402)
+    const occurrenceId = String(body.occurrenceId ?? "")
+    const occurrence = await client.query("select status from routine_occurrences where household_id=$1::uuid and id=$2::uuid", [householdId, occurrenceId])
+    // Undoing a task in an already active run consumes no additional capacity,
+    // including after a downgrade leaves the household above its current limit.
+    if (occurrence.rows[0]?.status === "completed") {
+      const active = await client.query(`select count(*)::int as n from routine_occurrences
+        where household_id = $1::uuid and status = 'active' and id <> $2::uuid`, [householdId, occurrenceId])
+      if (active.rows[0].n >= limits.activeExecutions) throw new EntitlementError("Finish an active run before reopening this one.",402)
+    }
   }
   if (free && ["addRecurrenceRule", "updateRecurrenceRule", "createTaskBoard"].includes(action)) {
     throw new EntitlementError("Additional boards and automatic schedules require Premium.", 402)

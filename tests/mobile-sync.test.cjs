@@ -320,6 +320,30 @@ test('O05 interruption during acknowledgement cleanup keeps operation recoverabl
   assert.equal((await (await f.reopen()).pending('parent')).length, 1)
 })
 
+test('O07 a plan-limit rejection survives restart and waits for an explicit retry', async t => {
+  const f = await fixture(t)
+  await f.store.enqueueCompletion(change('plan-limit', false))
+  let sends = 0, allowed = false, clockSamples = 0
+  const transport = { serverTime: async () => { clockSamples++; return 1000 }, send: async c => {
+    sends++
+    if (!allowed) throw new TransportError('Finish an active run before reopening this one.', 402)
+    return { operationId: c.id, outcome: 'applied', occurrenceTaskStatuses: [{ task_id: c.taskId, status: 'unlocked' }] }
+  } }
+  await new SyncEngine(f.store, 'parent', transport, () => {}, () => 1000).flush()
+  const store = await f.reopen()
+  const pending = await store.pending('parent')
+  assert.equal(pending[0].state, 'rejected')
+  assert.match(pending[0].error, /Finish an active run/)
+  assert.equal(nextSyncDelay(pending, 2000), null)
+  const resumed = new SyncEngine(store, 'parent', transport, () => {}, () => 2000)
+  await resumed.flush(); assert.equal(sends, 1, 'no automatic retry while parent action is needed')
+  allowed = true
+  await store.retryRejected('parent', 'plan-limit')
+  await resumed.flush()
+  assert.equal(sends, 2); assert.equal(clockSamples, 1, 'retry preserves the original correction')
+  assert.deepEqual(await store.pending('parent'), [])
+})
+
 test('O08 account switch during a network request retains the previous account operation', async t => {
   const f = await fixture(t)
   await f.store.enqueueCompletion(change())
