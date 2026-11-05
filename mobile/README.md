@@ -23,10 +23,28 @@ Android `41967101792` proved offline completion, force-stop persistence and uplo
 on reconnect, then failed reopening. The reproduced quota/sync defects are fixed;
 43 route/SQLite regressions and real packaged-backend HTTP checks pass. Fresh
 Android `41970440613` compiled but failed before authentication; its unexpected
-password-creation screen is investigated below. iOS `41970677603` is in progress.
-Both predate the latest
-Settings keyboard fix and notification-preference test identifiers. Neither may
-be reused as proof of those app changes.
+password-creation screen is investigated below. Its successor `41973395072`,
+source `0840707`, passed the exact submitted-email check, authenticated tablet,
+tablet kiosk, both fold text sizes and API 24. The full phone journey is running.
+The verified APK SHA-256 is
+`f9d69b9e760c8c653680ac76d27aad8dc3a0325360c729a5dcdc37fa5b7e668f`.
+
+iOS `41970677603` compiled and passed both text sizes on the current iPhone/iPad
+and iOS 17 iPad. Both iPads passed real authentication. The current iPad repeated
+the kiosk activation failure; pre/post-tap captures and the input logs retain
+the same keyboard-dismissal behavior. This binary predates the Settings keyboard
+fix and notification-preference identifiers, so it cannot verify either change.
+The current iPhone failed sign-in with a native TLS error. Its application log
+records the Clerk sign-in endpoint, zero transferred bytes and a connection
+closed without notification (`-1200`/`-9816`); the host's later TLS probe returned
+HTTP 200 with normal certificate verification. The cause remains unresolved;
+no transport-security exception or authentication bypass was introduced.
+The iOS 17 phone is still running.
+
+Downloaded evidence was SHA-256 verified: Android tablet `13391911593`,
+foldable `13391936190`, API 24 `13390914707`, and iOS current iPad `13391436847`,
+current iPhone `13390964798`, iOS 17 iPad `13391297567`. Actual iPad kiosk and
+iPhone failure screenshots and Android kiosk landscape were inspected.
 
 Physical-device testing, live push-provider delivery, store billing, pilot use
 and store release remain separate requirements. Older checkpoints below describe
@@ -239,8 +257,15 @@ The signed-out iOS harness now permits one bootstrap retry only for the exact
 driver-startup exception, after owned process-group cleanup and only when there
 is no flow report, command record or screenshot. Both attempts remain recorded.
 Assertion failures, partial journeys, generic timeouts and cleanup failures are
-never retried. Local classification checks pass; POSIX process checks and actual
-macOS recovery still require the next native run.
+never retried. All four classification and process tests passed on the macOS
+host in `41970677603`, including termination of a surviving child without
+signalling an unrelated process group. The compilation artifact `13390538246`
+was verified against SHA-256
+`e6a80974998e327bf906e633c14ec82a031cb5b61913b525afca4f34f59157ed`.
+It also records 10 persistence, 14 biometric-cleanup and three real Security API
+checks passing, with owned Keychain fixtures removed. Successful signed-out
+journeys on both iPads and the current iPhone used one attempt; actual recovery
+from a new XCTest bootstrap failure still needs device evidence.
 
 Android run `41867082612` (`93777e1`) passed the optimized API 36 phone/tablet
 matrix at 1x/1.6x text, including software-keyboard rotation, retained input,
