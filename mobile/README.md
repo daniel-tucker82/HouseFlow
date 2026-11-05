@@ -33,6 +33,19 @@ native device. Physical-device, provider delivery, billing and pilot evidence
 remain separate requirements. Older checkpoints below describe their source at
 the time and are superseded where newer evidence is recorded.
 
+An already-authorized Android installation now creates any missing Cyntch
+notification channels before registering its provider token. Previously channel
+setup ran only from the permission button, which Android 8–12 installations and
+some upgrades never use. The installed Expo notification builder falls back to a
+generic channel when the requested category is absent. Existing user-configured
+channels are left untouched. Channel failures remain retryable, and a kiosk lock
+enabled during setup prevents the later prompt or token registration. Permission
+inspection stays read-only; this runs in background registration, outside task
+saves. A regression test failed on the original implementation with all 15
+channels absent before token acquisition, then passed with the fix. The 28
+notification sync/session/interaction checks and mobile lint/types pass. This is
+adapter-level proof, not live FCM delivery.
+
 Android run `41867082612` (`93777e1`) passed the optimized API 36 phone/tablet
 matrix at 1x/1.6x text, including software-keyboard rotation, retained input,
 keyboard dismissal and app Back handling. Both devices also passed real native

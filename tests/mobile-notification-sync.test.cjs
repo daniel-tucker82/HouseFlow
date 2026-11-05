@@ -239,7 +239,7 @@ test('token lookup or native subscription failure does not disable an existing r
 })
 
 test('native notification adapter creates Android channels before asking permission and honors iOS provisional status', async () => {
-  const events = [], permission = { status: 'denied', canAskAgain: true }, platform = { OS: 'android', Version: 24 }, constants = { expoConfig: { extra: { eas: { projectId: 'test-project' } } } }
+  const events = [], permission = { status: 'denied', canAskAgain: true }, platform = { OS: 'android', Version: 37 }, constants = { expoConfig: { extra: { eas: { projectId: 'test-project' } } } }
   const intents = [], linking = { openSettings: async () => events.push('settings'), sendIntent: async (action, extras) => intents.push({action, extras}) }
   let tokenListener, tokenOptions, cleanupVersion = null, kiosk = false
   const notifications = {
@@ -250,7 +250,7 @@ test('native notification adapter creates Android channels before asking permiss
       {id:'cyntch-task_assigned',importance:6}, {id:'cyntch-member_left',importance:1}, {id:'other',importance:2},
     ] },
     getPermissionsAsync: async () => permission,
-    setNotificationChannelAsync: async (id, options) => { assert.equal(options.sound, undefined, 'use the system default, not a missing custom sound'); events.push(id) }, requestPermissionsAsync: async () => { events.push('permission'); return { ...permission, status: 'granted' } },
+    setNotificationChannelAsync: async (id, options) => { assert.equal(options.sound, undefined, 'use the system default, not a missing custom sound'); events.push(id); return {id, ...options} }, requestPermissionsAsync: async () => { events.push('permission'); return { ...permission, status: 'granted' } },
     getExpoPushTokenAsync: async options => { tokenOptions = options; return { data: 'ExpoPushToken[adapter]' } },
     addPushTokenListener: listener => { tokenListener = listener; return { remove: () => events.push('removed') } },
     getLastNotificationResponse: () => null, getPresentedNotificationsAsync: async () => [],
@@ -263,7 +263,7 @@ test('native notification adapter creates Android channels before asking permiss
   const adapter = loaded.exports.createNotificationDevice({ active: async () => null, kioskRestricted: async () => kiosk, cleanupVersion: async () => cleanupVersion, completeCleanup: async () => { cleanupVersion = null } })
   assert.equal((await adapter.inspect()).permission, 'denied'); assert.equal(events.length, 0, 'inspection never prompts')
   assert.equal((await adapter.requestPermission()).permission, 'granted')
-  assert.equal(events.at(-1), 'permission'); assert.equal(events.filter(value => value.startsWith('cyntch-')).length, 15)
+  assert.equal(events.at(-1), 'permission'); assert.equal(events.filter(value => value.startsWith('cyntch-')).length, 10, 'five existing categories are untouched')
   permission.ios = { status: 3 }; assert.equal((await adapter.inspect()).permission, 'provisional')
   permission.status = 'granted'; permission.ios.status = 1; assert.equal((await adapter.inspect()).permission, 'denied', 'iOS status takes precedence over generic permission')
   permission.ios = {status:2, allowsAlert:true, alertStyle:0, allowsDisplayInNotificationCenter:true}
@@ -272,7 +272,9 @@ test('native notification adapter creates Android channels before asking permiss
   assert.deepEqual((await adapter.inspect()).iosPresentation, {alertsOff:false,centerOff:true})
   permission.ios = {status:2, allowsAlert:null, allowsDisplayInNotificationCenter:null}
   assert.deepEqual((await adapter.inspect()).iosPresentation, {alertsOff:false,centerOff:false}, 'unknown settings must not create warnings')
-  assert.deepEqual(await adapter.channelRestrictions(), {}); assert(!events.includes('read channels'), 'Android 24 has no channels')
+  platform.Version = 24
+  const beforeLegacyRead = events.length
+  assert.deepEqual(await adapter.channelRestrictions(), {}); assert.equal(events.length, beforeLegacyRead, 'Android 24 has no channels')
   platform.Version = 37
   assert.deepEqual(await adapter.channelRestrictions(), {task_completed:'blocked',member_added:'lower-priority',routine_generated:'lower-priority'})
   await adapter.openSettings('task_completed')
@@ -289,4 +291,65 @@ test('native notification adapter creates Android channels before asking permiss
   await assert.rejects(adapter.token(), /Unlock kiosk/)
   await assert.rejects(adapter.requestPermission(), /Unlock kiosk/)
   constants.expoConfig.extra.eas.projectId = null; await assert.rejects(adapter.token(), /not available in this build/)
+})
+
+test('already-authorized Android registration creates missing channels without resetting user choices or asking permission', async () => {
+  const platform = { OS: 'android', Version: 32 }, channels = new Map(), created = [], tokenSnapshots = []
+  let failChannel = null, channelReads = 0, kiosk = false
+  const notifications = {
+    AndroidImportance: { HIGH: 6 }, AndroidNotificationVisibility: { PRIVATE: 2 },
+    getPermissionsAsync: async () => ({ status: 'granted', canAskAgain: true }),
+    requestPermissionsAsync: async () => { throw new Error('Already-authorized registration must not prompt') },
+    getNotificationChannelsAsync: async () => { channelReads++; return [...channels.values()] },
+    setNotificationChannelAsync: async (id, options) => {
+      if (id === failChannel) throw new Error('Native channel creation failed')
+      assert(!channels.has(id), 'existing user settings must be preserved')
+      const channel = { id, ...options }; channels.set(id, channel); created.push(id); return channel
+    },
+    getExpoPushTokenAsync: async () => { tokenSnapshots.push([...channels.keys()].sort()); return { data: 'ExpoPushToken[existing-permission]' } },
+  }
+  const mocks = { 'expo-notifications': notifications,
+    'expo-constants': { expoConfig: { extra: { eas: { projectId: 'test-project' } } } },
+    'expo-application': {}, 'expo-device': {}, 'react-native': { Platform: platform, Linking: {} } }
+  const filename = path.join(root, 'mobile/src/services/notification-device.ts')
+  const bundle = buildSync({ entryPoints: [filename], bundle: true, platform: 'node', format: 'cjs', external: Object.keys(mocks), write: false })
+  const adapterModule = new Module(filename, module)
+  adapterModule.require = id => mocks[id] ?? require(id); adapterModule._compile(bundle.outputFiles[0].text, filename)
+  const adapter = adapterModule.exports.createNotificationDevice({ kioskRestricted: async () => kiosk, cleanupVersion: async () => null })
+  const expected = Object.keys(loaded.exports.notificationCatalog).map(kind => 'cyntch-' + kind).sort()
+  assert.equal((await adapter.inspect()).permission, 'granted')
+  assert.equal(channelReads, 0, 'reading permission has no channel side effects')
+  assert.equal(created.length, 0)
+  assert.equal(await adapter.token(), 'ExpoPushToken[existing-permission]')
+  assert.deepEqual(tokenSnapshots[0], expected, 'all categories must exist before the provider token is obtained')
+  const blocked = { id: 'cyntch-task_completed', importance: 2, name: 'User-controlled channel' }
+  channels.set(blocked.id, blocked)
+  await adapter.token()
+  assert.equal(created.length, expected.length, 'a repeat registration creates no channels')
+  assert.deepEqual(channels.get(blocked.id), blocked)
+  channels.delete('cyntch-routine_generated')
+  failChannel = 'cyntch-routine_generated'
+  await assert.rejects(adapter.token(), /Native channel creation failed/)
+  assert.equal(tokenSnapshots.length, 2, 'failed channel setup cannot register a token prematurely')
+  failChannel = null
+  await adapter.token()
+  assert.deepEqual(tokenSnapshots[2], expected, 'a retry finishes only the missing category')
+  assert.equal(created.length, expected.length + 1)
+  const beforeReads = channelReads
+  platform.Version = 24
+  await adapter.token()
+  assert.equal(channelReads, beforeReads, 'pre-channel Android versions do not use channel APIs')
+  platform.OS = 'ios'; platform.Version = '26.5'
+  await adapter.token()
+  assert.equal(channelReads, beforeReads, 'iOS does not use Android channel APIs')
+  kiosk = true; platform.OS = 'android'; platform.Version = 32
+  await assert.rejects(adapter.token(), /Unlock kiosk/)
+  assert.equal(channelReads, beforeReads, 'restricted devices cannot configure channels')
+  const beforeTokens = tokenSnapshots.length
+  notifications.getNotificationChannelsAsync = async () => { kiosk = true; return [...channels.values()] }
+  kiosk = false
+  await assert.rejects(adapter.token(), /Unlock kiosk/)
+  assert.equal(tokenSnapshots.length, beforeTokens, 'a lock enabled during channel setup prevents provider registration')
+  kiosk = false
+  await assert.rejects(adapter.requestPermission(), /Unlock kiosk/, 'a lock enabled during setup also prevents the system prompt')
 })
