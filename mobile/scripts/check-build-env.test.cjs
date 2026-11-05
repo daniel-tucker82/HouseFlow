@@ -17,6 +17,7 @@ function check(overrides = {}, content) {
   try {
     const env = { ...process.env, EAS_BUILD_PROFILE: 'preview', EAS_BUILD_PLATFORM: 'android',
       EXPO_PUBLIC_API_URL: 'https://api.example.invalid', EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: 'pk_live_fixture',
+      EXPO_PUBLIC_PRIVACY_POLICY_URL: 'https://fixture.example/privacy', EXPO_PUBLIC_TERMS_URL: 'https://fixture.example/terms',
       GOOGLE_SERVICES_JSON: '', ...overrides }
     if (content !== undefined) {
       env.GOOGLE_SERVICES_JSON = join(directory, 'google-services.json')
@@ -67,4 +68,20 @@ test('dynamic config preserves existing native settings and only adds the suppli
     if (previous === undefined) delete process.env.GOOGLE_SERVICES_JSON
     else process.env.GOOGLE_SERVICES_JSON = previous
   }
+})
+test('production requires both policy links; other builds may omit links but cannot supply unsafe URLs', () => {
+  for (const name of ['EXPO_PUBLIC_PRIVACY_POLICY_URL', 'EXPO_PUBLIC_TERMS_URL']) {
+    assert.notEqual(check({ EAS_BUILD_PROFILE: 'production', EAS_BUILD_PLATFORM: 'ios', [name]: '' }).status, 0)
+    assert.equal(check({ EAS_BUILD_PROFILE: 'development', EAS_BUILD_PLATFORM: 'ios', [name]: '' }).status, 0)
+    for (const value of ['http://fixture.example/privacy', 'javascript:alert(1)', 'https://user:PRIVATE_FIXTURE_DO_NOT_LOG@fixture.example/privacy', 'https://fixture.example/privacy?token=PRIVATE_FIXTURE_DO_NOT_LOG', 'https://fixture.example/privacy#section', 'not a URL']) {
+      const result = check({ EAS_BUILD_PLATFORM: 'ios', [name]: value })
+      assert.notEqual(result.status, 0)
+      assert.doesNotMatch(result.output, /PRIVATE_FIXTURE_DO_NOT_LOG/)
+    }
+  }
+})
+test('runtime and build checks share URL normalization without network access or account data', () => {
+  const { publicPolicyUrl } = require('../src/services/public-policy-url')
+  assert.equal(publicPolicyUrl('  https://fixture.example/privacy  '), 'https://fixture.example/privacy')
+  for (const value of [undefined, '', '   ', '/privacy', 'cyntch://privacy', 'https://user@fixture.example', 'https://fixture.example?account=1']) assert.equal(publicPolicyUrl(value), null)
 })

@@ -3,6 +3,7 @@
 const fail = message => { throw new Error(message) }
 const profile = process.env.EAS_BUILD_PROFILE
 const profiles = require('../eas.json').build
+const { publicPolicyUrl } = require('../src/services/public-policy-url')
 if (!profile || !Object.hasOwn(profiles, profile)) fail('Select a configured EAS build profile.')
 
 const key = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY ?? ''
@@ -11,6 +12,12 @@ if (!/^pk_(test|live)_[A-Za-z0-9+/=_-]+$/.test(key)) {
 }
 if (profile === 'production' && !key.startsWith('pk_live_')) {
   fail('Production builds require a live Clerk publishable key.')
+}
+for (const name of ['EXPO_PUBLIC_PRIVACY_POLICY_URL', 'EXPO_PUBLIC_TERMS_URL']) {
+  const value = process.env[name]
+  if ((profile === 'production' || value?.trim()) && !publicPolicyUrl(value)) {
+    fail(`Set ${name} to the verified public HTTPS page, without credentials, a query or fragment.`)
+  }
 }
 
 let api

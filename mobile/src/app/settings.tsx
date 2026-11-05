@@ -10,6 +10,8 @@ import { KioskSettingsCard } from "../components/kiosk-settings"
 import { BillingSettingsCard } from "../components/billing-settings"
 import { useRouter } from "expo-router"
 import { AccountCleanupNotice } from "../components/account-cleanup-notice"
+import { PolicyLinks } from "../components/policy-links"
+import { policyLinks } from "../services/policy-links"
 
 export default function SettingsScreen() {
   const router = useRouter()
@@ -31,6 +33,7 @@ export default function SettingsScreen() {
     <AccountCleanupNotice />
     <Card><View style={styles.row}><UserButton /><View style={{ flex: 1 }}><Copy tone="heading">Your account</Copy><Copy tone="muted">Manage your profile and sign-in details.</Copy></View></View></Card>
     <Action secondary label="Review account deletion" onPress={() => router.navigate("/account-deletion")} />
+    {policyLinks.privacy || policyLinks.terms ? <Card><Copy tone="heading">Privacy and terms</Copy><PolicyLinks /></Card> : null}
     <BillingSettingsCard />
     <Card><Copy tone="heading">This device</Copy><View style={styles.row}><View style={{ flex: 1, gap: 4 }}><Copy>Keep the display awake</Copy><Copy tone="muted">While Cyntch is open. You can still lock the screen yourself.</Copy></View>
       <Switch accessibilityLabel="Keep the display awake while Cyntch is open" value={keepAwake} onValueChange={value => void setKeepAwake(value).catch(report)} trackColor={{ true: colors.primary }} />

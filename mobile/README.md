@@ -4400,3 +4400,25 @@ Release still requires the real mailbox/process, deployed public deletion URL,
 actual privacy policy and terms URLs/content, verified store metadata and an
 accessible native privacy-policy link. This page alone does not establish
 store compliance or completed deletion-service operation.
+
+### Native privacy and terms links (prepared separately, 5 November 2026)
+
+The welcome screen, Settings and subscription options can open the actual public
+privacy policy and terms in the device browser. Links wrap at narrow widths and
+large text sizes, expose a screen-reader link role and handle opening failures
+without blocking task saving. No link fetch runs during rendering or saving, and
+no account, household or device identifier is appended. Kiosk mode retains its
+existing parent-access boundary.
+
+Set `EXPO_PUBLIC_PRIVACY_POLICY_URL` and `EXPO_PUBLIC_TERMS_URL` only to confirmed,
+published public HTTPS pages. Production EAS builds require both. New purchase
+options also require both links; restore and management of existing subscriptions
+remain available. Other builds may omit the links while the policies are being
+prepared. Invalid configured URLs fail validation without logging their values.
+
+Six build/configuration checks, mobile lint/type checks and Android/iOS JavaScript
+exports passed. Both exports contain the reserved fixture URLs used only for
+bundle verification; no configured live policy URL is supplied. These checks
+do not establish that configured pages are reachable or that their content is
+accurate: public access and actual device link opening remain release checks.
+No legal text, live policy URL or contact address was invented or published.

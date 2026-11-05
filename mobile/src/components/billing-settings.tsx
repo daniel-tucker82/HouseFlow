@@ -5,6 +5,8 @@ import { Action, Card, Copy, styles, usePalette } from "./ui"
 import { useBilling, useRuntime } from "../providers/runtime"
 import { hasBillingConflict } from "../services/billing-controller"
 import type { NativeBillingSource } from "../../../shared/mobile/billing"
+import { PolicyLinks } from "./policy-links"
+import { subscriptionPoliciesAvailable } from "../services/policy-links"
 
 const providers = { app_store: "Apple App Store", play_store: "Google Play", stripe: "Cyntch website" }
 function sourceDescription(source: NativeBillingSource) {
@@ -50,7 +52,7 @@ export function BillingSettingsCard() {
     {state.message ? <View accessibilityLiveRegion="polite"><Copy>{state.message}</Copy></View> : null}
     {state.error ? <View accessibilityRole="alert"><Copy style={{ color: colors.danger }}>{state.error}</Copy></View> : null}
     {state.busy ? <View style={styles.row}><ActivityIndicator color={colors.primary} /><Copy tone="muted">{state.busy === "prices" ? "Getting store prices…" : state.busy === "purchase" ? "Opening your store purchase…" : state.busy === "restore" ? "Restoring purchases…" : "Opening subscription management…"}</Copy></View> : null}
-    {eligible ? <>
+    {eligible && subscriptionPoliciesAvailable ? <>
       {!state.offers.length ? <Action disabled={disabled} label="View subscription options" onPress={() => run(billing.loadOffers())} /> : <View style={{ flexDirection: width >= 700 && fontScale <= 1.4 ? "row" : "column", gap: 12 }}>
         {state.offers.map(offer => <View key={offer.interval} style={{ flex: 1, borderRadius: 14, backgroundColor: colors.soft, padding: 16, gap: 8 }}>
           <Copy tone="label">{offer.interval === "monthly" ? "Monthly" : "Annual"}</Copy>
@@ -59,7 +61,9 @@ export function BillingSettingsCard() {
         </View>)}
       </View>}
       {state.offers.length ? <Copy tone="muted">Payment is charged to your store account. Your subscription renews automatically until cancelled in your store settings. Review the price and renewal terms in the purchase sheet.</Copy> : null}
-    </> : status?.canManage && status.tier === "free" && !status.purchasesAvailable ? <Copy tone="muted">Store subscriptions are not available yet.</Copy> : null}
+      <PolicyLinks />
+    </> : eligible ? <Copy tone="muted">Subscription options are temporarily unavailable. You can still manage or restore an existing subscription.</Copy>
+    : status?.canManage && status.tier === "free" && !status.purchasesAvailable ? <Copy tone="muted">Store subscriptions are not available yet.</Copy> : null}
     {status?.canManage && stores.length ? <Copy tone="muted">Manage your existing subscription using the Apple or Google account that originally purchased it.</Copy> : null}
     {status?.canManage ? stores.map(store => <Action key={store} disabled={disabled} secondary label={`Manage ${store === "app_store" ? "Apple" : "Google Play"} subscription`} onPress={() => run(billing.manage(store))} />) : null}
     {status?.canManage && status.purchasesAvailable ? <>
