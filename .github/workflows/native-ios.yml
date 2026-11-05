@@ -28,7 +28,7 @@ on:
         type: boolean
         default: false
       runner:
-        description: Standard Mac runner used for both simulator jobs
+        description: Build host and architecture (iOS 17 uses a matching macOS 15 host)
         type: choice
         default: macos-26-intel
         options: [macos-26-intel, macos-26]
@@ -215,7 +215,9 @@ jobs:
     permissions:
       actions: read
       contents: read
-    runs-on: ${{ inputs.runner || 'macos-26-intel' }}
+    # The app is compiled once with the release toolchain. Use an older XCTest
+    # host for the original iOS 17 runtime, preserving the binary architecture.
+    runs-on: ${{ matrix.runtime == '17.0' && (inputs.runner == 'macos-26' && 'macos-15' || 'macos-15-intel') || inputs.runner || 'macos-26-intel' }}
     timeout-minutes: 80
     strategy:
       fail-fast: false
@@ -229,12 +231,12 @@ jobs:
     env:
       CI: '1'
       EXPO_NO_DOTENV: '1'
-      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      DEVELOPER_DIR: ${{ matrix.runtime == '17.0' && '/Applications/Xcode_16.4.app/Contents/Developer' || '/Applications/Xcode_26.6.app/Contents/Developer' }}
       CYNTCH_IOS_TEST_RUNTIME: ${{ matrix.runtime == '17.0' && '17.0' || '' }}
       CYNTCH_IOS_TEST_FAMILY: ${{ matrix.family }}
       CYNTCH_IOS_SIMULATOR_PRODUCER: ${{ inputs.simulator_from_run }}
       CYNTCH_IOS_REPLAY_SCOPE: ${{ inputs.simulator_from_run && inputs.replay_scope || '' }}
-      MAESTRO_DRIVER_STARTUP_TIMEOUT: '240000'
+      MAESTRO_DRIVER_STARTUP_TIMEOUT: ${{ matrix.runtime == '17.0' && '360000' || '240000' }}
       EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ZW1lcmdpbmctdG9hZC05OC5jbGVyay5hY2NvdW50cy5kZXYk
       EXPO_PUBLIC_API_URL: ${{ inputs.fixture_url || 'https://cyntch-simulator.invalid' }}
       CYNTCH_NATIVE_TEST_EMAIL: ${{ inputs.fixture_email || '' }}
@@ -299,6 +301,8 @@ jobs:
         timeout-minutes: 20
         run: |
           set -euo pipefail
+          xcodebuild -version | tee "$RUNNER_TEMP/cyntch-ios17-toolchain.txt"
+          grep -Fx 'Xcode 16.4' "$RUNNER_TEMP/cyntch-ios17-toolchain.txt"
           if xcrun simctl list runtimes --json | jq -e 'any(.runtimes[]; .isAvailable and .version == "17.0" and (.identifier | contains(".iOS-")))' >/dev/null; then
             echo "The required iOS 17.0 runtime is already installed."
             exit 0
@@ -341,6 +345,7 @@ jobs:
           path: |
             ${{ runner.temp }}/cyntch-ios-device-app.sha256
             ${{ runner.temp }}/cyntch-ios17-download.log
+            ${{ runner.temp }}/cyntch-ios17-toolchain.txt
             ${{ runner.temp }}/cyntch-ios17-import.log
             ${{ runner.temp }}/cyntch-ios-device-inventory.json
             ${{ runner.temp }}/cyntch-ios-device-smoke.log

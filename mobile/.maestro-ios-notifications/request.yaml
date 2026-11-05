@@ -7,9 +7,7 @@ name: A signed-in parent grants iOS notification permission
     permissions:
       notifications: unset
 - setOrientation: PORTRAIT
-- extendedWaitUntil:
-    visible: "Cyntch emulator family"
-    timeout: 60000
+- runFlow: ../.maestro-auth/verify-household.yaml
 - tapOn: "(?i)^Settings(,.*)?$"
 - scrollUntilVisible:
     element: "Choose notifications"

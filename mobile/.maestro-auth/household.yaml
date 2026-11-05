@@ -49,22 +49,15 @@ name: Native sign-in opens the household and preserves the session
     optional: true
 # Clerk's reserved development test address uses this code without email.
 - inputText: "424242"
-- extendedWaitUntil:
-    visible: "Cyntch emulator family"
-    timeout: 60000
-- assertVisible: "^Pack school bag for tomorrow.*"
+- runFlow: verify-household.yaml
 - takeScreenshot: authenticated-board-portrait
 - setOrientation: ${LANDSCAPE_ORIENTATION}
-- assertVisible: "Cyntch emulator family"
-- assertVisible: "^Pack school bag for tomorrow.*"
+- runFlow: verify-household.yaml
 - takeScreenshot: authenticated-board-landscape
 - setOrientation: ${PORTRAIT_ORIENTATION}
 - stopApp
 - launchApp
-- extendedWaitUntil:
-    visible: "Cyntch emulator family"
-    timeout: 60000
-- assertVisible: "^Pack school bag for tomorrow.*"
+- runFlow: verify-household.yaml
 - assertNotVisible: "Sign in or create an account"
 - takeScreenshot: authenticated-board-after-restart
 - stopApp

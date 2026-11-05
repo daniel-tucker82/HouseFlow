@@ -103,6 +103,19 @@ to rerun the phone and tablet sign-in and text-size checks on just that runtime.
 The runner checks the producer repository, branch, application source, archive
 digest, architecture, signature and embedded test backend before using the app.
 
+In [the current iPhone notification run](https://github.com/daniel-tucker82/HouseFlow/actions/runs/41952474966),
+the failure capture shows the signed-in household and its two tasks. The matching
+accessibility snapshot labels the header “Choose household”; the rendered name
+is not a separate iOS accessibility element. The test now opens the chooser to
+confirm the exact fixture name, closes it, and checks the fixture task before
+each board capture. That run did not reach the notification or restart checks.
+On the original iOS 17.0 phone the application installed and launched, but the
+XCTest driver timed out before running the journey. Minimum-OS tests now use
+the same simulator binary with Xcode 16.4 on a matching macOS 15 host. The
+[GitHub image inventory](https://github.com/actions/runner-images/blob/main/images/macos/macos-15-arm64-Readme.md)
+lists that toolchain, and [Apple’s support table](https://developer.apple.com/xcode/system-requirements)
+includes iOS 17 simulators. Passing journeys on that host are still required.
+
 [The iPhoneOS device archive](https://github.com/daniel-tucker82/HouseFlow/actions/runs/41950126236)
 passed with the device SDK: Cyntch and 14 embedded framework binaries are ARM64
 iOS, the archive includes matching crash symbols and 20 parseable privacy manifests,

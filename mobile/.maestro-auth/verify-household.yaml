@@ -1,0 +1,28 @@
+appId: com.cyntch.app
+---
+# UIKit exposes the header by its accessibility label. The chooser lists the
+# actual household name. Close it without switching or changing fixture state.
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - extendedWaitUntil:
+          visible: "Choose household"
+          timeout: 60000
+      - tapOn: "Choose household"
+      - extendedWaitUntil:
+          visible: "Cyntch emulator family"
+          timeout: 60000
+      - tapOn: "Choose household"
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - extendedWaitUntil:
+          visible: "Cyntch emulator family"
+          timeout: 60000
+- scrollUntilVisible:
+    element: "^Pack school bag for tomorrow.*"
+    direction: DOWN
+    timeout: 20000
+- assertVisible: "^Pack school bag for tomorrow.*"
