@@ -1,0 +1,23 @@
+appId: com.cyntch.app
+---
+# API 37 can show a swipe-to-continue screen after folding even when
+# locksettings reports disabled. Act only on the observed nonsecure OS screen.
+# No app launch, reset, credential entry or form refill is permitted here.
+- runFlow:
+    when:
+      visible:
+        id: "com.android.systemui:id/keyguard_indication_text_bottom"
+        text: "Swipe up to continue"
+    commands:
+      - assertVisible:
+          id: "com.android.systemui:id/device_entry_icon_fg"
+          text: "Unlocked"
+      - takeScreenshot: system-swipe-lock
+      - swipe:
+          start: "50%,86%"
+          end: "50%,20%"
+          duration: 500
+      - extendedWaitUntil:
+          notVisible:
+            id: "com.android.systemui:id/keyguard_long_press"
+          timeout: 15000

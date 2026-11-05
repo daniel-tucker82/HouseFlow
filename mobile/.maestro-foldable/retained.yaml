@@ -3,6 +3,7 @@ name: Native form retains its text and reachable controls after folding
 ---
 # Deliberately no launchApp, clearState, stopApp or inputText here. A reset or
 # recreation that loses the entered value must fail rather than refill it.
+- runFlow: dismiss-swipe-lock.yaml
 - scrollUntilVisible:
     element:
       id: "clerk.auth.start.identifier"

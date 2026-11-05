@@ -5,6 +5,7 @@ name: Enter a native form before changing the device posture
     clearState: true
     permissions:
       all: deny
+- runFlow: dismiss-swipe-lock.yaml
 - extendedWaitUntil:
     visible: "CYNTCH"
     timeout: 60000

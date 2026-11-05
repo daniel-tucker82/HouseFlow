@@ -46,6 +46,15 @@ channels absent before token acquisition, then passed with the fix. The 28
 notification sync/session/interaction checks and mobile lint/types pass. This is
 adapter-level proof, not live FCM delivery.
 
+Android `41959523059` compiled successfully and verified both linked notification
+icon metadata entries plus all five packaged icon sizes. Its foldable artifact
+`13385796872` (SHA-256
+`87a20154ce5adde79b7fc3ec2f1af93087d9d9ae7ffb008a5a0d4280f11504ad`)
+still shows the OS swipe screen, although `locksettings` already reports disabled.
+The next fold flow recognizes the exact System UI indication and unlocked icon,
+records it, and swipes it away before checking Cyntch. It does not restart the app
+or refill the retained form. YAML checks pass; an actual fold run is still needed.
+
 Android run `41867082612` (`93777e1`) passed the optimized API 36 phone/tablet
 matrix at 1x/1.6x text, including software-keyboard rotation, retained input,
 keyboard dismissal and app Back handling. Both devices also passed real native
