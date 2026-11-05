@@ -17,7 +17,8 @@ rotation and session persistence on all four simulators. Current iPhone and iOS
 notification permission, banner and Notification Center checks for the same
 injected alert. The run still failed on an iOS 17 phone driver bootstrap and a
 current iPad initial Dynamic Type command timeout/kiosk activation failure.
-The later Settings keyboard-capture correction remains unverified on iPad.
+The current iPad simulator now passes the previously failing kiosk journey with
+the Settings keyboard-capture correction in `41976767048`, as detailed below.
 
 Android `41967101792` proved offline completion, force-stop persistence and upload
 on reconnect, then failed reopening. The reproduced quota/sync defects are fixed;
@@ -43,7 +44,7 @@ The iOS 17 phone passed both text sizes, then its authenticated flow never
 started because XCTest could not launch its driver. Artifact `13391822829`,
 SHA-256 `b962715c61557a87959bfe526c9b9324423c49c4d72483370157b38ed4d9ae6e`,
 retains the driver timeout and unknown driver-application identifier. All jobs
-have finished; a fresh iOS build must verify the latest app changes.
+have finished; the subsequent `e22da8a` build supplies newer evidence below.
 
 The authenticated harness now applies the same owned process cleanup and single
 bootstrap-only retry already used for signed-out iOS journeys. A command record,
@@ -61,8 +62,26 @@ Physical-device testing, live push-provider delivery, store billing, pilot use
 and store release remain separate requirements. Older checkpoints below describe
 their source at the time and are superseded where newer evidence is recorded.
 
-The fresh `e22da8a` iOS build in `41976767048` compiled successfully. Its iOS 17
-phone then timed out reading the installed app container, and its current phone
+The fresh `e22da8a` iOS build in `41976767048` compiled successfully. Both iPads
+passed signed-out startup/keyboard checks at both text sizes and real email-code
+authentication, household/task loading, rotation and session persistence. Each
+journey used one attempt. The current iPad (A16), iOS 26.5, also passed the full
+kiosk journey: one Enable tap after PIN entry, portrait/landscape lock,
+restart, blocked settings link, incorrect-PIN rejection, correct-PIN unlock,
+server acknowledgement and parent access retained after another restart. All
+seven required kiosk captures passed; the pre/post-enable, landscape,
+incorrect-PIN and restored-parent captures were visually inspected. This
+confirms that the latest app completes the previously failing journey without
+adding a second tap, an iOS keyboard-dismiss command or relaxed assertions. The
+pre-tap capture and input log show the software keyboard offscreen, so this run
+does not separately prove activation while that keyboard is visibly open.
+Current-iPad artifact `13394082768` was verified against SHA-256
+`cc9611a85230440aa3e31074db020f2a494e245ffce2f1cc0a0f9663dac831c0`.
+iOS 17 iPad artifact `13393807325` was verified against
+`a7b34243956100098ba595ad778be80eb0394d9859e3d3e7e900701e0c235163`.
+These are simulator checks, not physical-device or pilot results.
+
+The same build's iOS 17 phone timed out reading the installed app container, and its current phone
 timed out during CoreSimulator launch. Both failed before any Maestro journey;
 their last screenshots show the Home Screen. Current-iPhone artifact `13393362121`
 was verified against SHA-256
@@ -74,7 +93,10 @@ read-only memory/load/process and simulator-service diagnostics before cleanup.
 The original setup deadlines, failure status and UI assertions are retained.
 The `phones` replay scope selects only current and iOS 17 iPhones and reuses the
 verified app with the existing source, digest, signature and architecture checks.
-It does not compile again or repeat the tablet jobs. Native replay is still needed.
+It does not compile again or repeat the tablet jobs. Replay `41981704262`, harness
+`1d4e0eb`, is running both phone checks against the verified `e22da8a` app;
+compilation is skipped and both artifact-validation steps passed. The producer's
+tablet jobs are now complete. Phone journey results remain pending.
 
 The next fresh authenticated phone builds also run
 `.maestro-notification-preferences/settings.yaml`. It selects Alex's completions
