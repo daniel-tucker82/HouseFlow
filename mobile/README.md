@@ -4,6 +4,29 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
+Latest verified result, 2026-11-05: notification replay `41990431535` passed on
+the current iPhone simulator (iOS 26.5), reusing app `e22da8a` with harness
+`f5acb64`; compilation was skipped. Real email-code sign-in, the system permission
+prompt, an injected banner and Notification Center all passed. The preference
+journey passed all eight captures, both orientations, member/category assertions,
+two restarts and the final server-sync acknowledgement. The actual landscape
+member selection and persisted category-off screenshots were inspected. Artifact
+`13398019617` was verified against SHA-256
+`862fd7ea20a1ca506268125ee69fb3a6700ea45efc1ff41859c0cdc6a97aa24a`.
+
+Independent read-only PostgreSQL verification matched all nine acknowledged iOS
+preference revisions and the final choices. Compared with a snapshot taken before
+this replay, all three other installations retained exactly the same preferences,
+revisions and update timestamps, including the previously verified Android phone.
+Both completed native journeys chose child-only completion alerts, parent-only
+startable alerts and the same category settings. Device timezone spellings were
+checked separately: iOS retained `GMT` and Android retained `Etc/UTC`; both resolve
+to UTC. No stored values were changed for this comparison. This establishes
+server persistence and installation isolation for this sequence, not simultaneous
+UI verification on another device or live APNs/FCM delivery. Physical devices,
+provider delivery, store billing, household pilot use and store release still
+require their own evidence.
+
 Current verification checkpoint, 2026-11-05: Android authenticated phone/tablet,
 API 24, fold posture/input retention, native permission and system settings have
 passed in the runs detailed below. The API 37 tablet kiosk journey passed in
@@ -131,8 +154,8 @@ preserving Android's checked-state assertions. Pinned Maestro 2.12.1's
 `resolveText` reads the captured `text` attribute first. Local validation against
 the actual failed hierarchy passed eight selected/unselected cases, rejected
 each opposite state, and retained both Android boolean cases. No app code,
-member-selection action, native-switch assertion or required capture changed;
-the corrected flow still needs native execution.
+member-selection action, native-switch assertion or required capture changed.
+The corrected assertions subsequently passed in `41990431535` above.
 
 Replay `41986576367` again passed real sign-in and the permission/banner/center
 journey, but stopped before executing the preference flow: my shared helper used
@@ -148,7 +171,8 @@ digest-verified Maestro 2.12.1 libraries before creating a device. The standalon
 `CheckMaestroFlows.java` uses the runner's command parser and confines references
 to the mobile workspace. It reproduced the old nested-selector failure locally
 and passed all 21 corrected flows. YAML parsing alone had missed the type error.
-Native execution of the corrected member-state assertions remains outstanding.
+The parser preflight and corrected native member-state assertions subsequently
+passed in `41990431535` above.
 
 The next fresh authenticated phone builds also run
 `.maestro-notification-preferences/settings.yaml`. It selects Alex's completions
@@ -160,8 +184,9 @@ enabled category. Settings must show that all saved changes have synced.
 Eight named captures and actual control states
 are required. Only the disposable device's preferences change; this is not an
 offline-persistence, cross-device isolation or provider-delivery test. Local
-lint/types, YAML/JavaScript parsing and fixture/screenshot checks pass;
-the iOS preference journey has not yet passed. Android phone `41973395072` passed
+lint/types, YAML/JavaScript parsing and fixture/screenshot checks pass.
+The iOS journey and independent isolation check now pass as recorded above.
+Android phone `41973395072` passed
 all eight captures, category/member assertions and both restart checks. Its
 artifact `13391342763`, SHA-256
 `a4795bea460bdc99881f7b7dde06cc9e067add7dc6ee70b94b7a84338236131d`,
