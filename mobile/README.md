@@ -4,6 +4,31 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
+Current queued verification, 2026-11-05: `42006225356` compiles app `e79d851`
+once, then runs the isolated account-deletion journey on the current iPhone.
+This includes the household improvements below. Inspect its artifact and the
+disposable schema/provider boundary before any follow-up submission. Both earlier
+deletion attempts stopped before submission. Keep the original household unchanged
+until that evidence is saved; the subsequent Android/iPhone member journeys must
+run sequentially. No new Android build or household journey has started yet.
+
+The matching household backend build `8ae2111` passed production compilation,
+retained all 16 web palette classes, and passed real development email-code
+sign-in and HTTP checks on localhost:3014. Its bootstrap distinguishes the linked
+parent from the no-email child; server time and unauthorized rejection passed,
+and the temporary sign-in session was revoked. It is separate from the running
+deletion backend and has provider/deletion gates disabled. Evidence is in
+`C:/Users/danie/.codex/tmp/cyntch-native-http-build-8ae2111.json` and
+`C:/Users/danie/.codex/tmp/cyntch-native-http-preflight-8ae2111-direct.json`.
+
+The feature-parity audit also found outstanding native invitation expiry/use
+configuration, invitation listing/copy/revocation, and standalone household
+deletion. The web UI already exposes those controls. Before exposing household
+deletion on mobile, verify its billing consequences: the existing route deletes
+the household directly, website billing rows cascade, and native purchase
+identities retire. This audit does not establish provider cancellation for that
+separate operation. These are remaining engineering tasks, not store-only blockers.
+
 Household parity update, 2026-11-05: the native household screen now lets owners
 rename profiles without an independent sign-in and lets owners/supervisors choose
 member colours. Linked identities remain editable through their own account
