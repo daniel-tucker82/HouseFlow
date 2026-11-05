@@ -14,10 +14,10 @@ if (process.argv.length !== 5) throw new Error('Expected simulator app, Maestro 
 const [appPath, maestro, output] = process.argv.slice(2).map(value => path.resolve(value))
 const fixture = authFixture()
 const requestedFamily = process.env.CYNTCH_IOS_TEST_FAMILY
-const notificationsOnly = Boolean(process.env.CYNTCH_IOS_NOTIFICATION_PRODUCER)
-if (notificationsOnly && (!fixture || requestedFamily !== 'iphone' || process.env.CYNTCH_IOS_TEST_RUNTIME || !/^[a-f0-9]{40}$/.test(process.env.CYNTCH_IOS_APP_SHA ?? ''))) {
-  throw new Error('The notification check requires a verified app, signed-in fixture and current iPhone.')
-}
+const replay = process.env.CYNTCH_IOS_REPLAY_SCOPE
+const notificationsOnly = replay === 'notifications'
+if (replay && (!['notifications','current-devices','minimum-devices'].includes(replay) || !fixture || !/^[a-f0-9]{40}$/.test(process.env.CYNTCH_IOS_APP_SHA ?? ''))) throw new Error('Replaying a simulator check requires a verified app and sign-in fixture.')
+if (notificationsOnly && (requestedFamily !== 'iphone' || process.env.CYNTCH_IOS_TEST_RUNTIME)) throw new Error('The notification check requires a current iPhone.')
 if (requestedFamily && !['iphone', 'ipad'].includes(requestedFamily)) throw new Error('Unknown simulator family.')
 if (!appPath || !maestro || !output || !fs.existsSync(path.join(appPath, 'main.jsbundle'))) {
   throw new Error('A compiled simulator app with bundled JavaScript is required.')
@@ -112,9 +112,9 @@ for (const [index, template] of devices.entries()) {
     if (!launchPid) throw new Error('CoreSimulator did not acknowledge the application launch.')
     result.launchPid = Number(launchPid[1])
     save()
-    // A launch PID is distinct from a rendered screen or a passing UI flow.
-    // Keep an independent screen capture even when XCTest cannot start.
-    simctl('io', ownedDevice, 'screenshot', path.join(folder, 'after-system-launch.png'))
+    // Do not block the first UI action on a screenshot of a cold simulator.
+    // The journeys require their own rendered evidence; finally also records
+    // the visible screen if a journey fails before reaching an assertion.
     for (const contentSize of (notificationsOnly ? [] : ['large', 'accessibility-extra-large'])) {
       const caseFolder = path.join(folder, contentSize === 'large' ? 'default-text' : 'large-text')
       fs.mkdirSync(caseFolder, { recursive: true })
@@ -162,7 +162,7 @@ for (const [index, template] of devices.entries()) {
         orientations: { portrait: 'PORTRAIT', landscape: 'LANDSCAPE_LEFT' }, fixture })
     }
     if (result.authentication && !result.authentication.passed) throw new Error(result.authentication.error)
-    if (result.authentication?.passed && label === 'iphone' && !requestedRuntime) {
+    if (result.authentication?.passed && label === 'iphone' && !requestedRuntime && (!replay || notificationsOnly)) {
       stage('notification-permission-and-center')
       result.notifications = runNotificationSmoke({device:ownedDevice,maestro,output:path.join(folder,'notifications')})
       if (!result.notifications.passed) throw new Error(result.notifications.error)

@@ -97,9 +97,18 @@ alert. The test must find that title in the top of the Home Screen before openin
 Notification Center, and must then find its title and body in the system pane.
 This does not test APNs credentials, delivery over the network or physical devices.
 To rerun only that journey, dispatch `native-ios.yml` with the isolated fixture
-inputs and `notifications_from_run` equal to its authenticated build's run ID.
+inputs, `simulator_from_run` equal to its authenticated build's run ID and
+`replay_scope=notifications`. Use `current-devices` or `minimum-devices`
+to rerun the phone and tablet sign-in and text-size checks on just that runtime.
 The runner checks the producer repository, branch, application source, archive
 digest, architecture, signature and embedded test backend before using the app.
+
+[The iPhoneOS device archive](https://github.com/daniel-tucker82/HouseFlow/actions/runs/41950126236)
+passed with the device SDK: Cyntch and 14 embedded framework binaries are ARM64
+iOS, the archive includes matching crash symbols and 20 parseable privacy manifests,
+and its metadata declares iPhone and iPad support from iOS 17.0. This is an
+unsigned archive. It has not been installed on a physical device or submitted
+to TestFlight or the App Store.
 
 For an Android distribution-format check, dispatch the Android workflow with
 `verify_arm64_bundle` enabled. It compiles ARM64 plus x86-64, validates the
