@@ -62,6 +62,27 @@ to return 200. No notification event or provider request was involved. Evidence:
 bounded server execution and recovery, not push delivery. The existing native
 test backend and household fixture were untouched.
 
+An explicit `account-deletion` iPhone replay is now prepared for a separately
+marked disposable development account. It requires the `cyntch-native-delete-`
+email prefix followed by a 32-character UUID hex value and Clerk's test suffix;
+the ordinary household fixture, another provider and an implicit run are rejected.
+It reuses the verified app and tests ownership/consent controls, cancelling the
+confirmation, one actual submission, receipt persistence through restarts, server
+completion, native cleanup and receipt dismissal. Only bounded status reads
+repeat; the destructive journey is never retried automatically. Eight captures
+are mandatory. The workflow's reuse check additionally permits only the explicitly
+listed server-only notification changes and root lint configuration.
+
+Preparation uses an isolated local schema and a new development identity. Its
+server-side provider boundary rechecks the development instance, external marker
+and private fixture marker before allowing that identity's DELETE. Four negative
+boundary checks passed without sending an external request. The original fixture
+retains its separate backend with deletion disabled; both fixtures passed real
+email-code/HTTPS preflights and revoked their preflight sessions. Eight harness
+checks, all 23 pinned Maestro flows, workflow validation and mobile lint/types
+passed. Native deletion and provider cleanup results are still outstanding. This
+does not enable production submission or establish store billing/biometric cleanup.
+
 Current verification checkpoint, 2026-11-05: Android authenticated phone/tablet,
 API 24, fold posture/input retention, native permission and system settings have
 passed in the runs detailed below. The API 37 tablet kiosk journey passed in

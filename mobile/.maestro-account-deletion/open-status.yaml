@@ -1,0 +1,15 @@
+appId: com.cyntch.app
+---
+# Provider deletion can finish sign-out before the saved receipt is reopened.
+- extendedWaitUntil:
+    visible: "^(Deletion requested|Account deleted|Check saved account deletion)$"
+    timeout: 60000
+- runFlow:
+    when:
+      visible: "Check saved account deletion"
+    commands:
+      - tapOn: "Check saved account deletion"
+- extendedWaitUntil:
+    visible: "^(Deletion requested|Account deleted)$"
+    timeout: 60000
+- assertNotVisible: "^Choose household: Cyntch emulator family$"

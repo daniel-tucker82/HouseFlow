@@ -8,6 +8,7 @@ const { authFixture, runAuthenticatedSmoke } = require('./native-auth-smoke.cjs'
 const { runNotificationSmoke } = require('./ios-notification-smoke.cjs')
 const { runKioskSmoke } = require('./native-kiosk-smoke.cjs')
 const { runNotificationPreferencesSmoke } = require('./native-notification-preferences-smoke.cjs')
+const { deletionFixture, runAccountDeletionSmoke } = require('./native-account-deletion-smoke.cjs')
 const { runIOSUI, canRetryIOSBootstrap } = require('../../.github/scripts/ios-device-process.cjs')
 const { collectStartupDiagnostics } = require('../../.github/scripts/ios-device-startup-diagnostics.cjs')
 
@@ -26,9 +27,14 @@ const fixture = authFixture()
 const requestedFamily = process.env.CYNTCH_IOS_TEST_FAMILY
 const replay = process.env.CYNTCH_IOS_REPLAY_SCOPE
 const notificationsOnly = replay === 'notifications'
-if (replay && (!['notifications','current-devices','minimum-devices','phones'].includes(replay) || !fixture || !/^[a-f0-9]{40}$/.test(process.env.CYNTCH_IOS_APP_SHA ?? ''))) throw new Error('Replaying a simulator check requires a verified app and sign-in fixture.')
+const deletionOnly = replay === 'account-deletion'
+if (replay && (!['notifications','current-devices','minimum-devices','phones','account-deletion'].includes(replay) || !fixture || !/^[a-f0-9]{40}$/.test(process.env.CYNTCH_IOS_APP_SHA ?? ''))) throw new Error('Replaying a simulator check requires a verified app and sign-in fixture.')
 if (replay === 'phones' && requestedFamily !== 'iphone') throw new Error('Phone replay cannot repeat a tablet job.')
 if (notificationsOnly && (requestedFamily !== 'iphone' || process.env.CYNTCH_IOS_TEST_RUNTIME)) throw new Error('The notification check requires a current iPhone.')
+if (deletionOnly) {
+  deletionFixture()
+  if (requestedFamily !== 'iphone' || process.env.CYNTCH_IOS_TEST_RUNTIME) throw new Error('The isolated deletion check requires a current iPhone.')
+}
 if (requestedFamily && !['iphone', 'ipad'].includes(requestedFamily)) throw new Error('Unknown simulator family.')
 if (!appPath || !maestro || !output || !fs.existsSync(path.join(appPath, 'main.jsbundle'))) {
   throw new Error('A compiled simulator app with bundled JavaScript is required.')
@@ -69,7 +75,7 @@ const devices = requestedRuntime ? ['iPhone 15', 'iPad (10th generation)'].map(n
   available.find(device => device.name === 'iPad (A16)') ?? available.find(device => device.name.startsWith('iPad')),
 ]
 const report = { source: process.env.CYNTCH_IOS_APP_SHA || process.env.GITHUB_SHA, verificationSource: process.env.GITHUB_SHA,
-  scope: notificationsOnly ? 'Authenticated notification permission and Notification Center' : 'Device text sizes and optional household verification',
+  scope: deletionOnly ? 'Disposable development account deletion and device recovery' : notificationsOnly ? 'Authenticated notification permission and Notification Center' : 'Device text sizes and optional household verification',
   configuration: 'Release with local simulator signing', runtime: runtime.name,
   hostArchitecture: process.arch, runtimeVersion: runtime.version, requestedRuntime: requestedRuntime ?? 'latest installed', devices: [], passed: false }
 const save = () => fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify(report, null, 2))
@@ -126,7 +132,7 @@ for (const [index, template] of devices.entries()) {
     // Do not block the first UI action on a screenshot of a cold simulator.
     // The journeys require their own rendered evidence; finally also records
     // the visible screen if a journey fails before reaching an assertion.
-    for (const contentSize of (notificationsOnly ? [] : ['large', 'accessibility-extra-large'])) {
+    for (const contentSize of (notificationsOnly || deletionOnly ? [] : ['large', 'accessibility-extra-large'])) {
       const caseFolder = path.join(folder, contentSize === 'large' ? 'default-text' : 'large-text')
       fs.mkdirSync(caseFolder, { recursive: true })
       const textResult = { contentSize, passed: false }
@@ -199,6 +205,12 @@ for (const [index, template] of devices.entries()) {
       result.notificationPreferences = runNotificationPreferencesSmoke({ maestro, device: ownedDevice,
         output: path.join(folder, 'notification-preferences'), orientations: { portrait: 'PORTRAIT', landscape: 'LANDSCAPE_LEFT' } })
       if (!result.notificationPreferences.passed) throw new Error(result.notificationPreferences.error)
+    }
+    if (result.authentication?.passed && deletionOnly) {
+      stage('account-deletion-and-device-recovery')
+      result.accountDeletion = runAccountDeletionSmoke({ maestro, device: ownedDevice, output: path.join(folder, 'account-deletion'),
+        orientations: { portrait: 'PORTRAIT', landscape: 'LANDSCAPE_LEFT' } })
+      if (!result.accountDeletion.passed) throw new Error(result.accountDeletion.error)
     }
     if (result.runs.some(run => !run.passed)) throw new Error('Simulator flow failed at one or more text sizes.')
     result.passed = true
