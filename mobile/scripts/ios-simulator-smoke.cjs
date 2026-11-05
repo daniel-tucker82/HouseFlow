@@ -60,6 +60,10 @@ const command = (executable, args, timeout = 60_000) => {
   finally { console.log(`Finished ${label} after ${((Date.now() - start) / 1000).toFixed(1)}s`) }
 }
 const simctl = (...args) => command('xcrun', ['simctl', ...args])
+// Cold hosted simulators can render the app before UI settings respond. Only
+// environment setup gets this deadline; native journeys retain their deadlines
+// and must wait for the actual text-size readback before starting.
+const simulatorTextSize = (device, value) => command('xcrun', ['simctl', 'ui', device, 'content_size', ...(value ? [value] : [])], 120_000)
 const inventory = JSON.parse(command('xcrun', ['simctl', 'list', '--json'], 180_000))
 fs.writeFileSync(path.join(output, 'simulator-inventory.json'), JSON.stringify(inventory, null, 2))
 const requestedRuntime = process.env.CYNTCH_IOS_TEST_RUNTIME
@@ -149,8 +153,8 @@ for (const [index, template] of devices.entries()) {
       result.runs.push(textResult)
       stage(`text-size:${contentSize}`)
       try {
-        simctl('ui', ownedDevice, 'content_size', contentSize)
-        textResult.actualContentSize = simctl('ui', ownedDevice, 'content_size').trim()
+        simulatorTextSize(ownedDevice, contentSize)
+        textResult.actualContentSize = simulatorTextSize(ownedDevice).trim()
         if (textResult.actualContentSize.toLowerCase() !== contentSize) {
           throw new Error('The requested Dynamic Type size was not applied.')
         }
@@ -194,9 +198,10 @@ for (const [index, template] of devices.entries()) {
       }
     }
     if (fixture) {
+      stage('authentication-text-size-setup')
+      simulatorTextSize(ownedDevice, 'large')
+      if (simulatorTextSize(ownedDevice).trim().toLowerCase() !== 'large') throw new Error('Default text size was not restored for authenticated verification.')
       stage('authenticated-household')
-      simctl('ui', ownedDevice, 'content_size', 'large')
-      if (simctl('ui', ownedDevice, 'content_size').trim().toLowerCase() !== 'large') throw new Error('Default text size was not restored for authenticated verification.')
       result.authentication = runAuthenticatedSmoke({ maestro, device: ownedDevice, output: path.join(folder, 'authenticated'),
         orientations: { portrait: 'PORTRAIT', landscape: 'LANDSCAPE_LEFT' }, fixture,
         verifySessionJourney: !(householdOnly || deletionOnly || offlineOnly) })
@@ -244,7 +249,7 @@ for (const [index, template] of devices.entries()) {
   } finally {
     if (ownedDevice && /^[0-9a-f-]{36}$/i.test(ownedDevice)) {
       try { simctl('io', ownedDevice, 'screenshot', path.join(folder, 'last-screen.png')) } catch { /* Device may not have booted. */ }
-      if (!result.passed && ['boot', 'install', 'launch'].includes(result.stage)) {
+      if (!result.passed && ['boot', 'wait-for-boot', 'install', 'launch', 'authentication-text-size-setup'].includes(result.stage)) {
         try { result.startupDiagnostics = collectStartupDiagnostics(ownedDevice, path.join(folder, 'startup-diagnostics')) }
         catch (error) { result.startupDiagnosticsError = error.message }
       }

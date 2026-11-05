@@ -262,6 +262,18 @@ Both reuse workflows now exclude this specific test file, alongside the already
 excluded authentication runner. Application inputs, ancestry and artifact checks
 remain enforced. No native interaction or fixture mutation occurred in this run.
 
+Replay `42041129077` passed the app-reuse checks but timed out while setting the
+fresh simulator's text size, before any sign-in or household UI commands. The
+welcome screen rendered; this is not evidence of a failed household operation.
+Artifact `13424085875` matches
+`34e03777d3b25db2da91c82fc5ad68c5fd2c80de46e614b3727ded9c1a944419`.
+Boot took 135 seconds and the UI-setting command exceeded its 60-second bound;
+the exact cause of the simulator delay is not established. UI-setting commands
+now have a separate bounded 120-second setup deadline and still require exact
+readback. Failures at this stage retain host/process/service diagnostics before
+cleanup. No authentication, mutation or destructive journey is retried by this
+change, and their deadlines and required evidence are unchanged.
+
 Focused household, account-deletion and offline journeys now perform real native
 email-code sign-in and require its four rendered captures, then proceed directly
 to their own checks. They do not repeat the already verified household chooser,
