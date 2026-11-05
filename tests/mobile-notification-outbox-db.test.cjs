@@ -17,8 +17,120 @@ function load(relative) {
 const { expandNativeNotificationEvents: expand, claimNativeNotificationDeliveries: claim } = load('lib/native-notification-outbox.ts')
 const { defaultNotificationPreferences } = load('shared/mobile/notification-catalog.ts')
 const { parseNativeNotificationPayload } = load('shared/mobile/notification-payload.ts')
-const { processNativeNotifications: drain } = load('lib/native-notification-worker.ts')
+const { processNativeNotifications: drain, checkNativePushReceipts: receipts } = load('lib/native-notification-worker.ts')
+const { SchedulerDeadline } = load('lib/scheduler-deadline.ts')
 const { deleteHouseholdMemberships } = load('lib/household-member-departure.ts')
+
+test('a stalled push expansion respects the worker deadline and rolls back before a later retry', { skip: !url }, async t => {
+  const f = await fixture(t)
+  await f.onlyAvailability()
+  await f.db.query(`create function slow_expansion() returns trigger language plpgsql as $$
+    begin perform pg_sleep(1); return NEW; end $$;
+    create trigger slow_expansion before insert on native_notification_deliveries
+    for each row execute function slow_expansion()`)
+  const sent = []
+  const provider = {
+    async send(messages) { sent.push(...messages); return messages.map(() => ({ status: 'ok', id: randomUUID() })) },
+    async receipts() { return {} },
+  }
+  const start = performance.now()
+  await assert.rejects(drain(f.db, provider, { deadline: Date.now() + 300 }), /deadline|statement timeout/i)
+  assert.ok(performance.now() - start < 1_500, 'SQL must stop within the invocation budget')
+  assert.equal(sent.length, 0, 'an expired invocation cannot call the provider')
+  await f.db.query('drop trigger slow_expansion on native_notification_deliveries')
+  assert.equal((await f.jobs()).length, 0, 'a partial expansion is rolled back')
+  assert.equal((await f.db.query('select state from native_notification_events')).rows[0].state, 'pending')
+  await drain(f.db, provider)
+  assert.equal(sent.length, 3)
+  assert.ok((await f.jobs()).every(job => job.state === 'awaiting_receipt'))
+})
+
+test('timed-out push claims and receipt acknowledgements retain recoverable deliveries', { skip: !url }, async t => {
+  for (const phase of ['claim', 'receipt-claim', 'receipt-acknowledgement']) await t.test(phase, async sub => {
+    const f = await fixture(sub)
+    await f.onlyAvailability()
+    let sends = 0, receiptCalls = 0
+    const provider = {
+      async send(messages) { sends++; return messages.map(() => ({ status: 'ok', id: randomUUID() })) },
+      async receipts(ids) { receiptCalls++; return Object.fromEntries(ids.map(id => [id, { status: 'ok' }])) },
+    }
+    if (phase === 'claim') await expand(f.db)
+    else { await drain(f.db, provider); await f.db.query('update native_notification_deliveries set next_attempt_at=now()') }
+    const predicate = phase === 'claim' ? "NEW.state='sending'" : phase === 'receipt-claim'
+      ? "NEW.state='awaiting_receipt' AND NEW.lease_id IS NOT NULL" : "NEW.state='provider_accepted'"
+    await f.db.query(`create function slow_update() returns trigger language plpgsql as $$
+      begin perform pg_sleep(1); return NEW; end $$;
+      create trigger slow_update before update on native_notification_deliveries
+      for each row when (${predicate}) execute function slow_update()`)
+    const start = performance.now(), deadline = new SchedulerDeadline(300)
+    await assert.rejects(phase === 'claim' ? claim(f.db, 100, deadline) : receipts(f.db, provider, 100, deadline), /deadline|statement timeout/i)
+    assert.ok(performance.now() - start < 1_500)
+    await f.db.query('drop trigger slow_update on native_notification_deliveries')
+    const retained = await f.jobs()
+    assert.equal(retained.length, 3)
+    assert.ok(retained.every(job => job.state === (phase === 'claim' ? 'queued' : 'awaiting_receipt')))
+    assert.equal(receiptCalls, phase === 'receipt-acknowledgement' ? 1 : 0)
+    if (phase !== 'receipt-acknowledgement') assert.ok(retained.every(job => job.lease_id === null), 'the incomplete claim must roll back')
+    // Only disposable fixture leases are advanced; original delivery IDs/tickets
+    // remain intact, as they would after the durable lease naturally expires.
+    await f.db.query("update native_notification_deliveries set lease_until=now()-interval '1 second',next_attempt_at=now()")
+    await drain(f.db, provider)
+    assert.equal(sends, 1, 'receipt recovery must not send an accepted message again')
+    assert.deepEqual((await f.jobs()).map(job => job.id), retained.map(job => job.id))
+    assert.ok((await f.jobs()).every(job => job.state === (phase === 'claim' ? 'awaiting_receipt' : 'provider_accepted')))
+  })
+})
+
+test('a stalled send acknowledgement rolls back and retries its durable delivery identities', { skip: !url }, async t => {
+  const f = await fixture(t)
+  await f.onlyAvailability()
+  await f.db.query(`create function slow_ack() returns trigger language plpgsql as $$
+    begin perform pg_sleep(8); return NEW; end $$;
+    create trigger slow_ack before update on native_notification_deliveries
+    for each row when (NEW.state='awaiting_receipt') execute function slow_ack()`)
+  const batches = []
+  const provider = {
+    async send(messages) { batches.push(messages.map(message => message.collapseId).sort()); return messages.map(() => ({ status: 'ok', id: randomUUID() })) },
+    async receipts() { return {} },
+  }
+  const start = performance.now()
+  await assert.rejects(drain(f.db, provider), /statement timeout/i)
+  assert.ok(performance.now() - start < 6_500, 'the database statement cap must cancel the stalled acknowledgement')
+  await f.db.query('drop trigger slow_ack on native_notification_deliveries')
+  assert.equal(batches.length, 1)
+  assert.ok((await f.jobs()).every(job => job.state === 'sending' && job.ticket_id === null))
+  await f.db.query("update native_notification_deliveries set lease_until=now()-interval '1 second'")
+  await drain(f.db, provider)
+  assert.equal(batches.length, 2)
+  assert.deepEqual(batches[1], batches[0], 'an unacknowledged send may repeat, using the same collapse/delivery IDs')
+  assert.ok((await f.jobs()).every(job => job.state === 'awaiting_receipt' && job.attempts === 2))
+})
+
+test('a slow completed claim cannot start provider work without the remaining send budget', { skip: !url }, async t => {
+  const f = await fixture(t)
+  await f.onlyAvailability()
+  await f.db.query(`create function slow_claim() returns trigger language plpgsql as $$
+    begin perform pg_sleep(1); return NEW; end $$;
+    create trigger slow_claim before update on native_notification_deliveries
+    for each row when (NEW.state='sending') execute function slow_claim()`)
+  let sends = 0
+  const provider = {
+    async send(messages) { sends++; return messages.map(() => ({ status: 'ok', id: randomUUID() })) },
+    async receipts() { return {} },
+  }
+  const result = await drain(f.db, provider, { deadline: Date.now() + 11_000 })
+  assert.equal(result.sendAttempts, 0)
+  assert.equal(sends, 0, 'the claim used the time reserved for provider I/O')
+  await f.db.query('drop trigger slow_claim on native_notification_deliveries')
+  const retained = await f.jobs()
+  assert.equal(retained.length, 3)
+  assert.ok(retained.every(job => job.state === 'sending' && job.lease_id && job.ticket_id === null))
+  await f.db.query("update native_notification_deliveries set lease_until=now()-interval '1 second'")
+  await drain(f.db, provider)
+  assert.equal(sends, 1)
+  assert.deepEqual((await f.jobs()).map(job => job.id), retained.map(job => job.id))
+  assert.ok((await f.jobs()).every(job => job.state === 'awaiting_receipt'))
+})
 
 test('membership departure causes survive commit and produce accurate private or detailed pushes', { skip: !url }, async t => {
   const f = await fixture(t)

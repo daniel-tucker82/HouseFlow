@@ -6,7 +6,7 @@ const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
   {
-    files: ["scripts/*.cjs"],
+    files: ["scripts/*.cjs", ".github/scripts/*.cjs"],
     // These Node scripts deliberately use the CommonJS module format.
     rules: { "@typescript-eslint/no-require-imports": "off" },
   },

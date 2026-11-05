@@ -5,6 +5,7 @@ import { defaultNotificationPreferences, notificationCatalog, shouldPushNotifica
 import { notificationMemberSelection, type NativeNotificationPayload } from "@/shared/mobile/notification-payload"
 import { notificationUuid, parseNotificationPreferences, restrictNotificationPreferences } from "@/shared/mobile/notification-settings"
 import { notificationHistoryBody } from "@/shared/mobile/notification-history"
+import { SchedulerDeadline, schedulerTransaction } from "@/lib/scheduler-deadline"
 
 interface NativeEvent {
   id: string; household_id: string; kind: MobileNotificationKind; member_ids: string[];
@@ -92,10 +93,8 @@ function messageFor(id: string, event: NativeEvent, recipient: Recipient, prefer
 }
 
 /** Expansion and recipient rows commit together. Competing workers skip locked events. */
-export async function expandNativeNotificationEvents(pool: Pool, limit = 50) {
-  const client = await pool.connect()
-  try {
-    await client.query("begin")
+export async function expandNativeNotificationEvents(pool: Pool, limit = 50, deadline = new SchedulerDeadline(25_000)) {
+  return schedulerTransaction(pool, deadline, async client => {
     const rows = (await client.query<NativeEvent>(`select * from native_notification_events
       where state='pending' and next_attempt_at<=now() order by occurred_at,id limit $1 for update skip locked`,
     [Math.max(1, Math.min(100, Math.floor(limit)))])).rows
@@ -113,18 +112,15 @@ export async function expandNativeNotificationEvents(pool: Pool, limit = 50) {
       }
       await client.query("update native_notification_events set state=$2 where id=$1", [event.id, event.expires_at <= now ? "expired" : "expanded"])
     }
-    await client.query("commit")
     return { expanded: rows.length, queued }
-  } catch (error) { await client.query("rollback"); throw error } finally { client.release() }
+  })
 }
 
 /** Call immediately before provider I/O. No network or user-write locks are held.
  * A crashed sender's lease expires; the same delivery ID is reused on its retry.
  */
-export async function claimNativeNotificationDeliveries(pool: Pool, limit = 100): Promise<ClaimedNativeDelivery[]> {
-  const client = await pool.connect()
-  try {
-    await client.query("begin")
+export async function claimNativeNotificationDeliveries(pool: Pool, limit = 100, deadline = new SchedulerDeadline(25_000)): Promise<ClaimedNativeDelivery[]> {
+  return schedulerTransaction(pool, deadline, async client => {
     const jobs = (await client.query<{ id: string; event_id: string; user_id: string; device_id: string; session_id: string | null }>(`select id,event_id,user_id,device_id,session_id
       from native_notification_deliveries where next_attempt_at<=now()
         and (state='queued' or (state='sending' and lease_until<=now()))
@@ -147,7 +143,6 @@ export async function claimNativeNotificationDeliveries(pool: Pool, limit = 100)
       [job.id, leaseId, createHash("sha256").update(recipient.expo_push_token!).digest("hex")])
       claimed.push({ id: job.id, leaseId, message: messageFor(job.id, current, recipient, preferences, now) })
     }
-    await client.query("commit")
     return claimed
-  } catch (error) { await client.query("rollback"); throw error } finally { client.release() }
+  })
 }
