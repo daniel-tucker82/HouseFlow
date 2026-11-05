@@ -141,7 +141,7 @@ function BoardWorkspace({ kiosk, onParentAccess, notice }: BoardProps) {
       {kiosk && onParentAccess ? <Action secondary label="Parent access" onPress={onParentAccess} /> : <Pressable accessibilityRole="button" accessibilityLabel="Refresh tasks" onPress={() => void controller.refresh()} style={boardStyles.iconButton}><RefreshCw color={colors.primary} size={22} /></Pressable>}
     </View>
     {notice}
-    {showHouseholds && !kiosk ? <ScrollView style={{ maxHeight: height * 0.3 }} contentContainerStyle={{ padding: 16, gap: 8 }}>
+    {showHouseholds && !kiosk ? <ScrollView style={{ maxHeight: height * 0.3, flexGrow: 0 }} contentContainerStyle={{ padding: 16, gap: 8 }}>
       {state.households.map(household => <Action key={household.id} selected={household.id === board?.household.id}
         secondary={household.id !== board?.household.id} label={household.name} onPress={() => {
         setShowHouseholds(false); setMember(null); void controller.selectHousehold(household.id).catch(error => Alert.alert("Unable to switch household", error.message))

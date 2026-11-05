@@ -127,11 +127,28 @@ XCTest driver timed out before running the journey. Minimum-OS phone tests now u
 the same simulator binary with Xcode 16.4 on a matching macOS 15 host. The
 [GitHub image inventory](https://github.com/actions/runner-images/blob/main/images/macos/macos-15-arm64-Readme.md)
 lists that toolchain, and [Apple’s support table](https://developer.apple.com/xcode/system-requirements)
-includes iOS 17 simulators. Passing journeys on that host are still required.
+includes iOS 17 simulators. The verified results on that host are recorded below.
 The iOS 17 iPad completed both signed-out journeys at accessibility text size and
 displayed the authenticated household. At default text size, dragging down to
 dismiss its keyboard closed the entire sign-in sheet. The iPad check now uses
 the system keyboard's dismissal key and still checks the retained identifier.
+
+[Run 41956061411](https://github.com/daniel-tucker82/HouseFlow/actions/runs/41956061411)
+passed on both iPhone 15 and iPad (10th generation) running the original iOS 17.0.
+Both devices passed normal and accessibility text-size journeys, including the
+keyboard, retained input and rotation. Each also signed in, displayed its
+household/task board in both orientations and retained its session after restart.
+Downloaded artifacts and their hashes were verified. These are simulator results.
+
+The newer [Android run 41956935789](https://github.com/daniel-tucker82/HouseFlow/actions/runs/41956935789)
+passed the named active-household button and selected picker option on the Android
+17 phone and tablet, as well as their existing text-size, rotation and restart
+checks. API 24 passed. The Fold failure screenshots showed Android's swipe lock,
+before the Cyntch welcome assertion. The disposable fold test now disables only
+that AVD's nonsecure swipe lock and restores it after recording its results.
+Visual review of the Android picker also found empty space below its sole option;
+its scrolling container now stops growing once its contents fit, while retaining
+the height limit for households with several options.
 
 [The iPhoneOS device archive](https://github.com/daniel-tucker82/HouseFlow/actions/runs/41950126236)
 passed with the device SDK: Cyntch and 14 embedded framework binaries are ARM64
@@ -1348,6 +1365,18 @@ Android small notifications now use Cyntch’s white house and check mark on
 transparency. Expo generated all five densities (24–96 px) and Android 37’s
 resource linker resolved the Expo and FCM icon references in a resource test
 package. A notification on a device running the updated app remains to be checked.
+The Android build now also inspects the actual linked APK: both manifest references
+must select the dedicated drawable and all five packaged PNG sizes must exist.
+A deliberately wrong FCM reference was rejected by this check.
+
+The notification sheet now reports when iOS has turned off alert presentation or
+hidden Cyntch from Notification Center. Android event choices show when their
+channel is blocked or has lower priority, with a link to that channel's system
+settings. Reading Android channels happens only while this sheet is open and
+when returning from device settings; it never changes the device's settings.
+Native-adapter checks cover the original iOS authorization values, unknown fields,
+Android 24, muted and lower-priority channels, exact settings intents and fallback
+when a device cannot open the direct route. On-device verification remains pending.
 
 Native kiosk backend protection was verified on 2026-11-04 in isolated PostgreSQL
 schemas. Migration 0028 adds independent device/session locks, replay-safe

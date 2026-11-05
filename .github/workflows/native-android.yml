@@ -12,6 +12,7 @@ on:
       - lib/time-rules.ts
       - lib/types.ts
       - .github/workflows/native-android.yml
+      - .github/scripts/android-notification-icon.cjs
   workflow_dispatch:
     inputs:
       verify_arm64_bundle:
@@ -116,6 +117,8 @@ jobs:
           apk=app/build/outputs/apk/release/app-release.apk
           test -s "$apk"
           test "$(unzip -p "$apk" assets/index.android.bundle | wc -c)" -gt 0
+          aapt=$(find "$ANDROID_HOME/build-tools" -name aapt2 -type f | sort -V | tail -1)
+          node ../../.github/scripts/android-notification-icon.cjs "$aapt" "$apk"
           mkdir -p "$RUNNER_TEMP/cyntch-android-apk"
           cp "$apk" "$RUNNER_TEMP/cyntch-android-apk/cyntch-emulator-test-signed.apk"
           sha256sum "$RUNNER_TEMP/cyntch-android-apk/cyntch-emulator-test-signed.apk" > "$RUNNER_TEMP/cyntch-android-apk/sha256.txt"

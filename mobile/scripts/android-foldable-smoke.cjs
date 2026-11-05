@@ -22,6 +22,7 @@ const report = {
   runs: [], passed: false,
 }
 let owned = false
+let restoreSwipeLock = false
 const adb = (args, timeout = 30_000) => execFileSync('adb', ['-s', serial, ...args], {
   encoding: 'utf8', timeout, maxBuffer: 16 * 1024 * 1024,
 })
@@ -109,6 +110,20 @@ async function main() {
       throw new Error('Expected the owned API 37 foldable with 16 KB memory pages.')
     }
     owned = true
+    // Switching the Pixel Fold's display can schedule the swipe lock after
+    // wm dismiss-keyguard returns. This owned, disposable AVD has no PIN.
+    // Remove only its swipe screen for the test; never clear a credential.
+    const lock = () => adb(['shell', 'locksettings', 'get-disabled']).trim()
+    const initial = lock()
+    if (!['true', 'false'].includes(initial)) throw new Error('Cannot verify the fold test device’s lock setting.')
+    if (initial === 'false') {
+      restoreSwipeLock = true
+      adb(['shell', 'locksettings', 'set-disabled', 'true'])
+      if (lock() !== 'true') throw new Error('The disposable fold test device still has a lock screen.')
+    }
+    report.swipeLockDisabled = true
+    adb(['shell', 'input', 'keyevent', 'KEYCODE_WAKEUP'])
+    adb(['shell', 'wm', 'dismiss-keyguard'])
     report.dataPartitionBeforeInstall = adb(['shell', 'df', '-k', '/data']).trim()
     report.memoryBeforeInstall = adb(['shell', 'cat', '/proc/meminfo']).split(/\r?\n/).filter(line => /^(MemTotal|MemAvailable|SwapFree):/.test(line))
     fs.writeFileSync(path.join(output, 'supported-device-states.txt'), adb(['shell', 'cmd', 'device_state', 'print-states']))
@@ -183,6 +198,13 @@ async function main() {
         const bytes = execFileSync('adb', ['-s', serial, 'exec-out', 'screencap', '-p'], { timeout: 15_000, maxBuffer: 16 * 1024 * 1024 })
         fs.writeFileSync(path.join(output, 'last-screen.png'), bytes)
       } catch { /* The flow logs and partial report remain. */ }
+      if (restoreSwipeLock) {
+        try {
+          adb(['shell', 'locksettings', 'set-disabled', 'false'])
+          report.swipeLockRestored = adb(['shell', 'locksettings', 'get-disabled']).trim() === 'false'
+        } catch { report.swipeLockRestored = false }
+        if (!report.swipeLockRestored) { report.passed = false; process.exitCode = 1 }
+      }
     }
     save()
   }

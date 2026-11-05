@@ -163,7 +163,8 @@ export class NotificationController {
     } catch (error) { this.update({ permissionError: error instanceof Error ? error.message : "Unable to read notification permission." }) }
     finally { this.update({ checkingPermission: false }); this.wake() }
   }
-  openSystemSettings() { return this.native.openSettings() }
+  channelRestrictions() { return this.native.channelRestrictions() }
+  openSystemSettings(kind?: MobileNotificationKind) { return this.native.openSettings(kind) }
   async changePreferences(update: (preferences: DeviceNotificationPreferences) => DeviceNotificationPreferences) {
     const household = this.state.household, previous = this.state.preferences
     if (!household || !previous || this.stopped) return

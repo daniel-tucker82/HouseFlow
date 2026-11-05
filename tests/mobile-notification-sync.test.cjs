@@ -239,10 +239,16 @@ test('token lookup or native subscription failure does not disable an existing r
 })
 
 test('native notification adapter creates Android channels before asking permission and honors iOS provisional status', async () => {
-  const events = [], permission = { status: 'denied', canAskAgain: true }, platform = { OS: 'android' }, constants = { expoConfig: { extra: { eas: { projectId: 'test-project' } } } }
+  const events = [], permission = { status: 'denied', canAskAgain: true }, platform = { OS: 'android', Version: 24 }, constants = { expoConfig: { extra: { eas: { projectId: 'test-project' } } } }
+  const intents = [], linking = { openSettings: async () => events.push('settings'), sendIntent: async (action, extras) => intents.push({action, extras}) }
   let tokenListener, tokenOptions, cleanupVersion = null, kiosk = false
   const notifications = {
-    IosAuthorizationStatus: { AUTHORIZED: 2, DENIED: 1, PROVISIONAL: 3, EPHEMERAL: 4 }, AndroidImportance: { HIGH: 6 }, AndroidNotificationVisibility: { PRIVATE: 2 },
+    IosAuthorizationStatus: { AUTHORIZED: 2, DENIED: 1, PROVISIONAL: 3, EPHEMERAL: 4 }, IosAlertStyle: { NONE: 0, BANNER: 1, ALERT: 2 },
+    AndroidImportance: { UNKNOWN: 0, UNSPECIFIED: 1, NONE: 2, MIN: 3, LOW: 4, DEFAULT: 5, HIGH: 6 }, AndroidNotificationVisibility: { PRIVATE: 2 },
+    getNotificationChannelsAsync: async () => { events.push('read channels'); return [
+      {id:'cyntch-task_completed',importance:2}, {id:'cyntch-member_added',importance:4}, {id:'cyntch-routine_generated',importance:5},
+      {id:'cyntch-task_assigned',importance:6}, {id:'cyntch-member_left',importance:1}, {id:'other',importance:2},
+    ] },
     getPermissionsAsync: async () => permission,
     setNotificationChannelAsync: async (id, options) => { assert.equal(options.sound, undefined, 'use the system default, not a missing custom sound'); events.push(id) }, requestPermissionsAsync: async () => { events.push('permission'); return { ...permission, status: 'granted' } },
     getExpoPushTokenAsync: async options => { tokenOptions = options; return { data: 'ExpoPushToken[adapter]' } },
@@ -250,7 +256,7 @@ test('native notification adapter creates Android channels before asking permiss
     getLastNotificationResponse: () => null, getPresentedNotificationsAsync: async () => [],
     getAllScheduledNotificationsAsync: async () => [], unregisterForNotificationsAsync: async () => {},
   }
-  const mocks = { 'expo-notifications': notifications, 'expo-constants': constants, 'expo-application': { nativeApplicationVersion: '1.0.0' }, 'expo-device': { deviceName: 'Phone' }, 'react-native': { Platform: platform, Linking: { openSettings: async () => events.push('settings') } } }
+  const mocks = { 'expo-notifications': notifications, 'expo-constants': constants, 'expo-application': { nativeApplicationVersion: '1.0.0', applicationId:'com.cyntch.app' }, 'expo-device': { deviceName: 'Phone' }, 'react-native': { Platform: platform, Linking: linking } }
   const filename = path.join(root, 'mobile/src/services/notification-device.ts')
   const compiled = buildSync({ entryPoints: [filename], bundle: true, platform: 'node', format: 'cjs', external: Object.keys(mocks), write: false })
   const loaded = new Module(filename, module); loaded.require = id => mocks[id] ?? require(id); loaded._compile(compiled.outputFiles[0].text, filename)
@@ -260,6 +266,20 @@ test('native notification adapter creates Android channels before asking permiss
   assert.equal(events.at(-1), 'permission'); assert.equal(events.filter(value => value.startsWith('cyntch-')).length, 15)
   permission.ios = { status: 3 }; assert.equal((await adapter.inspect()).permission, 'provisional')
   permission.status = 'granted'; permission.ios.status = 1; assert.equal((await adapter.inspect()).permission, 'denied', 'iOS status takes precedence over generic permission')
+  permission.ios = {status:2, allowsAlert:true, alertStyle:0, allowsDisplayInNotificationCenter:true}
+  assert.deepEqual((await adapter.inspect()).iosPresentation, {alertsOff:true,centerOff:false})
+  permission.ios = {status:2, allowsAlert:true, alertStyle:1, allowsDisplayInNotificationCenter:false}
+  assert.deepEqual((await adapter.inspect()).iosPresentation, {alertsOff:false,centerOff:true})
+  permission.ios = {status:2, allowsAlert:null, allowsDisplayInNotificationCenter:null}
+  assert.deepEqual((await adapter.inspect()).iosPresentation, {alertsOff:false,centerOff:false}, 'unknown settings must not create warnings')
+  assert.deepEqual(await adapter.channelRestrictions(), {}); assert(!events.includes('read channels'), 'Android 24 has no channels')
+  platform.Version = 37
+  assert.deepEqual(await adapter.channelRestrictions(), {task_completed:'blocked',member_added:'lower-priority',routine_generated:'lower-priority'})
+  await adapter.openSettings('task_completed')
+  assert.deepEqual(intents[0], {action:'android.settings.CHANNEL_NOTIFICATION_SETTINGS',extras:[
+    {key:'android.provider.extra.APP_PACKAGE',value:'com.cyntch.app'}, {key:'android.provider.extra.CHANNEL_ID',value:'cyntch-task_completed'}]})
+  await adapter.openSettings(); assert.equal(intents[1].action,'android.settings.APP_NOTIFICATION_SETTINGS')
+  linking.sendIntent=async()=>{throw new Error('No matching settings activity')}
   const remove = adapter.listenForTokenChange(() => events.push('rotated')), nativeToken = { type: 'android', data: 'rolled-native-token' }
   tokenListener(nativeToken); await adapter.token(); assert.deepEqual(tokenOptions.devicePushToken, nativeToken, 'token listener does not trigger recursive native token requests')
   cleanupVersion = 1; await adapter.token()

@@ -1,23 +1,28 @@
 import * as Notifications from "expo-notifications"
-import { AndroidImportance, AndroidNotificationVisibility, IosAuthorizationStatus } from "expo-notifications"
+import { AndroidImportance, AndroidNotificationVisibility, IosAlertStyle, IosAuthorizationStatus } from "expo-notifications"
 import Constants from "expo-constants"
 import * as Application from "expo-application"
 import * as Device from "expo-device"
 import { Linking, Platform } from "react-native"
-import { notificationCatalog } from "../../../shared/mobile/notification-catalog"
+import { notificationCatalog, type MobileNotificationKind } from "../../../shared/mobile/notification-catalog"
 import type { NotificationPermission } from "../../../shared/mobile/notification-settings"
 import type { RegistrationIntent } from "../storage/notification-store"
 import type { NotificationSessionStore } from "../storage/notification-session-store"
 import { nativeNotificationGeneration, resetNativeNotificationSession, waitForNativeNotification, withNativeNotificationSession } from "./notification-native-session"
 
-export interface NotificationPermissionState { permission: NotificationPermission; canAskAgain: boolean }
+export type ChannelRestrictions = Partial<Record<MobileNotificationKind, "blocked" | "lower-priority">>
+export interface NotificationPermissionState {
+  permission: NotificationPermission; canAskAgain: boolean;
+  iosPresentation?: { alertsOff: boolean; centerOff: boolean } | null;
+}
 export interface NotificationDevice {
   inspect(): Promise<NotificationPermissionState>
   requestPermission(): Promise<NotificationPermissionState>
   token(): Promise<string>
   details(): Pick<RegistrationIntent, "platform" | "deviceName" | "appVersion">
   listenForTokenChange(listener: () => void): () => void
-  openSettings(): Promise<void>
+  channelRestrictions(): Promise<ChannelRestrictions>
+  openSettings(kind?: MobileNotificationKind): Promise<void>
 }
 function permissionState(status: Notifications.NotificationPermissionsStatus): NotificationPermissionState {
   let permission: NotificationPermission = status.status === "granted" ? "granted" : status.status === "denied" ? "denied" : "undetermined"
@@ -26,7 +31,11 @@ function permissionState(status: Notifications.NotificationPermissionsStatus): N
     permission = ios === IosAuthorizationStatus.AUTHORIZED ? "granted" : ios === IosAuthorizationStatus.PROVISIONAL || ios === IosAuthorizationStatus.EPHEMERAL ? "provisional"
       : ios === IosAuthorizationStatus.DENIED ? "denied" : "undetermined"
   }
-  return { permission, canAskAgain: status.canAskAgain }
+  const ios = status.ios
+  return { permission, canAskAgain: status.canAskAgain, iosPresentation: ios && permission === "granted" ? {
+    alertsOff: ios.allowsAlert === false || ios.alertStyle === IosAlertStyle.NONE,
+    centerOff: ios.allowsDisplayInNotificationCenter === false,
+  } : null }
 }
 export function createNotificationDevice(sessions: NotificationSessionStore): NotificationDevice {
   let nativeToken: { token: Notifications.DevicePushToken; generation: number } | undefined
@@ -64,6 +73,28 @@ export function createNotificationDevice(sessions: NotificationSessionStore): No
     listenForTokenChange: listener => { const subscription = Notifications.addPushTokenListener(token => {
       nativeToken = { token, generation: nativeNotificationGeneration() }; listener()
     }); return () => subscription.remove() },
-    openSettings: () => Linking.openSettings(),
+    channelRestrictions: async () => {
+      const restrictions: ChannelRestrictions = {}
+      if (Platform.OS !== "android" || Number(Platform.Version) < 26) return restrictions
+      const channels = await Notifications.getNotificationChannelsAsync()
+      const byId = new Map(channels.map(channel => [channel.id, channel.importance]))
+      for (const kind of Object.keys(notificationCatalog) as MobileNotificationKind[]) {
+        const importance = byId.get(`cyntch-${kind}`)
+        if (importance === AndroidImportance.NONE) restrictions[kind] = "blocked"
+        else if (importance === AndroidImportance.MIN || importance === AndroidImportance.LOW || importance === AndroidImportance.DEFAULT) restrictions[kind] = "lower-priority"
+      }
+      return restrictions
+    },
+    openSettings: async kind => {
+      if (Platform.OS === "android" && Number(Platform.Version) >= 26 && Application.applicationId) {
+        const extras = [{ key: "android.provider.extra.APP_PACKAGE", value: Application.applicationId }]
+        if (kind) extras.push({ key: "android.provider.extra.CHANNEL_ID", value: `cyntch-${kind}` })
+        try {
+          await Linking.sendIntent(kind ? "android.settings.CHANNEL_NOTIFICATION_SETTINGS" : "android.settings.APP_NOTIFICATION_SETTINGS", extras)
+          return
+        } catch { /* Some devices only expose the app settings page. */ }
+      }
+      await Linking.openSettings()
+    },
   }
 }

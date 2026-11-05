@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react"
-import { Alert, Pressable, ScrollView, Switch, View } from "react-native"
+import { Alert, AppState, Platform, Pressable, ScrollView, Switch, View } from "react-native"
 import { AppModal } from "./app-modal"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { Check } from "lucide-react-native"
 import { router } from "expo-router"
 import { notificationCatalog, type MobileNotificationKind } from "../../../shared/mobile/notification-catalog"
 import { useBoard, useNotifications, useRuntime } from "../providers/runtime"
+import type { ChannelRestrictions } from "../services/notification-device"
 import { PlannerDateTime } from "./planner-inputs"
 import { Action, Card, Copy, styles, usePalette } from "./ui"
 
@@ -32,6 +33,19 @@ function NotificationSettings({ onClose }: { onClose: () => void }) {
   const { notifications } = useRuntime(), state = useNotifications(), board = useBoard(), colors = usePalette()
   const prefs = state.preferences, household = state.household
   useEffect(() => { void notifications.refresh() }, [notifications])
+  const [restrictions, setRestrictions] = useState<ChannelRestrictions>({})
+  useEffect(() => {
+    if (Platform.OS !== "android" || state.permission !== "granted") return
+    let revision = 0
+    const read = () => {
+      const current = ++revision
+      void notifications.channelRestrictions().then(value => { if (current === revision) setRestrictions(value) })
+        .catch(() => { if (current === revision) setRestrictions({}) })
+    }
+    read()
+    const subscription = AppState.addEventListener("change", value => { if (value === "active") read() })
+    return () => { revision++; subscription.remove() }
+  }, [notifications, state.permission])
   const change: typeof notifications.changePreferences = update => notifications.changePreferences(update).catch(report)
   const localTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
   const selectedPending = state.pending.filter(row => row.scope === "device" || row.scope === household?.id)
@@ -39,6 +53,8 @@ function NotificationSettings({ onClose }: { onClose: () => void }) {
     <View style={[styles.row, { flexWrap: "wrap" }]}><Copy tone="heading" style={{ flex: 1, minWidth: 200 }}>Notifications</Copy><Action secondary label="Close notifications" onPress={onClose} /></View>
     <Card><Copy tone="heading">Device permission</Copy>
       <Copy>{state.permission === "granted" ? "Notifications are allowed by this device." : state.permission === "provisional" ? "Notifications can appear quietly. Allow alerts in device settings for banners and sounds." : state.permission === "denied" ? "Notifications aren’t allowed yet. Your choices below are kept." : "Allow Cyntch to show notification banners and alerts on this device."}</Copy>
+      {state.iosPresentation?.alertsOff ? <Copy>Device settings have turned off banners for Cyntch.</Copy> : null}
+      {state.iosPresentation?.centerOff ? <Copy>Cyntch alerts are hidden from Notification Center in device settings.</Copy> : null}
       {state.permission === "undetermined" || (state.permission === "denied" && state.canAskAgain) ? <Action disabled={state.checkingPermission} label={state.checkingPermission ? "Checking permission…" : "Allow device notifications"} onPress={() => void notifications.refreshDevice(true)} />
         : <Action secondary label="Open Cyntch’s device settings" onPress={() => void notifications.openSystemSettings().catch(report)} />}
       {state.permissionError ? <Copy style={{ color: colors.warning }}>{state.permissionError}</Copy> : null}
@@ -65,13 +81,13 @@ function NotificationSettings({ onClose }: { onClose: () => void }) {
       {(Object.keys(notificationCatalog) as MobileNotificationKind[]).filter(kind => {
         const category = notificationCatalog[kind]
         return (!category.managementOnly || household.role === "manager") && (category.scope !== "household" || household.role !== "member")
-      }).map(kind => <NotificationCategory key={kind} kind={kind} />)}
+      }).map(kind => <NotificationCategory key={kind} kind={kind} restriction={state.permission === "granted" ? restrictions[kind] : undefined} />)}
     </>}
     <Action secondary label="Done" onPress={onClose} />
   </ScrollView>
 }
 
-function NotificationCategory({ kind }: { kind: MobileNotificationKind }) {
+function NotificationCategory({ kind, restriction }: { kind: MobileNotificationKind; restriction?: ChannelRestrictions[MobileNotificationKind] }) {
   const { notifications, controller } = useRuntime(), state = useNotifications(), colors = usePalette()
   const category = notificationCatalog[kind], selection = state.preferences?.categories[kind] ?? { enabled: false, memberIds: [] }
   const members = state.members.filter(member => state.household?.role !== "member" || member.id === controller.accountId)
@@ -79,6 +95,10 @@ function NotificationCategory({ kind }: { kind: MobileNotificationKind }) {
   return <Card><Toggle label={category.label} value={selection.enabled} onChange={enabled => void change(current => ({ ...current, categories: { ...current.categories, [kind]: {
     enabled, memberIds: current.categories[kind]?.memberIds ?? (category.scope === "member" ? [controller.accountId] : []),
   } } }))} />
+    {restriction && selection.enabled && state.preferences?.enabled ? <>
+      <Copy>{restriction === "blocked" ? "Android has turned off this alert type on this device." : "Android gives this alert a lower priority. It may appear without a banner."}</Copy>
+      <Action secondary label={`Android settings: ${category.label}`} onPress={() => void notifications.openSystemSettings(kind).catch(report)} />
+    </> : null}
     {category.scope === "member" && selection.enabled ? <><Copy tone="label">Notify me about</Copy><View style={{ gap: 8 }}>
       {members.map(member => <Pressable key={member.id} accessibilityRole="checkbox" accessibilityLabel={`${category.label}: ${member.name}`} accessibilityState={{ checked: selection.memberIds.includes(member.id) }}
         onPress={() => void change(current => { const currentSelection = current.categories[kind] ?? { enabled: true, memberIds: [] }; return { ...current, categories: { ...current.categories, [kind]: { ...currentSelection,
