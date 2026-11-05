@@ -4,6 +4,13 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { spawnSync } = require('node:child_process')
 const { inspectScreenshotOrientations } = require('./device-screenshot-evidence.cjs')
+const { runIOSUI, canRetryIOSBootstrap } = require('../../.github/scripts/ios-device-process.cjs')
+
+function hasFlowEvidence(folder) {
+  return fs.readdirSync(folder, { withFileTypes: true }).some(entry => entry.isDirectory()
+    ? hasFlowEvidence(path.join(folder, entry.name))
+    : entry.name === 'commands.json' || entry.name === 'report.xml' || entry.name.endsWith('.png'))
+}
 
 function authFixture(env = process.env) {
   const email = env.CYNTCH_NATIVE_TEST_EMAIL ?? ''
@@ -29,14 +36,31 @@ function runAuthenticatedSmoke({ maestro, device, output, orientations, fixture 
   fs.mkdirSync(output, { recursive: true })
   const result = { source: process.env.CYNTCH_IOS_APP_SHA || process.env.CYNTCH_ANDROID_APP_SHA || process.env.GITHUB_SHA, origin: fixture.origin,
     scope: 'Native email-code sign-in, household/task loading, rotation and session persistence after restart.', passed: false }
-  const log = fs.openSync(path.join(output, 'maestro.log'), 'w')
   try {
-    const run = spawnSync(maestro, ['--device', device, 'test', '--format', 'junit', '--output', path.join(output, 'report.xml'),
-      '-e', `TEST_EMAIL=${fixture.email}`, '-e', `TEST_EMAIL_PATTERN=${exactTextPattern(fixture.email)}`,
-      '-e', `PORTRAIT_ORIENTATION=${orientations.portrait}`,
-      '-e', `LANDSCAPE_ORIENTATION=${orientations.landscape}`, '--test-output-dir', output, '--debug-output', output,
-      path.resolve('.maestro-auth/household.yaml')], { stdio: ['ignore', log, log],
-      timeout: process.platform !== 'darwin' ? 300_000 : process.env.CYNTCH_IOS_TEST_RUNTIME === '17.0' ? 720_000 : 540_000, env: process.env })
+    let run
+    const ios = process.platform === 'darwin'
+    result.attempts = []
+    for (let attempt = 1; attempt <= (ios ? 2 : 1); attempt++) {
+      const attemptFolder = attempt === 1 ? output : path.join(output, 'bootstrap-retry')
+      fs.mkdirSync(attemptFolder, { recursive: true })
+      const log = fs.openSync(path.join(attemptFolder, 'maestro.log'), 'w')
+      try {
+        run = (ios ? runIOSUI : spawnSync)(maestro, ['--device', device, 'test', '--format', 'junit', '--output', path.join(attemptFolder, 'report.xml'),
+          '-e', `TEST_EMAIL=${fixture.email}`, '-e', `TEST_EMAIL_PATTERN=${exactTextPattern(fixture.email)}`,
+          '-e', `PORTRAIT_ORIENTATION=${orientations.portrait}`,
+          '-e', `LANDSCAPE_ORIENTATION=${orientations.landscape}`, '--test-output-dir', attemptFolder, '--debug-output', attemptFolder,
+          path.resolve('.maestro-auth/household.yaml')], { stdio: ['ignore', log, log],
+          timeout: !ios ? 300_000 : process.env.CYNTCH_IOS_TEST_RUNTIME === '17.0' ? 720_000 : 540_000, env: process.env })
+      } finally { fs.closeSync(log) }
+      const driverOutput = fs.readFileSync(path.join(attemptFolder, 'maestro.log'), 'utf8')
+      console.log(driverOutput)
+      // A retry can only bootstrap the driver: no authentication command,
+      // screenshot or flow report may exist, and owned cleanup must finish.
+      const retryBootstrap = ios && attempt === 1 && canRetryIOSBootstrap(run, driverOutput, hasFlowEvidence(attemptFolder))
+      result.attempts.push({ attempt, exitCode: run.status, error: run.error?.code, driverCleanup: run.driverCleanup, retryBootstrap })
+      fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify(result, null, 2))
+      if (!retryBootstrap) break
+    }
     result.exitCode = run.status
     result.orientationEvidence = inspectScreenshotOrientations(output, {
       'native-sign-in-identifier.png': 'portrait',
@@ -51,9 +75,7 @@ function runAuthenticatedSmoke({ maestro, device, output, orientations, fixture 
     result.passed = true
   } catch (error) { result.error = error.message }
   finally {
-    fs.closeSync(log)
     fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify(result, null, 2))
-    console.log(fs.readFileSync(path.join(output, 'maestro.log'), 'utf8'))
   }
   return result
 }

@@ -24,8 +24,8 @@ on reconnect, then failed reopening. The reproduced quota/sync defects are fixed
 43 route/SQLite regressions and real packaged-backend HTTP checks pass. Fresh
 Android `41970440613` compiled but failed before authentication; its unexpected
 password-creation screen is investigated below. Its successor `41973395072`,
-source `0840707`, passed the exact submitted-email check, authenticated tablet,
-tablet kiosk, both fold text sizes and API 24. The full phone journey is running.
+source `0840707`, passed all four device jobs: exact submitted-email checks,
+authenticated phone/tablet, tablet kiosk, both fold text sizes and API 24.
 The verified APK SHA-256 is
 `f9d69b9e760c8c653680ac76d27aad8dc3a0325360c729a5dcdc37fa5b7e668f`.
 
@@ -39,7 +39,18 @@ records the Clerk sign-in endpoint, zero transferred bytes and a connection
 closed without notification (`-1200`/`-9816`); the host's later TLS probe returned
 HTTP 200 with normal certificate verification. The cause remains unresolved;
 no transport-security exception or authentication bypass was introduced.
-The iOS 17 phone is still running.
+The iOS 17 phone passed both text sizes, then its authenticated flow never
+started because XCTest could not launch its driver. Artifact `13391822829`,
+SHA-256 `b962715c61557a87959bfe526c9b9324423c49c4d72483370157b38ed4d9ae6e`,
+retains the driver timeout and unknown driver-application identifier. All jobs
+have finished; a fresh iOS build must verify the latest app changes.
+
+The authenticated harness now applies the same owned process cleanup and single
+bootstrap-only retry already used for signed-out iOS journeys. A command record,
+report, screenshot, started flow, TLS error, generic timeout or cleanup failure
+prevents retry. Both attempts retain separate logs; deadlines and authentication
+assertions are unchanged. Local validation passed 14 tests, with two POSIX-only
+tests skipped on Windows; actual recovery remains a native verification task.
 
 Downloaded evidence was SHA-256 verified: Android tablet `13391911593`,
 foldable `13391936190`, API 24 `13390914707`, and iOS current iPad `13391436847`,
@@ -60,12 +71,28 @@ enabled category. Settings must show that all saved changes have synced.
 Eight named captures and actual control states
 are required. Only the disposable device's preferences change; this is not an
 offline-persistence, cross-device isolation or provider-delivery test. Local
-lint/types, YAML/JavaScript parsing and eight fixture/screenshot checks pass;
-the native preference journey has not yet run.
+lint/types, YAML/JavaScript parsing and fixture/screenshot checks pass;
+the iOS preference journey has not yet run. Android phone `41973395072` passed
+all eight captures, category/member assertions and both restart checks. Its
+artifact `13391342763`, SHA-256
+`a4795bea460bdc99881f7b7dde06cc9e067add7dc6ee70b94b7a84338236131d`,
+also proves the real notification permission and system settings journey.
 
-The next full authenticated Android phone check also runs the prepared offline
+The full authenticated Android phone check also runs the prepared offline
 task journey after notification checks, using the same compiled APK. The separate
 offline-only mode remains available for unchanged-binary verification.
+
+That full phone run passed the offline journey too: the actual process stopped,
+cached sign-in and the saved completion survived offline restart, reconnect
+uploaded it, and reopening was acknowledged and retained after another restart.
+Both radios were restored. Independent PostgreSQL verification found exactly four
+applied receipts: the original failed-run completion, preparation through the UI,
+the new offline completion and final reopening. The original receipt remains
+`d721ce95-db5c-4162-a6ee-8d83ec61ecee`; the final winner is
+`7b463ba9-86c6-49d9-840f-fc1292fcb79c` at `2026-11-05T05:48:00.183Z`.
+No database reset or history rewrite was used. The actual offline-after-kill and
+notification landscape captures were inspected. This verifies the quota-reopen
+fix on the optimized emulator build, not physical-device performance.
 
 Android `41970440613` artifact `13390690546`, SHA-256
 `48fbd228cfab024c83ca1415eea598271c45ca9098877dfa4ce6770a7c0513ee`,
@@ -78,7 +105,9 @@ input nor provider routing is yet proven as the cause. Authentication checks now
 require the actual field to equal the exact escaped fixture email before Continue,
 and retain that screen. The input acknowledgement alone is no longer sufficient.
 The added regex regression rejects a missing plus, altered dot and extra prefix
-or suffix. Nine fixture/screenshot checks pass; native verification remains pending.
+or suffix. Both phone and tablet in `41973395072` passed the exact native field
+assertion and authenticated journey. This does not establish the cause of the
+older password-creation screen.
 
 An already-authorized Android installation now creates any missing Cyntch
 notification channels before registering its provider token. Previously channel

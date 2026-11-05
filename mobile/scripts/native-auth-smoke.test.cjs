@@ -3,6 +3,8 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
+const vm = require('node:vm')
+const { canRetryIOSBootstrap } = require('../../.github/scripts/ios-device-process.cjs')
 const { authFixture, exactTextPattern } = require('./native-auth-smoke.cjs')
 const { inspectScreenshotOrientations } = require('./device-screenshot-evidence.cjs')
 
@@ -52,4 +54,84 @@ test('authentication evidence requires its named captures without weakening star
   assert.equal(inspectScreenshotOrientations(folder,expected).passed,false)
   assert.equal(inspectScreenshotOrientations(folder,{'absent.png':'portrait'},{includeStartup:false}).passed,false)
   assert.equal(inspectScreenshotOrientations(folder,{'authenticated.png':'landscape'},{includeStartup:false}).passed,false)
+})
+
+function runWithDriver(t, attempts, platform = 'darwin') {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'cyntch-auth-bootstrap-'))
+  t.after(() => {
+    assert.equal(path.dirname(path.resolve(folder)), path.resolve(os.tmpdir()))
+    assert.ok(path.basename(folder).startsWith('cyntch-auth-bootstrap-'))
+    fs.rmSync(folder, { recursive: true, force: true })
+  })
+  const calls = []
+  const execute = (_command, args, options) => {
+    const spec = attempts[calls.length]
+    assert.ok(spec, 'an unexpected extra attempt must fail')
+    const output = args[args.indexOf('--test-output-dir') + 1]
+    calls.push({ output, timeout: options.timeout })
+    assert.equal(args[args.indexOf('--debug-output') + 1], output)
+    assert.equal(args[args.indexOf('--output') + 1], path.join(output, 'report.xml'))
+    fs.writeSync(options.stdio[1], spec.log ?? '')
+    if (spec.evidence) {
+      const nested = path.join(output, 'nested-journey')
+      fs.mkdirSync(nested)
+      fs.writeFileSync(path.join(nested, spec.evidence), 'retained evidence')
+    }
+    return spec.result
+  }
+  const sandbox = { module: { exports: {} }, process: { platform, env: { CYNTCH_IOS_TEST_RUNTIME: '17.0' } },
+    console: { log() {} }, require: name => {
+      if (name === 'node:child_process') return { spawnSync: execute }
+      if (name.endsWith('/ios-device-process.cjs')) return { runIOSUI: execute, canRetryIOSBootstrap }
+      if (name === './device-screenshot-evidence.cjs') return { inspectScreenshotOrientations: () => ({ passed: true }) }
+      return require(name)
+    } }
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, 'native-auth-smoke.cjs'), 'utf8'), sandbox)
+  const result = sandbox.module.exports.runAuthenticatedSmoke({ maestro: 'maestro', device: 'owned-test-device', output: folder,
+    orientations: { portrait: 'PORTRAIT', landscape: 'LANDSCAPE_LEFT' }, fixture: { email: configured.CYNTCH_NATIVE_TEST_EMAIL, origin: configured.EXPO_PUBLIC_API_URL } })
+  return { folder, result, calls }
+}
+
+const bootstrapLog = 'IOSDriverTimeoutException: iOS driver not ready in time'
+const cleanedFailure = { status: 1, driverCleanup: { signalled: true } }
+
+test('an unstarted authenticated iOS driver gets one cleaned retry with separate retained logs', t => {
+  const { folder, result, calls } = runWithDriver(t, [
+    { log: bootstrapLog, result: cleanedFailure }, { log: 'Flow: real sign-in journey', result: { status: 0 } },
+  ])
+  assert.equal(result.passed, true)
+  assert.equal(calls.length, 2)
+  assert.ok(calls.every(call => call.timeout === 720_000), 'existing deadline is unchanged')
+  assert.equal(calls[1].output, path.join(folder, 'bootstrap-retry'))
+  assert.equal(fs.readFileSync(path.join(folder, 'maestro.log'), 'utf8'), bootstrapLog)
+  assert.equal(result.attempts[0].retryBootstrap, true)
+  assert.equal(result.attempts[1].retryBootstrap, false)
+  assert.equal(JSON.parse(fs.readFileSync(path.join(folder, 'result.json'), 'utf8')).passed, true)
+})
+
+test('authentication commands, screenshots, reports, TLS failures and incomplete cleanup cannot trigger retries', t => {
+  for (const spec of [
+    ...['commands.json', 'report.xml', 'native-sign-in-identifier.png'].map(evidence => ({ evidence, log: bootstrapLog, result: cleanedFailure })),
+    { log: bootstrapLog + '\nFlow: Native sign-in', result: cleanedFailure },
+    { log: 'A TLS error caused the secure connection to fail.', result: cleanedFailure },
+    { log: bootstrapLog, result: { status: 1 } },
+    { log: bootstrapLog, result: { status: 1, driverCleanup: { error: 'EPERM' } } },
+    { log: bootstrapLog, result: { ...cleanedFailure, error: { code: 'ETIMEDOUT' } } },
+  ]) {
+    const { result, calls } = runWithDriver(t, [spec])
+    assert.equal(result.passed, false)
+    assert.equal(calls.length, 1)
+    assert.equal(result.attempts[0].retryBootstrap, false)
+  }
+})
+
+test('repeated bootstrap failures stop at two attempts and Android never uses the iOS retry', t => {
+  const spec = { log: bootstrapLog, result: cleanedFailure }
+  const ios = runWithDriver(t, [spec, spec])
+  assert.equal(ios.result.passed, false)
+  assert.equal(ios.calls.length, 2)
+  const android = runWithDriver(t, [spec], 'linux')
+  assert.equal(android.result.passed, false)
+  assert.equal(android.calls.length, 1)
+  assert.equal(android.calls[0].timeout, 300_000)
 })
