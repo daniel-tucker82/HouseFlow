@@ -62,6 +62,22 @@ next checks give API 37 guests 4 GB RAM, stage the phone/tablet APK before
 installation and dismiss the disposable foldable's keyguard after a posture
 change. The sign-in and retained-text assertions remain required.
 
+Run [41945601863](https://github.com/daniel-tucker82/HouseFlow/actions/runs/41945601863)
+passed the API 24 journey and API 37 Pixel Fold: the populated native form survived
+folding and unfolding at 1x and 1.6x text. The API 37 phone and tablet did not
+reach Cyntch: both logs contain a SurfaceFlinger graphics-mapper assertion during
+installation. All three API 37 profiles now use Android command-line tools 22
+and check the generated AVD target before attributing a result to Cyntch.
+
+On [the iOS simulator run](https://github.com/daniel-tucker82/HouseFlow/actions/runs/41941864555),
+the iPhone 17 on iOS 26.5 passed signed-out startup, rotation and entry to the
+native authentication screen at both text sizes. It did not complete email sign-in.
+The keyboard dismissal heuristic opened Google sign-in. The pinned SwiftUI form
+supports dragging the keyboard down; the layout test now uses that gesture, and
+the real email-code test targets the Continue button directly on iOS. iOS 17.0
+booted but did not pass the journeys. iPhone and iPad now get separate hosts,
+a verified installation and an independent CoreSimulator launch before UI tests.
+
 For an Android distribution-format check, dispatch the Android workflow with
 `verify_arm64_bundle` enabled. It compiles ARM64 plus x86-64, validates the
 development-signed AAB with pinned Google bundletool, and generates the
@@ -116,6 +132,21 @@ the streamed hint and authenticated board read at median 332 ms and p95 454 ms.
 The temporary session was revoked and the test schema removed. With the new
 database triggers installed, the closed-client 580-item scheduler fixture
 again recorded 192 transitions exactly once, p95 56.780 s and max 58.957 s.
+
+The packaged backend at `269aa47` also passed with its separate direct listener
+and a real development sign-in: median 327 ms, p95 369 ms for ten peer edits.
+An isolated database test confirms that a connection pointed at a different
+PostgreSQL database cannot report ready. Neither test enabled production.
+
+For a task-save interruption and load check, run
+`node --test tests/integration/device-save-load.cjs`. The real controller and
+file-backed SQLite store process 160 edits on a 320-task, eight-person board,
+half offline and half with the network stalled. A second connection verifies
+each commit. The writer is killed with both connections open; all 160 ordered
+operations and the expected state of every task must be present after reopening.
+On the Windows test host, p95 durable save time was 10.97 ms offline and 10.36 ms
+with the network stalled. These measurements exclude native rendering and mobile
+storage performance; record those separately on the intended devices.
 
 Cyntch's 16 modal presentations now use the system reduced-motion preference.
 One root provider reads the setting at startup, listens for changes and refreshes
