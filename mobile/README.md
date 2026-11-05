@@ -85,6 +85,22 @@ the real email-code test targets the Continue button directly on iOS. iOS 17.0
 booted but did not pass the journeys. iPhone and iPad now get separate hosts,
 a verified installation and an independent CoreSimulator launch before UI tests.
 
+[Android run 41948957910](https://github.com/daniel-tucker82/HouseFlow/actions/runs/41948957910)
+also passed development email-code sign-in, household/task loading in both
+orientations and session persistence after restart on the Android 17 phone and
+tablet. Minimum API startup and folded/unfolded form tests passed separately.
+
+The authenticated current-iPhone workflow checks OS notifications after sign-in.
+It records the real iOS permission dialog and the app's granted state. After the
+device goes to its Home Screen, Apple's simulator injects a uniquely titled
+alert. The test must find that title in the top of the Home Screen before opening
+Notification Center, and must then find its title and body in the system pane.
+This does not test APNs credentials, delivery over the network or physical devices.
+To rerun only that journey, dispatch `native-ios.yml` with the isolated fixture
+inputs and `notifications_from_run` equal to its authenticated build's run ID.
+The runner checks the producer repository, branch, application source, archive
+digest, architecture, signature and embedded test backend before using the app.
+
 For an Android distribution-format check, dispatch the Android workflow with
 `verify_arm64_bundle` enabled. It compiles ARM64 plus x86-64, validates the
 development-signed AAB with pinned Google bundletool, and generates the

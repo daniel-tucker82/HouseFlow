@@ -5,6 +5,7 @@ const path = require('node:path')
 const { execFileSync, spawnSync } = require('node:child_process')
 const { inspectScreenshotOrientations } = require('./device-screenshot-evidence.cjs')
 const { authFixture, runAuthenticatedSmoke } = require('./native-auth-smoke.cjs')
+const { runNotificationSmoke } = require('./ios-notification-smoke.cjs')
 
 if (process.platform !== 'darwin' || process.env.GITHUB_ACTIONS !== 'true') {
   throw new Error('Run this verification on the macOS GitHub Actions host.')
@@ -13,6 +14,10 @@ if (process.argv.length !== 5) throw new Error('Expected simulator app, Maestro 
 const [appPath, maestro, output] = process.argv.slice(2).map(value => path.resolve(value))
 const fixture = authFixture()
 const requestedFamily = process.env.CYNTCH_IOS_TEST_FAMILY
+const notificationsOnly = Boolean(process.env.CYNTCH_IOS_NOTIFICATION_PRODUCER)
+if (notificationsOnly && (!fixture || requestedFamily !== 'iphone' || process.env.CYNTCH_IOS_TEST_RUNTIME || !/^[a-f0-9]{40}$/.test(process.env.CYNTCH_IOS_APP_SHA ?? ''))) {
+  throw new Error('The notification check requires a verified app, signed-in fixture and current iPhone.')
+}
 if (requestedFamily && !['iphone', 'ipad'].includes(requestedFamily)) throw new Error('Unknown simulator family.')
 if (!appPath || !maestro || !output || !fs.existsSync(path.join(appPath, 'main.jsbundle'))) {
   throw new Error('A compiled simulator app with bundled JavaScript is required.')
@@ -52,7 +57,9 @@ const devices = requestedRuntime ? ['iPhone 15', 'iPad (10th generation)'].map(n
   available.find(device => device.name === 'iPhone 17') ?? available.find(device => device.name.startsWith('iPhone')),
   available.find(device => device.name === 'iPad (A16)') ?? available.find(device => device.name.startsWith('iPad')),
 ]
-const report = { source: process.env.GITHUB_SHA, configuration: 'Release with local simulator signing', runtime: runtime.name,
+const report = { source: process.env.CYNTCH_IOS_APP_SHA || process.env.GITHUB_SHA, verificationSource: process.env.GITHUB_SHA,
+  scope: notificationsOnly ? 'Authenticated notification permission and Notification Center' : 'Device text sizes and optional household verification',
+  configuration: 'Release with local simulator signing', runtime: runtime.name,
   hostArchitecture: process.arch, runtimeVersion: runtime.version, requestedRuntime: requestedRuntime ?? 'latest installed', devices: [], passed: false }
 const save = () => fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify(report, null, 2))
 let failed = false
@@ -108,7 +115,7 @@ for (const [index, template] of devices.entries()) {
     // A launch PID is distinct from a rendered screen or a passing UI flow.
     // Keep an independent screen capture even when XCTest cannot start.
     simctl('io', ownedDevice, 'screenshot', path.join(folder, 'after-system-launch.png'))
-    for (const contentSize of ['large', 'accessibility-extra-large']) {
+    for (const contentSize of (notificationsOnly ? [] : ['large', 'accessibility-extra-large'])) {
       const caseFolder = path.join(folder, contentSize === 'large' ? 'default-text' : 'large-text')
       fs.mkdirSync(caseFolder, { recursive: true })
       const textResult = { contentSize, passed: false }
@@ -155,6 +162,11 @@ for (const [index, template] of devices.entries()) {
         orientations: { portrait: 'PORTRAIT', landscape: 'LANDSCAPE_LEFT' }, fixture })
     }
     if (result.authentication && !result.authentication.passed) throw new Error(result.authentication.error)
+    if (result.authentication?.passed && label === 'iphone' && !requestedRuntime) {
+      stage('notification-permission-and-center')
+      result.notifications = runNotificationSmoke({device:ownedDevice,maestro,output:path.join(folder,'notifications')})
+      if (!result.notifications.passed) throw new Error(result.notifications.error)
+    }
     if (result.runs.some(run => !run.passed)) throw new Error('Simulator flow failed at one or more text sizes.')
     result.passed = true
     stage('completed')

@@ -14,6 +14,10 @@ on:
       - .github/scripts/ios-device-*
   workflow_dispatch:
     inputs:
+      notifications_from_run:
+        description: Test iOS notifications on one iPhone using an unchanged authenticated simulator build (producer run ID)
+        type: string
+        default: ''
       verify_device_archive:
         description: Build and inspect a device SDK archive without distribution signing or submission
         type: boolean
@@ -37,12 +41,13 @@ permissions:
 
 concurrency:
   # Keep a capacity-starved host pool from holding up the other architecture.
-  group: native-ios-${{ github.ref }}-${{ inputs.verify_device_archive && 'device-archive' || inputs.runner || 'macos-26-intel' }}
+  group: native-ios-${{ github.ref }}-${{ inputs.notifications_from_run && 'notifications' || inputs.verify_device_archive && 'device-archive' || inputs.runner || 'macos-26-intel' }}
   # Finish device evidence for the active build; keep the newest next build queued.
   cancel-in-progress: false
 
 jobs:
   compile:
+    if: ${{ !inputs.notifications_from_run }}
     runs-on: ${{ inputs.runner || 'macos-26-intel' }}
     timeout-minutes: 90
     outputs:
@@ -201,14 +206,17 @@ jobs:
   device:
     name: Test ${{ matrix.family }} (${{ matrix.runtime }})
     needs: compile
-    if: ${{ always() && !cancelled() && needs.compile.outputs.app_ready == 'true' }}
+    if: ${{ always() && !cancelled() && (needs.compile.outputs.app_ready == 'true' || (inputs.notifications_from_run && !inputs.verify_device_archive && needs.compile.result == 'skipped')) }}
+    permissions:
+      actions: read
+      contents: read
     runs-on: ${{ inputs.runner || 'macos-26-intel' }}
     timeout-minutes: 80
     strategy:
       fail-fast: false
       matrix:
-        runtime: [current, '17.0']
-        family: [iphone, ipad]
+        runtime: ${{ fromJSON(inputs.notifications_from_run && '["current"]' || '["current","17.0"]') }}
+        family: ${{ fromJSON(inputs.notifications_from_run && '["iphone"]' || '["iphone","ipad"]') }}
     defaults:
       run:
         working-directory: mobile
@@ -219,6 +227,7 @@ jobs:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
       CYNTCH_IOS_TEST_RUNTIME: ${{ matrix.runtime == '17.0' && '17.0' || '' }}
       CYNTCH_IOS_TEST_FAMILY: ${{ matrix.family }}
+      CYNTCH_IOS_NOTIFICATION_PRODUCER: ${{ inputs.notifications_from_run }}
       MAESTRO_DRIVER_STARTUP_TIMEOUT: '240000'
       EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ZW1lcmdpbmctdG9hZC05OC5jbGVyay5hY2NvdW50cy5kZXYk
       EXPO_PUBLIC_API_URL: ${{ inputs.fixture_url || 'https://cyntch-simulator.invalid' }}
@@ -228,15 +237,38 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: ${{ inputs.notifications_from_run && '0' || '1' }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22.23.3'
-      - name: Download this run's compiled simulator app
+      - name: Verify the source of the reusable simulator app
+        if: inputs.notifications_from_run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$CYNTCH_IOS_NOTIFICATION_PRODUCER" =~ ^[1-9][0-9]*$ ]]
+          node -e "if (!require('./scripts/native-auth-smoke.cjs').authFixture()) process.exit(1)"
+          meta=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CYNTCH_IOS_NOTIFICATION_PRODUCER")
+          jq -e --arg repo "$GITHUB_REPOSITORY" --arg branch "$GITHUB_REF_NAME" '
+            .event == "workflow_dispatch" and .head_branch == $branch and
+            .head_repository.full_name == $repo and .path == ".github/workflows/native-ios.yml"' <<<"$meta" >/dev/null
+          sha=$(jq -r '.head_sha' <<<"$meta")
+          [[ "$sha" =~ ^[a-f0-9]{40}$ ]]
+          git merge-base --is-ancestor "$sha" "$GITHUB_SHA"
+          # Only verification and documentation changes are permitted between
+          # the producer and this run. Never label an older app as new code.
+          git -C .. diff --quiet "$sha" "$GITHUB_SHA" -- . ':!.github/' ':!tests/' ':!mobile/README.md' \
+            ':!mobile/.maestro*/**' ':!mobile/scripts/ios-*-smoke.cjs' ':!mobile/scripts/native-auth-smoke.cjs'
+          printf 'CYNTCH_IOS_APP_SHA=%s\n' "$sha" >> "$GITHUB_ENV"
+      - name: Download the selected compiled simulator app
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: native-ios-simulator
           path: ${{ runner.temp }}/cyntch-ios-compile-evidence
           digest-mismatch: error
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.notifications_from_run || github.run_id }}
       - name: Verify and unpack the exact compiled app
         run: |
           set -euo pipefail
@@ -249,6 +281,9 @@ jobs:
           printf '%s\n' "$actual" > "$RUNNER_TEMP/cyntch-ios-device-app.sha256"
           ditto -x -k "$archive" "$RUNNER_TEMP/cyntch-ios-device-app"
           app="$RUNNER_TEMP/cyntch-ios-device-app/Cyntch.app"
+          if [[ -n "$CYNTCH_IOS_NOTIFICATION_PRODUCER" ]]; then
+            node -e 'const b=require("fs").readFileSync(process.argv[1]),s=process.env.EXPO_PUBLIC_API_URL.replace(/\/$/,"");if(!b.includes(s)&&!b.includes(Buffer.from(s,"utf16le")))throw Error("Simulator app is not built for this test backend")' "$app/main.jsbundle"
+          fi
           codesign --verify --deep --strict "$app"
           executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Info.plist")
           xcrun lipo "$app/$executable" -verify_arch "$(uname -m)"

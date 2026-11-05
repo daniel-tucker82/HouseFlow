@@ -1,0 +1,29 @@
+appId: com.cyntch.app
+name: A signed-in parent grants iOS notification permission
+---
+# The simulator belongs to this run. Keep the real sign-in and allow the test
+# to see and tap the system dialog itself; Maestro must not auto-grant it.
+- launchApp:
+    permissions:
+      notifications: unset
+- setOrientation: PORTRAIT
+- extendedWaitUntil:
+    visible: "Cyntch emulator family"
+    timeout: 60000
+- tapOn: "(?i)^Settings(,.*)?$"
+- scrollUntilVisible:
+    element: "Choose notifications"
+    direction: DOWN
+- tapOn: "Choose notifications"
+- assertVisible: "Allow device notifications"
+- tapOn: "Allow device notifications"
+- extendedWaitUntil:
+    visible: "(?i).*would like to send you notifications.*"
+    timeout: 15000
+- takeScreenshot: ios-notifications-system-prompt
+- tapOn: "^Allow$"
+- extendedWaitUntil:
+    visible: "Notifications are allowed by this device."
+    timeout: 15000
+- takeScreenshot: ios-notifications-granted
+- pressKey: Home

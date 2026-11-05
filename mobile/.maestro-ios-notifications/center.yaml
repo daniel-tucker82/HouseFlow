@@ -1,0 +1,13 @@
+appId: com.apple.springboard
+name: The injected Cyntch alert appears in iOS Notification Center
+---
+# Do not launch Cyntch: both assertions must be in the OS, not the app inbox.
+- swipe:
+    start: "50%,0%"
+    end: "50%,85%"
+    duration: 500
+- extendedWaitUntil:
+    visible: ${ALERT_TITLE}
+    timeout: 15000
+- assertVisible: ${ALERT_BODY}
+- takeScreenshot: ios-notification-center
