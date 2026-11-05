@@ -15,6 +15,9 @@ function householdFixture(env = process.env) {
 
 function runHouseholdSmoke({ maestro, device, output, orientations }) {
   householdFixture()
+  if (process.env.CYNTCH_NATIVE_HOUSEHOLD_DELETE_CHECK === 'true') {
+    return require('./native-household-deletion-smoke.cjs').runHouseholdDeletionSmoke({ maestro, device, output, orientations })
+  }
   if (process.env.GITHUB_ACTIONS !== 'true' || !['linux', 'darwin'].includes(process.platform)) throw new Error('Use an owned Actions emulator or simulator.')
   fs.mkdirSync(output, { recursive: true })
   const result = { source: process.env.CYNTCH_ANDROID_APP_SHA || process.env.CYNTCH_IOS_APP_SHA || process.env.GITHUB_SHA,

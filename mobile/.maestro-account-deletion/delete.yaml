@@ -90,7 +90,9 @@ name: Disposable account deletion preserves its receipt and completes device cle
     text: "^Delete my account$"
     above: "(?i)^Today(,.*)?$"
     enabled: true
-- tapOn: "^Delete account$"
+- tapOn:
+    text: "^Delete account$"
+    retryTapIfNoChange: false
 - runFlow: open-status.yaml
 - takeScreenshot: deletion-accepted
 - stopApp

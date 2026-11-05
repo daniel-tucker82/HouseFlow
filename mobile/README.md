@@ -110,6 +110,13 @@ and configure the provider inventory before another full deletion journey.
 Partial evidence is saved in
 `C:/Users/danie/.codex/tmp/cyntch-native-deletion-server-evidence-42019096557.json`.
 The subsequent Android/iPhone member journeys must run sequentially.
+
+Current builds: Android `42022161954` at `b2487b1` compiles the updated app and
+then runs the ordinary member/invitation/deletion-review journey. iOS
+`42022301424` at `cfba236` is compile-only on `macos-26`; reuse that app for the
+matching iPhone journey after Android finishes. Both include `expo-clipboard`.
+The ordinary HTTPS gateway now uses the verified `6bcb8cd` backend on port 3016;
+obsolete backends 3013–3015 were stopped after checking process ownership.
 Android's explicit `household_phone_from_run` input now permits an unchanged APK
 to be reused for this journey. Both platforms retain their same-repository,
 ancestry, runtime-diff and artifact checks; household test harness changes are
@@ -119,6 +126,20 @@ Invitation confirmation now captures its screen generation. An alert opened
 before leaving, locking or disconnecting cannot revoke a link after returning,
 even after the list reloads. All six native-client checks, mobile lint and types
 passed, including this leave/return race.
+
+An explicit `verify_household_deletion` workflow input and a dedicated native
+journey are prepared for one private-schema fixture. Before any native submission,
+the runner requires a fresh backend attestation with the exact fixture, both
+households present, zero prior requests and protection of the original household.
+It never retries submission. The private test gateway also rejects deletion of
+the ordinary/second household and rejects account deletion. Parser, guard tests,
+workflow validation and mobile lint/types passed. Real local gateway checks
+confirmed these denials without submitting deletion. The private server is on
+localhost:3017, and the separate test gateway remains **off the public tunnel**.
+Do not switch the public gateway during either ordinary household journey.
+Fixture and gateway evidence are `cyntch-native-household-deletion-fixture.json`
+and `cyntch-native-household-deletion-gateway-preflight.json` under
+`C:/Users/danie/.codex/tmp/`. Actual native household deletion remains outstanding.
 
 The matching household backend build `8ae2111` passed production compilation,
 retained all 16 web palette classes, and passed real development email-code

@@ -1,0 +1,54 @@
+appId: com.cyntch.app
+name: Delete only the attested private household and preserve the account and second household
+---
+# NEVER run directly. The dedicated runner verifies the private backend before
+# this single destructive submission. The ordinary household backend disables it.
+- launchApp
+- setOrientation: ${PORTRAIT_ORIENTATION}
+- runFlow: ../.maestro-auth/verify-household.yaml
+- tapOn: "(?i)^Household(,.*)?$"
+- scrollUntilVisible:
+    element: "I understand household deletion and subscription cancellation"
+    direction: DOWN
+    centerElement: true
+    timeout: 60000
+- tapOn: "I understand household deletion and subscription cancellation"
+- assertVisible:
+    text: "I understand household deletion and subscription cancellation"
+    checked: true
+- scroll
+- scrollUntilVisible:
+    element: "^Delete this household$"
+    direction: DOWN
+- takeScreenshot: household-delete-ready
+- tapOn: "^Delete this household$"
+- assertVisible: "^Delete Cyntch emulator family[?]$"
+- tapOn:
+    text: "^Delete household$"
+    retryTapIfNoChange: false
+- extendedWaitUntil:
+    visible: "^Household to keep$"
+    timeout: 60000
+- scrollUntilVisible:
+    element: "Household data deletion and any website billing cleanup are complete.*"
+    direction: DOWN
+    centerElement: true
+    timeout: 60000
+- takeScreenshot: household-delete-receipt
+- stopApp
+- launchApp
+- tapOn: "(?i)^Today(,.*)?$"
+- assertVisible: "^Choose household: Household to keep$"
+- assertNotVisible: "Sign in or create an account"
+- tapOn: "^Choose household: Household to keep$"
+- assertNotVisible: "^Cyntch emulator family$"
+- takeScreenshot: household-delete-kept-after-restart
+- tapOn: "^Choose household: Household to keep$"
+- tapOn: "(?i)^Household(,.*)?$"
+- scrollUntilVisible:
+    element: "Household data deletion and any website billing cleanup are complete.*"
+    direction: DOWN
+    centerElement: true
+    timeout: 60000
+- takeScreenshot: household-delete-receipt-after-restart
+- stopApp

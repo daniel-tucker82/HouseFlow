@@ -35,6 +35,10 @@ on:
         description: Verify members, invitations and deletion review on the current isolated iPhone
         type: boolean
         default: false
+      verify_household_deletion:
+        description: Delete only the explicitly attested private-schema household (never repeat submission)
+        type: boolean
+        default: false
       verify_deletion_phone:
         description: Build once and verify deletion of the separately marked disposable account
         type: boolean
@@ -98,7 +102,7 @@ jobs:
           node --test scripts/device-screenshot-evidence.test.cjs
           node --test scripts/check-build-env.test.cjs
           node --test scripts/native-auth-smoke.test.cjs
-          node --test scripts/native-household-smoke.test.cjs
+          node --test scripts/native-household-smoke.test.cjs scripts/native-household-deletion-smoke.test.cjs
           node --test scripts/native-account-deletion-smoke.test.cjs
           node --test ../.github/scripts/ios-device-process.test.cjs
           node scripts/native-auth-smoke.cjs
@@ -238,8 +242,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runtime: ${{ fromJSON((inputs.verify_household_phone || inputs.verify_deletion_phone) && '["current"]' || inputs.simulator_from_run && inputs.replay_scope != 'phones' && (inputs.replay_scope == 'minimum-devices' && '["17.0"]' || '["current"]') || '["current","17.0"]') }}
-        family: ${{ fromJSON((inputs.verify_household_phone || inputs.verify_deletion_phone) && '["iphone"]' || inputs.simulator_from_run && (inputs.replay_scope == 'notifications' || inputs.replay_scope == 'phones' || inputs.replay_scope == 'account-deletion') && '["iphone"]' || '["iphone","ipad"]') }}
+        runtime: ${{ fromJSON((inputs.verify_household_phone || inputs.verify_household_deletion || inputs.verify_deletion_phone) && '["current"]' || inputs.simulator_from_run && inputs.replay_scope != 'phones' && (inputs.replay_scope == 'minimum-devices' && '["17.0"]' || '["current"]') || '["current","17.0"]') }}
+        family: ${{ fromJSON((inputs.verify_household_phone || inputs.verify_household_deletion || inputs.verify_deletion_phone) && '["iphone"]' || inputs.simulator_from_run && (inputs.replay_scope == 'notifications' || inputs.replay_scope == 'phones' || inputs.replay_scope == 'account-deletion') && '["iphone"]' || '["iphone","ipad"]') }}
     defaults:
       run:
         working-directory: mobile
@@ -252,7 +256,8 @@ jobs:
       CYNTCH_IOS_TEST_FAMILY: ${{ matrix.family }}
       CYNTCH_IOS_SIMULATOR_PRODUCER: ${{ inputs.simulator_from_run }}
       CYNTCH_IOS_REPLAY_SCOPE: ${{ inputs.verify_deletion_phone && 'account-deletion' || inputs.simulator_from_run && inputs.replay_scope || '' }}
-      CYNTCH_NATIVE_HOUSEHOLD_CHECK: ${{ inputs.verify_household_phone && 'true' || 'false' }}
+      CYNTCH_NATIVE_HOUSEHOLD_CHECK: ${{ (inputs.verify_household_phone || inputs.verify_household_deletion) && 'true' || 'false' }}
+      CYNTCH_NATIVE_HOUSEHOLD_DELETE_CHECK: ${{ inputs.verify_household_deletion && 'true' || 'false' }}
       MAESTRO_DRIVER_STARTUP_TIMEOUT: ${{ matrix.runtime == '17.0' && '360000' || '240000' }}
       EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ZW1lcmdpbmctdG9hZC05OC5jbGVyay5hY2NvdW50cy5kZXYk
       EXPO_PUBLIC_API_URL: ${{ inputs.fixture_url || 'https://cyntch-simulator.invalid' }}
@@ -289,7 +294,7 @@ jobs:
           # Never label an older app as new code.
           git -C .. diff --quiet "$sha" "$GITHUB_SHA" -- . ':!.github/' ':!tests/' ':!mobile/README.md' \
             ':!mobile/.maestro*/**' ':!mobile/scripts/ios-*-smoke.cjs' ':!mobile/scripts/native-auth-smoke.cjs' ':!mobile/scripts/native-kiosk-smoke.cjs' \
-            ':!mobile/scripts/native-notification-preferences-smoke.cjs' ':!mobile/scripts/native-household-smoke.cjs' ':!mobile/scripts/native-household-smoke.test.cjs' \
+            ':!mobile/scripts/native-notification-preferences-smoke.cjs' ':!mobile/scripts/native-household-smoke.cjs' ':!mobile/scripts/native-household-smoke.test.cjs' ':!mobile/scripts/native-household-deletion-smoke.cjs' ':!mobile/scripts/native-household-deletion-smoke.test.cjs' \
             ':!mobile/scripts/native-account-deletion-smoke.cjs' ':!mobile/scripts/native-account-deletion-smoke.test.cjs' \
             ':!lib/native-notification-outbox.ts' ':!lib/native-notification-worker.ts' ':!middleware.ts' ':!eslint.config.mjs'
           printf 'CYNTCH_IOS_APP_SHA=%s\n' "$sha" >> "$GITHUB_ENV"
