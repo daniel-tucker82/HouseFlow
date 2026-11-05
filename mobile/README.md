@@ -4,6 +4,82 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
+Latest verification, 5 November 2026, 15:32 UTC: the ordinary household journey
+now passes on both platforms. iPhone `42053184859` reused app `42022301424`
+(`cfba236`) with harness `25a66c0`. It resumed the same member whose name and
+violet colour were saved in `42047786428`, then verified selected colour,
+portrait/landscape, restart, Today display and membership removal. Invitation
+creation with three uses/seven days, copying, rotation, restart, cancelled and
+confirmed revocation, and household-deletion review/cancellation also passed.
+All eleven required captures passed; representative portrait, landscape,
+restart and board captures were visually inspected. The original household,
+tasks, memberships and notification preferences match their full saved hash.
+The Android invitation is unchanged and the one new iPhone invitation is revoked.
+No household deletion was submitted in either ordinary journey.
+
+iPhone artifact `13429975538` was verified against SHA-256
+`7dc627c9fc34b12093c839bc9b1525d86877315d17f52a842008291e2551bc42`.
+Independent server evidence is
+`C:/Users/danie/.codex/tmp/cyntch-native-ios-household-evidence-42053184859.json`.
+It complements the completed Android evidence for `42031478177` below; neither
+ordinary journey needs an unchanged rerun.
+
+Before the private deletion journeys, a read-only baseline was saved for all
+51 public-schema tables, in addition to the original household and separate
+kept-household snapshots. The standalone household deletion check uses only the
+prepared private schema. Its first Android attempt, `42056232701`, stopped at a
+Maestro download HTTP 504 before any emulator or native journey started.
+Artifact `13429637134` and logs were inspected; zero private deletion requests
+and all public tables were confirmed unchanged. One infrastructure retry of
+that job passed: the dedicated unbilled household and its data were removed,
+the receipt survived restart, and the account, provider identity and second
+household were unchanged. All 51 public tables still match the baseline.
+Artifact `13428943510` was verified against SHA-256
+`b75ca906d33df00a3e9844cebf2ac28aeac30755b3b01214b017ab85ade16eb8`;
+the retained-household and restarted receipt screenshots were inspected.
+Server/provider evidence is `cyntch-native-household-deletion-evidence-42056232701.json`
+under `C:/Users/danie/.codex/tmp/`. This proves unbilled native household deletion,
+not store cancellation or a live billing charge.
+
+Never repeat an accepted deletion submission. The fresh-account iPhone journey
+`42058332559` attempt 2 passed, reusing `42022301424` with harness `25a66c0`.
+Its normal no-email child was created through the real application endpoint.
+All nine native captures passed, including consent/cancellation, accepted receipt,
+receipt after restart, completion, native cleanup, receipt removal and a signed-out
+restart. The restarted receipt, cleanup and final signed-out captures were inspected.
+Artifact `13433300118` matched SHA-256
+`7cd7c3015d0c44b85370d1548093f9a208589d39fe9afddbbcfd379099322846`.
+
+Independent evidence `cyntch-native-deletion-v2-evidence-42058332559.json` confirms
+one completed receipt, removal of the disposable account, normal child, household,
+routine, tasks and notification data, one marked development-provider DELETE and
+a subsequent resource-not-found response. The original provider identity, household
+and unrelated private-schema observer remain. The bounded worker exited after
+completion at 16:21 UTC; do not restart it or resubmit this identity. This does not
+verify enrolled biometrics, store-purchase identity erasure or production rollout.
+All 51 public tables matched their original baseline after both private deletions,
+most recently at 16:25:41 UTC. The following ordinary-account HTTP preflight added
+exactly four read-rate-limit counts in one new minute bucket. A separate read-only
+proof verifies that counter and every other public row against the unchanged
+baseline; no database reset or replacement baseline was used. The iPhone offline
+journey `42064785358` was dispatched only after these checks and its one-time task
+baseline. It reuses app `42022301424` and must preserve earlier completion receipts.
+That first offline run passed authentication but stopped before network interruption
+or task edits. Artifact `13434677787` matched SHA-256
+`fce6c4e52528c9f18d06cd1513ea9a5e6897160b417f04f86eeb6c5963050fda`.
+The inspected simulator log shows Maestro's clear-state reinstall renamed the
+bundle to `com.cyntch.app-1793896836371.app`, while retaining the Cyntch executable.
+The harness now checks the canonical owned simulator directory, bundle identifier
+and executable, accepting this observed name as well as `Cyntch.app`. Two focused
+ownership checks and workflow validation pass. The original task/version and all
+15 earlier completion receipts remain unchanged; no offline proof is claimed yet.
+The first account attempt could not obtain a hosted ARM Mac runner: GitHub
+reported capacity constraints, with runner ID zero, no executed steps and no
+artifacts. The unused account, zero requests/provider mutations and all public
+tables were rechecked. One guarded runner-allocation retry was made; it does not
+repeat a deletion submission.
+Older chronological entries below retain their evidence and status at the time.
+
 Standalone household deletion update, 2026-11-05 (verification in progress):
 an isolated PostgreSQL audit reproduced the old route deleting an active Stripe
 billing binding without a provider call. The replacement saves a durable cleanup

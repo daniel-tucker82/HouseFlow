@@ -4,6 +4,7 @@ const { execFileSync } = require('node:child_process')
 const { authFixture } = require('./native-auth-smoke.cjs')
 const { inspectScreenshotOrientations } = require('./device-screenshot-evidence.cjs')
 const { runIOSUI } = require('../../.github/scripts/ios-device-process.cjs')
+const { ownedAppExecutable } = require('../../.github/scripts/ios-device-app.cjs')
 const network = require('../../.github/scripts/ios-device-network.cjs')
 
 function runOfflineSmoke({ maestro, device, output }) {
@@ -15,9 +16,11 @@ function runOfflineSmoke({ maestro, device, output }) {
   const inventory = JSON.parse(simctl('list', 'devices', '--json'))
   const owned = Object.values(inventory.devices).flat().find(row => row.udid === device)
   if (owned?.name !== `Cyntch-${process.env.GITHUB_RUN_ID}-iphone` || owned.state !== 'Booted') throw new Error('The offline simulator is not owned by this job.')
-  const bundle = simctl('get_app_container', device, 'com.cyntch.app', 'app')
-  if (!bundle.includes(`/Devices/${device}/`) || !bundle.endsWith('/Cyntch.app')) throw new Error('Unexpected owned application bundle.')
-  const executable = bundle + '/Cyntch'
+  const bundle = fs.realpathSync(simctl('get_app_container', device, 'com.cyntch.app', 'app'))
+  const application = { device, dataPath: fs.realpathSync(owned.dataPath), bundle,
+    identifier: command('/usr/bin/plutil', ['-extract', 'CFBundleIdentifier', 'raw', '-o', '-', path.join(bundle, 'Info.plist')]),
+    executable: command('/usr/bin/plutil', ['-extract', 'CFBundleExecutable', 'raw', '-o', '-', path.join(bundle, 'Info.plist')]) }
+  const executable = ownedAppExecutable(application)
   const pids = () => command('/bin/ps', ['-axo', 'pid=,command=']).split('\n').flatMap(line => {
     const row = /^\s*(\d+)\s+(.+)$/.exec(line)
     return row && (row[2] === executable || row[2].startsWith(executable + ' ')) ? [Number(row[1])] : []
@@ -25,6 +28,7 @@ function runOfflineSmoke({ maestro, device, output }) {
   fs.mkdirSync(output, { recursive: true })
   const folder = path.join(output, 'network')
   const result = { source: process.env.CYNTCH_IOS_APP_SHA, verificationSource: process.env.GITHUB_SHA,
+    ownedApplication: application,
     scope: 'Actual hosted interface outage: offline task completion, terminated-process restart, reconnect acknowledgement and task reopening. Uses the shared disposable task named Android offline verification.', passed: false }
   const save = () => fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify(result, null, 2))
   function flow(name, timeout = 180000) {

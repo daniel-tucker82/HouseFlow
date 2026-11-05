@@ -313,7 +313,7 @@ jobs:
           run-id: ${{ inputs.simulator_from_run || github.run_id }}
       - name: Verify bounded offline network controls
         # The interruption helper remains inactive in every other journey.
-        run: node --test ../.github/scripts/ios-device-network.test.cjs
+        run: node --test ../.github/scripts/ios-device-network.test.cjs ../.github/scripts/ios-device-app.test.cjs
       - name: Verify and unpack the exact compiled app
         run: |
           set -euo pipefail
