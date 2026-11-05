@@ -85,15 +85,32 @@ def prepareClerkUi = tasks.register('prepareClerkUi') {
     def topBarSource = topBar.getText('UTF-8').replace('\r\n', '\n')
     def topBarInsets = '.windowInsetsPadding(WindowInsets.statusBars)'
     def insetsImport = 'import androidx.compose.foundation.layout.WindowInsets\n'
-    if (topBarSource.count(topBarInsets) != 1 || topBarSource.count(insetsImport) != 1) {
+    def topBarPadding = '.padding(vertical = dp8)'
+    def topBarColor = 'val resolvedBackgroundColor = backgroundColor ?: ClerkMaterialTheme.colors.muted'
+    if (topBarSource.count(topBarInsets) != 1 || topBarSource.count(insetsImport) != 1 ||
+        topBarSource.count(topBarPadding) != 1 || topBarSource.count(topBarColor) != 1) {
       throw new GradleException('Clerk top bar changed; review safe-area patch.')
     }
+    // A landscape IME plus enlarged text can leave less space than the complete
+    // outlined field (including its floating label). Remove only the header's
+    // decorative vertical padding while typing; keep its 48dp controls and all
+    // safe-area insets. The normal header spacing returns with keyboard dismissal.
     topBar.setText(topBarSource.replace(topBarInsets,
       '.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top))')
+      .replace(topBarPadding, '.padding(vertical = if (compactKeyboardHeader) 0.dp else dp8)')
+      .replace(topBarColor, topBarColor + '\n' +
+        '    val compactKeyboardHeader =\n' +
+        '      WindowInsets.ime.getBottom(LocalDensity.current) > 0 &&\n' +
+        '        LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE')
       .replace(insetsImport, insetsImport +
+        'import android.content.res.Configuration\n' +
         'import androidx.compose.foundation.layout.WindowInsetsSides\n' +
+        'import androidx.compose.foundation.layout.ime\n' +
         'import androidx.compose.foundation.layout.only\n' +
-        'import androidx.compose.foundation.layout.safeDrawing\n'), 'UTF-8')
+        'import androidx.compose.foundation.layout.safeDrawing\n' +
+        'import androidx.compose.ui.platform.LocalConfiguration\n' +
+        'import androidx.compose.ui.platform.LocalDensity\n' +
+        'import androidx.compose.ui.unit.dp\n'), 'UTF-8')
     // Fixed button heights clip scaled text plus the upstream content padding.
     // Preserve the minimum target, allowing the measured content to grow.
     [

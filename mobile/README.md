@@ -16,8 +16,11 @@ APK SHA-256 `87818e2756ac72365d7bac35a7daba4a0aeb51045726da3a97b55f36c7bcdcb8`.
 The tablet landscape board and phone board after restart show the correct test
 household and task dependencies. Visual review still found the floating email
 label partly clipped above the populated field on the phone's 1.6x landscape
-keyboard capture. Input is usable and the automated checks passed, but that
-remaining layout issue must be investigated before calling sign-in polished.
+keyboard capture. The next build removes the header's 8 dp top/bottom decorative
+padding when a landscape keyboard occupies the screen, making 16 dp more room
+for the outlined field and label. Close/Back retain their 48 dp controls and
+safe insets. The pinned source preparation passes; verify the complete label,
+typed value, keyboard and restored spacing after dismissal on the new build.
 
 The next Android matrix uses Android 17/API 37 (`37.0` SDK packages) with 16 KB
 memory pages, retaining the API 24 minimum check. A separate Pixel Fold job
