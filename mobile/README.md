@@ -4,6 +4,30 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
+Current release checkpoint, 5 November 2026, 17:25 UTC: approximately 84% of the
+overall goal is complete. Ordinary household controls pass on both platforms;
+private Android household deletion and private iPhone account deletion now have
+native, database and provider preservation evidence. The public deletion-request
+page and configurable native privacy/terms links are implemented and locally
+checked. Production release gates are still closed.
+
+iPhone offline/restart verification remains open. The corrected harness in
+`686fdcb` is compatible with app `42022301424`, but both allocation attempts of
+`42068443688` ended without a runner, executed steps or artifacts. GitHub explicitly
+reported ARM Mac capacity constraints (jobs `127389253643`, `127400192788`).
+The original task/version and all 15 prior receipts are unchanged. Preserve the
+one-time offline baseline. The existing run retains its original source for a
+later inspected retry; do not claim the older binary contains the subsequent
+policy-link changes in `5377c39` or relax runtime compatibility checks.
+
+Further release work needs authenticated Expo/project and store access, signing
+and push credentials, actual store/RevenueCat catalogs and sandbox checks,
+confirmed public policy URLs and a monitored deletion-request mailbox/process.
+Expo CLI and the business browser are signed out; sign-in and policy/contact
+details have been requested from the owner. Physical-device accessibility and
+performance checks, real provider push, store billing, production rollout and
+household pilot results remain unverified. No store submission has been made.
+
 Latest verification, 5 November 2026, 15:32 UTC: the ordinary household journey
 now passes on both platforms. iPhone `42053184859` reused app `42022301424`
 (`cfba236`) with harness `25a66c0`. It resumed the same member whose name and
@@ -4401,7 +4425,7 @@ actual privacy policy and terms URLs/content, verified store metadata and an
 accessible native privacy-policy link. This page alone does not establish
 store compliance or completed deletion-service operation.
 
-### Native privacy and terms links (prepared separately, 5 November 2026)
+### Native privacy and terms links (integrated, 5 November 2026)
 
 The welcome screen, Settings and subscription options can open the actual public
 privacy policy and terms in the device browser. Links wrap at narrow widths and
@@ -4422,3 +4446,6 @@ bundle verification; no configured live policy URL is supplied. These checks
 do not establish that configured pages are reachable or that their content is
 accurate: public access and actual device link opening remain release checks.
 No legal text, live policy URL or contact address was invented or published.
+The separately tested change `2ef0794` was integrated as `5377c39`; its mobile
+source and configuration files match exactly. Native device opening with real
+published policies is still outstanding.
