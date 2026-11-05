@@ -274,6 +274,19 @@ readback. Failures at this stage retain host/process/service diagnostics before
 cleanup. No authentication, mutation or destructive journey is retried by this
 change, and their deadlines and required evidence are unchanged.
 
+Replay `42043907744` passed that setup and native sign-in. It verified the exact
+draft name and cancelled it without saving, then missed Rename after the form
+collapsed and moved the control above the current scroll position. Artifact
+`13425221166` matches
+`4ea239a98625ffee5b3bab02187c085b9bb51dbed942f7804eadb7c4a6eac68d`;
+the pre-cancel screenshot, failed hierarchy and command timeline were inspected.
+No saved rename, invitation or deletion occurred. The original data remains
+unchanged apart from the same known temporary membership. The harness now
+scrolls upward and centres Rename before reopening the form, retaining a
+pre-tap capture. Parser, workflow validation and mobile lint/types passed.
+Resume `42047786428` uses this correction at `b8619d6` and the same `cfba236`
+app; its final evidence is still pending at this checkpoint.
+
 Focused household, account-deletion and offline journeys now perform real native
 email-code sign-in and require its four rendered captures, then proceed directly
 to their own checks. They do not repeat the already verified household chooser,
@@ -4299,6 +4312,13 @@ rendered without horizontal overflow. Evidence is under
 tests passed, including the exact public-path boundary and unchanged protection
 of account APIs and app routes. Root lint and TypeScript passed. No email was
 sent, no production deployment was made, and the example address is preview-only.
+
+The production web build also passed. The same compiled build returned 404 with
+the request gate disabled and 200 with the reserved preview contact enabled,
+confirming that activation is read at request time. Build ID, screenshot/log
+digests and check results are saved in
+`C:/Users/danie/.codex/tmp/cyntch-public-deletion-evidence.json`. Local preview
+servers were stopped after verification.
 
 Release still requires the real mailbox/process, deployed public deletion URL,
 actual privacy policy and terms URLs/content, verified store metadata and an
