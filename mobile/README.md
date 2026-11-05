@@ -199,9 +199,25 @@ The assertion now checks length separately. An explicit
 without creating another one or repeating member checks. This is restricted to
 the ordinary isolated account and cannot be combined with deletion submission.
 Creation evidence is `cyntch-native-invitation-created-42029794743.json` under
-`C:/Users/danie/.codex/tmp/`. Copy, restart, revocation and household deletion
-review remain unverified. The iOS reuse comparison now excludes the inspected
+`C:/Users/danie/.codex/tmp/`. At this point, copy, restart, revocation and household
+deletion review were unverified. The iOS reuse comparison excludes the inspected
 Android-only test harness change; application runtime inputs are unchanged.
+
+Android invitation resume `42031478177` passed, reusing the same app and existing
+link. All six invitation/deletion-review captures passed, including rotation,
+restart, copy confirmation, cancelled/confirmed revocation, deletion consent and
+cancelled deletion. Artifact `13415584923` was verified against
+`a0997095257dda903dd82978c8ac11d71484a4940c05cec5006ad4add2b6ec6b`;
+portrait/restart and landscape captures were visually inspected. Combined with
+the five member captures from `42027492013` and creation in `42029794743`, this
+completes the ordinary Android household journey. PostgreSQL confirms exactly
+one invitation, now revoked, with its original limits intact; the original
+household, tasks, members and notification preferences match their saved hash.
+No household deletion request was submitted. Evidence is
+`C:/Users/danie/.codex/tmp/cyntch-native-android-household-evidence-42031478177.json`.
+The matching full iPhone journey `42032868908` is running at `7ed7e61`, reusing
+simulator producer `42022301424`; its result remains outstanding. Run the iPhone
+offline task mutation only after the private deletion preservation checks finish.
 
 Invitation confirmation now captures its screen generation. An alert opened
 before leaving, locking or disconnecting cannot revoke a link after returning,
