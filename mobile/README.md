@@ -118,6 +118,20 @@ Read-only database checks found zero deletion requests and unchanged original
 household/preferences; no provider deletion was attempted. This is a corrected
 test-driver failure, not a completed deletion journey or an automatic retry.
 
+Follow-up `42003584413` again passed real sign-in but stopped at the initial
+disabled-button check, before any submission. Artifact `13404093066`, SHA-256
+`f67667e31bd5cd109244a8d0bea04d15f414ffc1d384080d05843e8fa3a4d13d`, shows the
+button fully visible at y=702–750, above the tab bar at y=791. Repeated scrolling
+could not move the final page item into Maestro's centring threshold. The submit
+selectors now require `above: Today` instead of centring. The actual pinned
+Maestro selector engine was run against both retained screen hierarchies: it
+rejects the first obscured button and accepts the second visible button. Receipt
+and status controls also no longer require an unreachable centred position.
+Zero deletion requests and the original fixture hash were rechecked. An explicit
+fresh-build deletion scope can now test the updated app once, then reuse that
+verified binary for the separate household journey. Native deletion remains
+unverified until that complete journey and provider/database evidence pass.
+
 Current verification checkpoint, 2026-11-05: Android authenticated phone/tablet,
 API 24, fold posture/input retention, native permission and system settings have
 passed in the runs detailed below. The API 37 tablet kiosk journey passed in

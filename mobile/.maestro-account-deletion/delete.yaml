@@ -16,8 +16,11 @@ name: Disposable account deletion preserves its receipt and completes device cle
     visible: "Your account and content"
     timeout: 60000
 - scrollUntilVisible:
-    centerElement: true
-    element: "Delete my account"
+    # Visibility must be inside the content area, above the bottom tabs. The
+    # final button cannot reach Maestro's centring threshold at the page end.
+    element:
+      text: "^Delete my account$"
+      above: "(?i)^Today(,.*)?$"
     direction: DOWN
 - assertVisible:
     text: "Delete my account"
@@ -45,8 +48,9 @@ name: Disposable account deletion preserves its receipt and completes device cle
     text: "I understand the account and household deletion consequences"
     checked: true
 - scrollUntilVisible:
-    centerElement: true
-    element: "Delete my account"
+    element:
+      text: "^Delete my account$"
+      above: "(?i)^Today(,.*)?$"
     direction: DOWN
 - assertVisible:
     text: "Delete my account"
@@ -60,13 +64,17 @@ name: Disposable account deletion preserves its receipt and completes device cle
     text: "I understand the subscription consequences"
     checked: true
 - scrollUntilVisible:
-    centerElement: true
-    element: "Delete my account"
+    element:
+      text: "^Delete my account$"
+      above: "(?i)^Today(,.*)?$"
     direction: DOWN
 - assertVisible:
     text: "Delete my account"
     enabled: true
-- tapOn: "Delete my account"
+- tapOn:
+    text: "^Delete my account$"
+    above: "(?i)^Today(,.*)?$"
+    enabled: true
 - assertVisible: "^Delete your Cyntch account[?]$"
 - tapOn: "^Keep account$"
 - assertNotVisible: "^Delete your Cyntch account[?]$"
@@ -74,7 +82,10 @@ name: Disposable account deletion preserves its receipt and completes device cle
     text: "Delete my account"
     enabled: true
 - takeScreenshot: deletion-cancelled-confirmation
-- tapOn: "Delete my account"
+- tapOn:
+    text: "^Delete my account$"
+    above: "(?i)^Today(,.*)?$"
+    enabled: true
 - tapOn: "^Delete account$"
 - runFlow: open-status.yaml
 - takeScreenshot: deletion-accepted
@@ -89,7 +100,6 @@ name: Disposable account deletion preserves its receipt and completes device cle
       notVisible: "^Account deleted$"
     commands:
       - scrollUntilVisible:
-          centerElement: true
           element:
             text: "^Check status$"
             enabled: true
@@ -113,7 +123,6 @@ name: Disposable account deletion preserves its receipt and completes device cle
     commands:
       - tapOn: "Retry device cleanup"
 - scrollUntilVisible:
-    centerElement: true
     element: "Remove saved receipt"
     direction: DOWN
     timeout: 60000

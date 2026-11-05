@@ -31,6 +31,10 @@ on:
         description: Verify member editing on the current isolated iPhone
         type: boolean
         default: false
+      verify_deletion_phone:
+        description: Build once and verify deletion of the separately marked disposable account
+        type: boolean
+        default: false
       runner:
         description: Build host and architecture (iOS 17 phone uses a matching macOS 15 host)
         type: choice
@@ -91,6 +95,7 @@ jobs:
           node --test scripts/check-build-env.test.cjs
           node --test scripts/native-auth-smoke.test.cjs
           node --test scripts/native-household-smoke.test.cjs
+          node --test scripts/native-account-deletion-smoke.test.cjs
           node --test ../.github/scripts/ios-device-process.test.cjs
           node scripts/native-auth-smoke.cjs
       - name: Verify native account-cache inspection
@@ -229,8 +234,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runtime: ${{ fromJSON(inputs.verify_household_phone && '["current"]' || inputs.simulator_from_run && inputs.replay_scope != 'phones' && (inputs.replay_scope == 'minimum-devices' && '["17.0"]' || '["current"]') || '["current","17.0"]') }}
-        family: ${{ fromJSON(inputs.verify_household_phone && '["iphone"]' || inputs.simulator_from_run && (inputs.replay_scope == 'notifications' || inputs.replay_scope == 'phones' || inputs.replay_scope == 'account-deletion') && '["iphone"]' || '["iphone","ipad"]') }}
+        runtime: ${{ fromJSON((inputs.verify_household_phone || inputs.verify_deletion_phone) && '["current"]' || inputs.simulator_from_run && inputs.replay_scope != 'phones' && (inputs.replay_scope == 'minimum-devices' && '["17.0"]' || '["current"]') || '["current","17.0"]') }}
+        family: ${{ fromJSON((inputs.verify_household_phone || inputs.verify_deletion_phone) && '["iphone"]' || inputs.simulator_from_run && (inputs.replay_scope == 'notifications' || inputs.replay_scope == 'phones' || inputs.replay_scope == 'account-deletion') && '["iphone"]' || '["iphone","ipad"]') }}
     defaults:
       run:
         working-directory: mobile
@@ -242,7 +247,7 @@ jobs:
       CYNTCH_IOS_TEST_RUNTIME: ${{ matrix.runtime == '17.0' && '17.0' || '' }}
       CYNTCH_IOS_TEST_FAMILY: ${{ matrix.family }}
       CYNTCH_IOS_SIMULATOR_PRODUCER: ${{ inputs.simulator_from_run }}
-      CYNTCH_IOS_REPLAY_SCOPE: ${{ inputs.simulator_from_run && inputs.replay_scope || '' }}
+      CYNTCH_IOS_REPLAY_SCOPE: ${{ inputs.verify_deletion_phone && 'account-deletion' || inputs.simulator_from_run && inputs.replay_scope || '' }}
       CYNTCH_NATIVE_HOUSEHOLD_CHECK: ${{ inputs.verify_household_phone && 'true' || 'false' }}
       MAESTRO_DRIVER_STARTUP_TIMEOUT: ${{ matrix.runtime == '17.0' && '360000' || '240000' }}
       EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ZW1lcmdpbmctdG9hZC05OC5jbGVyay5hY2NvdW50cy5kZXYk
@@ -311,6 +316,11 @@ jobs:
           executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Info.plist")
           xcrun lipo "$app/$executable" -verify_arch "$(uname -m)"
           test "$('/usr/libexec/PlistBuddy' -c 'Print :MinimumOSVersion' "$app/Info.plist")" = '17.0'
+          if [[ -z "$CYNTCH_IOS_SIMULATOR_PRODUCER" ]]; then
+            # This artifact came from this run's compile job and passed all
+            # digest/signature/architecture checks above.
+            printf 'CYNTCH_IOS_APP_SHA=%s\n' "$GITHUB_SHA" >> "$GITHUB_ENV"
+          fi
       - name: Install the original iOS 17 runtime from Apple
         if: matrix.runtime == '17.0'
         timeout-minutes: 20
