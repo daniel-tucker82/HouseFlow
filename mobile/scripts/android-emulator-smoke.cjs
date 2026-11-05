@@ -6,6 +6,7 @@ const { createHash } = require('node:crypto')
 const { execFileSync, spawnSync } = require('node:child_process')
 const { androidOrientationParameters, inspectScreenshotOrientations } = require('./device-screenshot-evidence.cjs')
 const { authFixture, runAuthenticatedSmoke } = require('./native-auth-smoke.cjs')
+const { runKioskSmoke } = require('./native-kiosk-smoke.cjs')
 
 if (process.platform !== 'linux' || process.env.GITHUB_ACTIONS !== 'true') {
   throw new Error('Run this verification on the Linux GitHub Actions host.')
@@ -98,6 +99,10 @@ try {
     report.authentication = runAuthenticatedSmoke({ maestro, device: serial, output: path.join(output, 'authenticated'), orientations: report.orientations, fixture })
   }
   if (report.authentication && !report.authentication.passed) throw new Error(report.authentication.error)
+  if (report.authentication?.passed && report.avd === 'cyntch-tablet') {
+    report.kiosk = runKioskSmoke({ maestro, device: serial, output: path.join(output, 'kiosk'), orientations: report.orientations })
+    if (!report.kiosk.passed) throw new Error(report.kiosk.error)
+  }
   if (report.authentication?.passed && report.avd === 'cyntch-phone') {
     const folder=path.join(output,'notifications')
     fs.mkdirSync(folder,{recursive:true})

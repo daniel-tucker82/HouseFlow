@@ -6,6 +6,7 @@ const { execFileSync, spawnSync } = require('node:child_process')
 const { inspectScreenshotOrientations } = require('./device-screenshot-evidence.cjs')
 const { authFixture, runAuthenticatedSmoke } = require('./native-auth-smoke.cjs')
 const { runNotificationSmoke } = require('./ios-notification-smoke.cjs')
+const { runKioskSmoke } = require('./native-kiosk-smoke.cjs')
 
 if (process.platform !== 'darwin' || process.env.GITHUB_ACTIONS !== 'true') {
   throw new Error('Run this verification on the macOS GitHub Actions host.')
@@ -162,6 +163,12 @@ for (const [index, template] of devices.entries()) {
         orientations: { portrait: 'PORTRAIT', landscape: 'LANDSCAPE_LEFT' }, fixture })
     }
     if (result.authentication && !result.authentication.passed) throw new Error(result.authentication.error)
+    if (result.authentication?.passed && label === 'ipad' && !requestedRuntime) {
+      stage('kiosk-restart-and-parent-access')
+      result.kiosk = runKioskSmoke({ maestro, device: ownedDevice, output: path.join(folder, 'kiosk'),
+        orientations: { portrait: 'PORTRAIT', landscape: 'LANDSCAPE_LEFT' } })
+      if (!result.kiosk.passed) throw new Error(result.kiosk.error)
+    }
     if (result.authentication?.passed && label === 'iphone' && !requestedRuntime && (!replay || notificationsOnly)) {
       stage('notification-permission-and-center')
       result.notifications = runNotificationSmoke({device:ownedDevice,maestro,output:path.join(folder,'notifications')})

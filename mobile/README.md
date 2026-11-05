@@ -4,6 +4,35 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
+Latest verification checkpoint, 2026-11-05: `41956061411` passed native sign-in,
+household/task loading, portrait/landscape and authenticated restart on both
+original iOS 17.0 iPhone and iPad simulators; both also passed the signed-out
+keyboard journeys at default and accessibility text sizes. Android `41956935789`
+passed phone/tablet authentication, rotation, restart and selected-household
+accessibility assertions, plus API 24. Its foldable failure showed the emulator's
+swipe lock over Cyntch; the next harness disables only that owned emulator's
+nonsecure swipe lock and restores its previous setting afterward.
+
+`41955389110` demonstrated the actual iOS permission dialog and simulated alert
+in Notification Center. Its post-delivery still images did not prove a banner.
+The newer harness starts a video before delivery and requires the unique alert
+title in a captured banner frame. This still requires a successful device run;
+simulator injection does not establish APNs delivery. Android `41959523059` is
+verifying the dedicated packaged notification icon, real permission dialog and
+navigation to the native notification settings.
+
+The next authenticated tablet checks add `.maestro-kiosk/lock.yaml`: enable a
+device-specific lock, show the restricted board in both orientations, restart,
+attempt a settings deep link, reject an incorrect PIN, accept the correct PIN,
+wait for unlock acknowledgement and restart again. The flow preserves the real
+signed-in session and never clears app data to pass a persistence assertion. It
+changes no household task or member. Seven named screenshots and successful UI
+assertions are required. Local lint/types, YAML/JavaScript parsing and the eight
+fixture/screenshot checks pass; these new tablet checks have not yet run on a
+native device. Physical-device, provider delivery, billing and pilot evidence
+remain separate requirements. Older checkpoints below describe their source at
+the time and are superseded where newer evidence is recorded.
+
 Android run `41867082612` (`93777e1`) passed the optimized API 36 phone/tablet
 matrix at 1x/1.6x text, including software-keyboard rotation, retained input,
 keyboard dismissal and app Back handling. Both devices also passed real native

@@ -268,7 +268,7 @@ jobs:
           # Only verification and documentation changes are permitted between
           # the producer and this run. Never label an older app as new code.
           git -C .. diff --quiet "$sha" "$GITHUB_SHA" -- . ':!.github/' ':!tests/' ':!mobile/README.md' \
-            ':!mobile/.maestro*/**' ':!mobile/scripts/ios-*-smoke.cjs' ':!mobile/scripts/native-auth-smoke.cjs'
+            ':!mobile/.maestro*/**' ':!mobile/scripts/ios-*-smoke.cjs' ':!mobile/scripts/native-auth-smoke.cjs' ':!mobile/scripts/native-kiosk-smoke.cjs'
           printf 'CYNTCH_IOS_APP_SHA=%s\n' "$sha" >> "$GITHUB_ENV"
       - name: Download the selected compiled simulator app
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2

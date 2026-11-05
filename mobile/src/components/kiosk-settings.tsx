@@ -6,9 +6,9 @@ import { useKiosk } from "../providers/kiosk"
 import { useBoard } from "../providers/runtime"
 import { Action, Card, Copy, styles, usePalette } from "./ui"
 
-export function ParentPinInput({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+export function ParentPinInput({ label, value, onChange, testID = "kiosk-parent-pin" }: { label: string; value: string; onChange: (value: string) => void; testID?: string }) {
   const colors = usePalette()
-  return <View style={{ gap: 8 }}><Copy tone="label">{label}</Copy><TextInput accessibilityLabel={label} value={value} onChangeText={text => onChange(text.replace(/\D/g, "").slice(0, 6))}
+  return <View style={{ gap: 8 }}><Copy tone="label">{label}</Copy><TextInput testID={testID} accessibilityLabel={label} value={value} onChangeText={text => onChange(text.replace(/\D/g, "").slice(0, 6))}
     secureTextEntry keyboardType="number-pad" maxLength={6} autoComplete="off" autoCorrect={false} textContentType="none"
     style={{ minHeight: 52, borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 14, fontSize: 22, color: colors.text, backgroundColor: colors.surface }} /></View>
 }
@@ -42,7 +42,7 @@ export function KioskSettingsCard() {
           <View style={[styles.row, { justifyContent: "space-between" }]}><Copy style={{ flex: 1 }}>Allow completion and reopening</Copy><Switch accessibilityLabel={`Allow task updates for ${member.name}`} disabled={!visible.includes(member.id)} value={editable.includes(member.id)} onValueChange={enabled => setEditable(values => enabled ? [...values, member.id] : values.filter(id => id !== member.id))} /></View>
         </Card>)}
         <ParentPinInput label="Parent PIN (six digits)" value={pin} onChange={setPin} />
-        <ParentPinInput label="Confirm parent PIN" value={confirm} onChange={setConfirm} />
+        <ParentPinInput testID="kiosk-confirm-pin" label="Confirm parent PIN" value={confirm} onChange={setConfirm} />
         <Copy tone="muted">Keep this PIN private. If you forget it, you can recover access by signing in to your parent account while online.</Copy>
         <Action label="Enable kiosk mode" disabled={!visible.length || pin.length !== 6 || confirm.length !== 6 || state.changing} onPress={() => void enable()} />
         <Action secondary label="Cancel" onPress={close} />

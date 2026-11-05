@@ -1,0 +1,14 @@
+appId: com.cyntch.app
+---
+- extendedWaitUntil:
+    visible: "FAMILY DISPLAY"
+    timeout: 60000
+- assertVisible: "Parent access"
+- assertNotVisible: "(?i)^Settings(,.*)?$"
+- assertNotVisible: "(?i)^Routines(,.*)?$"
+- assertNotVisible: "^Choose household:.*"
+- scrollUntilVisible:
+    element: "^Pack school bag for tomorrow.*"
+    direction: DOWN
+    timeout: 20000
+- assertVisible: "^Pack school bag for tomorrow.*"

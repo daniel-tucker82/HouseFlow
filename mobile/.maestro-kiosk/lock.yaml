@@ -1,0 +1,122 @@
+appId: com.cyntch.app
+name: Family display survives restart and rejects parent routes and an incorrect PIN
+---
+# Run only after real sign-in to the isolated development fixture on an owned
+# emulator. Its device/session lock does not change any household tasks.
+- launchApp
+- setOrientation: ${PORTRAIT_ORIENTATION}
+- runFlow: ../.maestro-auth/verify-household.yaml
+- tapOn: "(?i)^Settings(,.*)?$"
+- scrollUntilVisible:
+    element: "Set up kiosk mode"
+    direction: DOWN
+- tapOn: "Set up kiosk mode"
+- assertVisible: "Set up family display"
+- scrollUntilVisible:
+    element:
+      id: "kiosk-parent-pin"
+    direction: DOWN
+    centerElement: true
+- tapOn:
+    id: "kiosk-parent-pin"
+- inputText: "246810"
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: "kiosk-confirm-pin"
+    direction: DOWN
+    centerElement: true
+- tapOn:
+    id: "kiosk-confirm-pin"
+- inputText: "246810"
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - hideKeyboard
+- scrollUntilVisible:
+    element: "Enable kiosk mode"
+    direction: DOWN
+    centerElement: true
+- tapOn: "Enable kiosk mode"
+- runFlow: verify-locked.yaml
+- extendedWaitUntil:
+    notVisible: "Finishing secure setup. Please keep Cyntch open until this message disappears."
+    timeout: 60000
+- assertNotVisible: "Setup needs a parent’s attention."
+- takeScreenshot: kiosk-locked-portrait
+- setOrientation: ${LANDSCAPE_ORIENTATION}
+- runFlow: verify-locked.yaml
+- takeScreenshot: kiosk-locked-landscape
+- setOrientation: ${PORTRAIT_ORIENTATION}
+- stopApp
+- launchApp
+- runFlow: verify-locked.yaml
+- takeScreenshot: kiosk-locked-after-restart
+- openLink: "cyntch://settings"
+- runFlow:
+    when:
+      visible: '(?i).*open.*Cyntch.*'
+    commands:
+      - tapOn: "^Open$"
+- runFlow: verify-locked.yaml
+- takeScreenshot: kiosk-blocked-settings-link
+- tapOn: "Parent access"
+- tapOn:
+    id: "kiosk-parent-pin"
+- inputText: "135791"
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - hideKeyboard
+- scrollUntilVisible:
+    element: "Unlock parent controls"
+    direction: DOWN
+    centerElement: true
+- tapOn: "Unlock parent controls"
+- assertVisible: "That PIN did not match. Please try again."
+- takeScreenshot: kiosk-incorrect-pin
+- tapOn: "Back to family tasks"
+- runFlow: verify-locked.yaml
+- tapOn: "Parent access"
+- tapOn:
+    id: "kiosk-parent-pin"
+- inputText: "246810"
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - hideKeyboard
+- scrollUntilVisible:
+    element: "Unlock parent controls"
+    direction: DOWN
+    centerElement: true
+- tapOn: "Unlock parent controls"
+# The settings link remains the requested route after unlocking. Requiring the
+# setup button to be enabled also waits for the server to acknowledge unlock.
+- extendedWaitUntil:
+    visible: "(?i)^Settings(,.*)?$"
+    timeout: 60000
+- tapOn: "(?i)^Settings(,.*)?$"
+- scrollUntilVisible:
+    element: "Set up kiosk mode"
+    direction: DOWN
+    timeout: 60000
+- assertVisible:
+    text: "Set up kiosk mode"
+    enabled: true
+- tapOn: "(?i)^Today(,.*)?$"
+- runFlow: ../.maestro-auth/verify-household.yaml
+- assertNotVisible: "FAMILY DISPLAY"
+- takeScreenshot: kiosk-parent-restored
+- stopApp
+- launchApp
+- runFlow: ../.maestro-auth/verify-household.yaml
+- assertNotVisible: "FAMILY DISPLAY"
+- takeScreenshot: kiosk-parent-after-restart
+- stopApp
