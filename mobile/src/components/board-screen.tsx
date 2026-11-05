@@ -131,7 +131,9 @@ function BoardWorkspace({ kiosk, onParentAccess, notice }: BoardProps) {
   return <SafeAreaView edges={kiosk ? ["top", "left", "right", "bottom"] : ["top", "left", "right"]} style={{ flex: 1, backgroundColor: colors.background }}>
     <View style={[boardStyles.top, { borderBottomColor: colors.border }]}>
       <View style={{ flex: 1, gap: 3 }}><Copy tone="label" style={{ color: colors.primary, letterSpacing: 1.5 }}>{kiosk ? "FAMILY DISPLAY" : "CYNTCH"}</Copy>
-        {kiosk ? <Copy tone="heading">{board?.household.name ?? "Family tasks"}</Copy> : <Pressable accessibilityRole="button" accessibilityLabel="Choose household" onPress={() => setShowHouseholds(value => !value)} style={styles.row}>
+        {kiosk ? <Copy tone="heading">{board?.household.name ?? "Family tasks"}</Copy> : <Pressable accessibilityRole="button"
+          accessibilityLabel={board ? `Choose household: ${board.household.name}` : "Choose household"}
+          accessibilityState={{ expanded: showHouseholds }} onPress={() => setShowHouseholds(value => !value)} style={styles.row}>
           <Copy tone="heading" style={{ flexShrink: 1 }}>{board?.household.name ?? "Your household"}</Copy><ChevronDown size={18} color={colors.muted} />
         </Pressable>}
       </View>
@@ -140,7 +142,8 @@ function BoardWorkspace({ kiosk, onParentAccess, notice }: BoardProps) {
     </View>
     {notice}
     {showHouseholds && !kiosk ? <ScrollView style={{ maxHeight: height * 0.3 }} contentContainerStyle={{ padding: 16, gap: 8 }}>
-      {state.households.map(household => <Action key={household.id} secondary label={household.name} onPress={() => {
+      {state.households.map(household => <Action key={household.id} selected={household.id === board?.household.id}
+        secondary={household.id !== board?.household.id} label={household.name} onPress={() => {
         setShowHouseholds(false); setMember(null); void controller.selectHousehold(household.id).catch(error => Alert.alert("Unable to switch household", error.message))
       }} />)}
     </ScrollView> : null}

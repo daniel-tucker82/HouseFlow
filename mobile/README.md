@@ -105,10 +105,14 @@ digest, architecture, signature and embedded test backend before using the app.
 
 In [the current iPhone notification run](https://github.com/daniel-tucker82/HouseFlow/actions/runs/41952474966),
 the failure capture shows the signed-in household and its two tasks. The matching
-accessibility snapshot labels the header “Choose household”; the rendered name
-is not a separate iOS accessibility element. The test now opens the chooser to
-confirm the exact fixture name, closes it, and checks the fixture task before
-each board capture. That run did not reach the notification or restart checks.
+accessibility snapshot labels the older build's header “Choose household”; the
+rendered name was not available to a screen reader without opening the menu.
+The board now includes the active name in the button's accessible label and
+exposes whether the chooser is expanded. In the chooser, the active household
+is highlighted and marked selected. The authenticated tests on both platforms
+require the name on the collapsed button in portrait, landscape and after
+restart, and verify the selected option when the chooser is open. The older
+run did not reach the notification or restart checks.
 On the original iOS 17.0 phone the application installed and launched, but the
 XCTest driver timed out before running the journey. Minimum-OS phone tests now use
 the same simulator binary with Xcode 16.4 on a matching macOS 15 host. The

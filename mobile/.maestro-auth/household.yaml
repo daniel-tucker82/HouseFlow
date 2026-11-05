@@ -51,6 +51,12 @@ name: Native sign-in opens the household and preserves the session
 - inputText: "424242"
 - runFlow: verify-household.yaml
 - takeScreenshot: authenticated-board-portrait
+- tapOn: "^Choose household: Cyntch emulator family$"
+- assertVisible:
+    text: "^Cyntch emulator family$"
+    selected: true
+- takeScreenshot: authenticated-household-chooser
+- tapOn: "^Choose household: Cyntch emulator family$"
 - setOrientation: ${LANDSCAPE_ORIENTATION}
 - runFlow: verify-household.yaml
 - takeScreenshot: authenticated-board-landscape

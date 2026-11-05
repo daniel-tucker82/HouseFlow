@@ -34,7 +34,8 @@ function runAuthenticatedSmoke({ maestro, device, output, orientations, fixture 
       timeout: process.platform !== 'darwin' ? 300_000 : process.env.CYNTCH_IOS_TEST_RUNTIME === '17.0' ? 720_000 : 540_000, env: process.env })
     result.exitCode = run.status
     result.orientationEvidence = inspectScreenshotOrientations(output, {
-      'authenticated-board-portrait.png': 'portrait', 'authenticated-board-landscape.png': 'landscape',
+      'authenticated-board-portrait.png': 'portrait', 'authenticated-household-chooser.png': 'portrait',
+      'authenticated-board-landscape.png': 'landscape',
       'authenticated-board-after-restart.png': 'portrait',
     }, { includeStartup: false })
     if (run.error || run.status !== 0) throw new Error(`Authenticated native flow failed (${run.error?.code ?? run.status}).`)
