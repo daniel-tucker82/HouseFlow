@@ -1,0 +1,35 @@
+appId: com.cyntch.app
+---
+- extendedWaitUntil:
+    notVisible: ".*change saved on this device.*"
+    timeout: 60000
+- assertNotVisible: "You’re offline. You can still complete saved tasks."
+- assertVisible:
+    text: "^Android offline verification,.*"
+    checked: true
+- takeScreenshot: offline-completion-synced
+# Restore the disposable task through the app, requiring acknowledgement again.
+- tapOn:
+    text: "^Android offline verification,.*"
+    checked: true
+- assertVisible:
+    text: "^Android offline verification,.*"
+    checked: false
+- extendedWaitUntil:
+    notVisible: ".*change saved on this device.*"
+    timeout: 60000
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: "^Choose household: Cyntch emulator family$"
+    timeout: 60000
+- tapOn: "^All$"
+- scrollUntilVisible:
+    element: "^Android offline verification,.*"
+    direction: DOWN
+- assertVisible:
+    text: "^Android offline verification,.*"
+    checked: false
+- assertNotVisible: ".*change saved on this device.*"
+- takeScreenshot: offline-task-restored-after-restart
+- stopApp

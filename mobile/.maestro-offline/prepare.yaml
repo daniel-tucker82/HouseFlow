@@ -1,0 +1,13 @@
+appId: com.cyntch.app
+---
+- launchApp
+- setOrientation: ${PORTRAIT_ORIENTATION}
+- runFlow: ../.maestro-auth/verify-household.yaml
+- tapOn: "^All$"
+- scrollUntilVisible:
+    element: "^Android offline verification,.*"
+    direction: DOWN
+- assertVisible:
+    text: "^Android offline verification,.*"
+    checked: false
+- takeScreenshot: offline-before-edit

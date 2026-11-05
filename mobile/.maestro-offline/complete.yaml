@@ -1,0 +1,13 @@
+appId: com.cyntch.app
+---
+- extendedWaitUntil:
+    visible: "You’re offline. You can still complete saved tasks."
+    timeout: 60000
+- tapOn:
+    text: "^Android offline verification,.*"
+    checked: false
+- assertVisible:
+    text: "^Android offline verification,.*"
+    checked: true
+- assertVisible: "1 change saved on this device. Will sync when connected."
+- takeScreenshot: offline-completion-saved

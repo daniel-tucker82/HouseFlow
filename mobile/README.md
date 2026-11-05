@@ -118,6 +118,32 @@ successful compiler job, source ancestry, a test-only diff, archive and APK hash
 and embedded isolated backend. It records app and harness revisions separately.
 This avoids rebuilding the unchanged app while other device checks finish.
 
+Android tablet `41962686020` passed the new kiosk flow. Artifact `13386937876`,
+SHA-256 `ce2a19d9c9a7723a56bddfd2a902ae45d0d8b7911c92e14d487ea17d5ec87b05`,
+was downloaded, verified and visually inspected. All seven captures and UI
+assertions passed: restricted portrait/landscape, restart, blocked settings link,
+incorrect PIN, acknowledged parent unlock and parent access after another restart.
+This is optimized Android emulator evidence; physical-tablet and iPad checks remain.
+
+Fold-only replay `41964740791` passed both 1x and 1.6x text using the same
+`b6b49f1` APK. Artifact `13386454978`, SHA-256
+`e46dca320b51d0274f1494310c10101b7ff397bce4c0a5a46b14b03490092fa2`,
+was downloaded and verified; enlarged unfolded/refolded screens were inspected.
+The form retained its entered identifier and reachable Continue control across
+1080×2092 → 2208×1840 → 1080×2092, without app restart or input replacement.
+
+The next opt-in Android phone replay adds a separate disposable task in the
+isolated household. It requires actual offline UI state before completion,
+retains the completed checkbox and pending-change notice after an ADB force-stop
+with no remaining app PID, reconnects and waits for acknowledgement, then reopens
+the task through the app and checks another restart. It never clears app data.
+Both emulator network settings are restored, including on test failure. A second
+unchanged task keeps this disposable board open. Independent PostgreSQL inspection
+will require exactly the completion and reopening receipts, with the latter as
+the final version. Four local control tests cover interrupted execution, a process
+that did not stop, owned-emulator restrictions and network restoration. Native
+execution and server receipt verification are still required.
+
 Android run `41867082612` (`93777e1`) passed the optimized API 36 phone/tablet
 matrix at 1x/1.6x text, including software-keyboard rotation, retained input,
 keyboard dismissal and app Back handling. Both devices also passed real native

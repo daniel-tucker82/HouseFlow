@@ -7,6 +7,7 @@ const { execFileSync, spawnSync } = require('node:child_process')
 const { androidOrientationParameters, inspectScreenshotOrientations } = require('./device-screenshot-evidence.cjs')
 const { authFixture, runAuthenticatedSmoke } = require('./native-auth-smoke.cjs')
 const { runKioskSmoke } = require('./native-kiosk-smoke.cjs')
+const { runOfflineSmoke } = require('./android-offline-smoke.cjs')
 
 if (process.platform !== 'linux' || process.env.GITHUB_ACTIONS !== 'true') {
   throw new Error('Run this verification on the Linux GitHub Actions host.')
@@ -14,6 +15,8 @@ if (process.platform !== 'linux' || process.env.GITHUB_ACTIONS !== 'true') {
 if (process.argv.length !== 5) throw new Error('Expected APK, Maestro executable and output directory.')
 const [apk, maestro, output] = process.argv.slice(2).map(value => path.resolve(value))
 const fixture = authFixture()
+const offlineOnly = process.env.CYNTCH_ANDROID_OFFLINE === 'true'
+if (offlineOnly && (!fixture || !/^[a-f0-9]{40}$/.test(process.env.CYNTCH_ANDROID_APP_SHA ?? ''))) throw new Error('Offline replay requires the verified APK and isolated sign-in fixture.')
 if (!fs.existsSync(apk) || !fs.existsSync(maestro)) throw new Error('Compiled APK and Maestro are required.')
 fs.mkdirSync(output, { recursive: true })
 const serial = 'emulator-5554'
@@ -22,7 +25,8 @@ const command = (executable, args, timeout = 60_000) => execFileSync(executable,
 })
 const adb = (...args) => command('adb', ['-s', serial, ...args])
 const report = {
-  source: process.env.GITHUB_SHA,
+  source: process.env.CYNTCH_ANDROID_APP_SHA || process.env.GITHUB_SHA,
+  verificationSource: process.env.GITHUB_SHA,
   configuration: 'Release, minified, x86_64, development signing only',
   apkSha256: createHash('sha256').update(fs.readFileSync(apk)).digest('hex'),
   serial,
@@ -53,7 +57,7 @@ try {
     throw new Error('Cyntch installation was not acknowledged on the owned emulator.')
   }
   adb('logcat', '-c')
-  for (const fontScale of [1, 1.6]) {
+  for (const fontScale of (offlineOnly ? [] : [1, 1.6])) {
     const folder = path.join(output, fontScale === 1 ? 'default-text' : 'large-text')
     fs.mkdirSync(folder, { recursive: true })
     const result = { fontScale, passed: false }
@@ -99,11 +103,16 @@ try {
     report.authentication = runAuthenticatedSmoke({ maestro, device: serial, output: path.join(output, 'authenticated'), orientations: report.orientations, fixture })
   }
   if (report.authentication && !report.authentication.passed) throw new Error(report.authentication.error)
+  if (offlineOnly && report.authentication?.passed) {
+    if (report.avd !== 'cyntch-phone') throw new Error('Offline replay requires the phone fixture.')
+    report.offline = runOfflineSmoke({ maestro, device: serial, output: path.join(output, 'offline'), orientations: report.orientations })
+    if (!report.offline.passed) throw new Error(report.offline.error)
+  }
   if (report.authentication?.passed && report.avd === 'cyntch-tablet') {
     report.kiosk = runKioskSmoke({ maestro, device: serial, output: path.join(output, 'kiosk'), orientations: report.orientations })
     if (!report.kiosk.passed) throw new Error(report.kiosk.error)
   }
-  if (report.authentication?.passed && report.avd === 'cyntch-phone') {
+  if (!offlineOnly && report.authentication?.passed && report.avd === 'cyntch-phone') {
     const folder=path.join(output,'notifications')
     fs.mkdirSync(folder,{recursive:true})
     const log=fs.openSync(path.join(folder,'maestro.log'),'w')

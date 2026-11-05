@@ -1,0 +1,17 @@
+appId: com.cyntch.app
+---
+# The host force-stopped the process and checked that no app PID remained.
+- launchApp
+- extendedWaitUntil:
+    visible: "^Choose household: Cyntch emulator family$"
+    timeout: 60000
+- assertNotVisible: "Sign in or create an account"
+- tapOn: "^All$"
+- scrollUntilVisible:
+    element: "^Android offline verification,.*"
+    direction: DOWN
+- assertVisible:
+    text: "^Android offline verification,.*"
+    checked: true
+- assertVisible: "1 change saved on this device. Will sync when connected."
+- takeScreenshot: offline-completion-after-kill

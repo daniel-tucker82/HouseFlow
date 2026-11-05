@@ -23,7 +23,7 @@ function authFixture(env = process.env) {
 
 function runAuthenticatedSmoke({ maestro, device, output, orientations, fixture }) {
   fs.mkdirSync(output, { recursive: true })
-  const result = { source: process.env.CYNTCH_IOS_APP_SHA || process.env.GITHUB_SHA, origin: fixture.origin,
+  const result = { source: process.env.CYNTCH_IOS_APP_SHA || process.env.CYNTCH_ANDROID_APP_SHA || process.env.GITHUB_SHA, origin: fixture.origin,
     scope: 'Native email-code sign-in, household/task loading, rotation and session persistence after restart.', passed: false }
   const log = fs.openSync(path.join(output, 'maestro.log'), 'w')
   try {
