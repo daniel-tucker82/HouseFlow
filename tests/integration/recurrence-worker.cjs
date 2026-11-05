@@ -3,9 +3,10 @@ const {test}=require('node:test'),assert=require('node:assert/strict'),{spawn}=r
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),net=require('node:net')
 const {fixture,connectionString}=require('../helpers/account-deletion.cjs'),root=path.resolve(__dirname,'../..')
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms))
+const loadRequested=process.env.CYNTCH_RECURRENCE_LOAD_TEST==='true'
 
 test('the public cron endpoint advances closed-client tasks and recurrences, deduplicates events and reports partial failure',{
- skip:!connectionString||process.env.CYNTCH_RECURRENCE_HTTP_TEST!=='true',timeout:180_000,
+ skip:!connectionString||process.env.CYNTCH_RECURRENCE_HTTP_TEST!=='true',timeout:loadRequested?360_000:180_000,
 },async t=>{
  const f=await fixture(t),schema=(await f.db.query('select current_schema() as name,current_database() as database,inet_server_port() as port')).rows[0]
  assert.match(schema.name,/^deletion_[a-f0-9]{32}$/)
@@ -26,8 +27,9 @@ test('the public cron endpoint advances closed-client tasks and recurrences, ded
  const port=listener.address().port;await new Promise(resolve=>listener.close(resolve))
  const url=new URL(connectionString);url.searchParams.set('options','-c search_path='+schema.name)
  const log=path.join(os.tmpdir(),`cyntch-recurrence-worker-${randomUUID()}.log`),output=fs.openSync(log,'w')
- const server=spawn(process.execPath,[path.join(root,'node_modules/next/dist/bin/next'),'start','--hostname','127.0.0.1','--port',String(port)],{
-  cwd:root,windowsHide:true,stdio:['ignore',output,output],env:{...process.env,NODE_ENV:'production',POSTGRES_URL:url.toString(),CRON_SECRET:'isolated-recurrence-secret',
+ const buildRoot=path.resolve(process.env.CYNTCH_RECURRENCE_TEST_BUILD_ROOT||root)
+ const server=spawn(process.execPath,[path.join(buildRoot,'node_modules/next/dist/bin/next'),'start','--hostname','127.0.0.1','--port',String(port)],{
+  cwd:buildRoot,windowsHide:true,stdio:['ignore',output,output],env:{...process.env,NODE_ENV:'production',POSTGRES_URL:url.toString(),CRON_SECRET:'isolated-recurrence-secret',
    FREEMIUM_ENFORCEMENT_ENABLED:'true',ACCOUNT_DELETION_PROCESSING_ENABLED:'false',ACCOUNT_DELETION_SUBMISSION_ENABLED:'false',NATIVE_BILLING_ENABLED:'false',NATIVE_PUSH_ENABLED:'false',
    CLERK_SECRET_KEY:'',CLERK_JWT_KEY:'',STRIPE_SECRET_KEY:'',REVENUECAT_SECRET_KEY:'',REVENUECAT_V2_SECRET_KEY:'',EXPO_PUSH_ACCESS_TOKEN:'',
    WEB_PUSH_VAPID_PUBLIC_KEY:'',WEB_PUSH_VAPID_PRIVATE_KEY:'',WEB_PUSH_CONTACT_EMAIL:'',FIREBASE_SERVICE_ACCOUNT_JSON:'',FIREBASE_PROJECT_ID:'',FIREBASE_CLIENT_EMAIL:'',FIREBASE_PRIVATE_KEY:''},
@@ -148,6 +150,11 @@ test('the public cron endpoint advances closed-client tasks and recurrences, ded
    notifications:'durable native events; no remote delivery attempted',rollbackRetainsState:true,committedCountersOnly:true,retryDeduplication:true,partialFailureStatus:503,recoveryStatus:200,stalledSqlCanceled:true,aggregateDeadline:true,
    lagMs:lag,requestDurationMs:durations,limitations:'Small isolated fixture; not a production scheduler cadence, p95/load, DST or physical push measurement'}
   const evidencePath=log.replace(/\.log$/,'.json');fs.writeFileSync(evidencePath,JSON.stringify(evidence,null,2)+'\n');t.diagnostic('Evidence: '+evidencePath)
+  if(loadRequested){
+   const loadPath=log.replace(/\.log$/,'-load.json')
+   t.diagnostic('Controlled load evidence: '+loadPath)
+   await require('../helpers/recurrence-load.cjs')(f,tick,loadPath)
+  }
  }finally{
   if(server.exitCode===null)server.kill()
   await closed;fs.closeSync(output)

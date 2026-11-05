@@ -716,6 +716,17 @@ Final HTTP evidence is
 No production scheduler settings, alert recipients or application deployment were
 changed. Documentation-only mobile edits no longer trigger the native iOS build.
 
+For the controlled load scenario, also set `CYNTCH_RECURRENCE_LOAD_TEST=true`.
+Optionally point `CYNTCH_RECURRENCE_TEST_BUILD_ROOT` at a worktree containing
+the matching production build. On 2026-11-05 the worker processed 14 households,
+including 8 measured fixtures with 580 items on 16 boards. With all clients
+closed and two ticks a minute apart, 96 tasks became startable and 96 expired.
+Each change had exactly one durable event; an immediate retry made no changes.
+Measured from scheduled time to the first post-response database observation,
+the median was 32.724 s, p95 was 56.726 s and the slowest change was 59.727 s
+(target: p95 below 90 s). This measures the local worker under that workload;
+production traffic, external cron reliability and push delivery are separate checks.
+
 The handler now budgets 20 seconds for recurrence/database work and 25 seconds
 for its HTTP response, leaving headroom below cron-job.org's 30-second timeout.
 Both route aliases export a 60-second platform duration so already-started work
