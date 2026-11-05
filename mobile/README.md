@@ -76,7 +76,7 @@ was rejected. These checks do not substitute for examining the final ARM bundle.
 
 ### Live task boards
 
-When `CYNTCH_BOARD_EVENTS_ENABLED=true`, bootstrap advertises live board
+When `CYNTCH_BOARD_EVENTS_ENABLED=true` and a direct database URL is configured, bootstrap advertises live board
 updates. Today and the locked family display subscribe only while visible,
 active and connected. No push permission or notification preference is needed.
 A committed change sends a data-free hint; the client reads its normal,
@@ -86,8 +86,14 @@ app closes the watch. On return, the first read happens after the new database
 subscription is ready so edits missed during a disconnect are recovered.
 Offline saves and clock checks use their existing paths.
 
-Apply `database/0041_board_status_signals.sql` before opting in. The service
-uses a session-capable PostgreSQL connection shared among active screens on
+Apply `database/0041_board_status_signals.sql` before opting in. Set the server-only
+`CYNTCH_BOARD_LISTEN_URL` (or `POSTGRES_URL_NON_POOLING`) to a direct PostgreSQL
+connection to the same database and branch as `POSTGRES_URL`, using the provider's
+TLS settings. The normal query URL may use transaction pooling; the listener must
+not. At the first connection the service sends a disposable probe through the normal
+query pool and must receive it on the listener before admitting a screen. A missing
+or known pooled listener URL leaves the existing board refresh behavior in place.
+The service uses one persistent listener connection shared among active screens on
 each server instance, released when the last subscriber leaves. It rechecks
 household, kiosk and account access before signalling and closes before the
 authentication or request lease expires. Reopening a healthy lease entails an

@@ -1,4 +1,5 @@
 import type { Notification, Pool, PoolClient } from "pg"
+import { randomUUID } from "node:crypto"
 
 interface Subscriber { changed(): void; disconnected(): void; close(): void }
 
@@ -12,7 +13,7 @@ export class BoardSignalHub {
   private queue: Promise<void> = Promise.resolve()
   private count = 0
 
-  constructor(private pool: Pick<Pool, "connect">, private limit = 256) {}
+  constructor(private pool: { connect(): Promise<PoolClient> }, private sender: Pick<Pool, "query">, private limit = 256) {}
 
   private ordered<T>(action: () => Promise<T>) {
     const result = this.queue.then(action)
@@ -44,6 +45,25 @@ export class BoardSignalHub {
         try { subscriber.changed() } catch { subscriber.close() }
       }
     })
+    // Prove the listener receives commits from the application's actual
+    // database. An accidentally configured listener on a different branch can
+    // execute LISTEN successfully but would silently miss every family edit.
+    const probe = "cyntch_probe_" + randomUUID().replaceAll("-", "")
+    let accept!: () => void
+    const received = new Promise<void>(resolve => { accept = resolve })
+    const observe = (event: Notification) => { if (event.channel === probe && !event.payload) accept() }
+    client.on("notification", observe)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      await client.query("LISTEN " + probe)
+      await Promise.race([
+        Promise.all([this.sender.query("select pg_notify($1,'')", [probe]), received]),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("Board listener probe timed out.")), 3_000) }),
+      ])
+      if (this.client !== client) throw new Error("Board listener disconnected.")
+      await client.query("UNLISTEN " + probe)
+    } catch (error) { this.disconnect(client); throw error }
+    finally { clearTimeout(timer); client.removeListener("notification", observe) }
     return client
   }
 

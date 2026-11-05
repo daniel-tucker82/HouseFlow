@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server"
 import { AccountAccessError } from "@/lib/account-access"
 import { BoardSignalHub } from "@/lib/board-signal-hub"
+import { boardListenDb, boardListenerUrl } from "@/lib/board-listen-db"
 import { db, kioskGateDb } from "@/lib/db"
 import { EntitlementError } from "@/lib/entitlements"
 import { guardNativeKioskRequest } from "@/lib/native-kiosk-guard"
@@ -10,13 +11,13 @@ import { notificationUuid } from "@/shared/mobile/notification-settings"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 60
-const hub = new BoardSignalHub(db)
+const hub = new BoardSignalHub(boardListenDb, db)
 const privateHeaders = { "Cache-Control": "private, no-store, no-transform" }
 const empty = (status: number) => new Response(null, { status, headers: privateHeaders })
 const frames = { ready: new TextEncoder().encode("ready\n"), changed: new TextEncoder().encode("changed\n") }
 
 export async function GET(request: Request) {
-  if (process.env.CYNTCH_BOARD_EVENTS_ENABLED !== "true") return empty(404)
+  if (!boardListenerUrl()) return empty(404)
   const { userId, sessionId, sessionClaims } = await auth()
   if (!userId || !sessionId || typeof sessionClaims?.exp !== "number") return empty(401)
   const device = request.headers.get("X-Cyntch-Device") ?? ""

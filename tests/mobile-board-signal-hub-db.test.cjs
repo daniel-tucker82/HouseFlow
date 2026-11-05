@@ -8,6 +8,8 @@ const { fixture, connectionString } = require('./helpers/account-deletion.cjs')
 test('a locked display watches only its household, never sends board data, and loses access on revocation', { skip: !connectionString, timeout: 15_000 }, async t => {
   const f = await fixture(t)
   const oldFlag = process.env.CYNTCH_BOARD_EVENTS_ENABLED
+  const oldDirect = process.env.CYNTCH_BOARD_LISTEN_URL
+  t.after(() => { if (oldDirect === undefined) delete process.env.CYNTCH_BOARD_LISTEN_URL; else process.env.CYNTCH_BOARD_LISTEN_URL = oldDirect })
   t.after(() => { if (oldFlag === undefined) delete process.env.CYNTCH_BOARD_EVENTS_ENABLED; else process.env.CYNTCH_BOARD_EVENTS_ENABLED = oldFlag })
   f.identity.sessionClaims = { exp: Math.floor(Date.now() / 1000) + 120 }
   const route = f.load(['app/api/mobile/board-events/route.ts'])
@@ -20,6 +22,11 @@ test('a locked display watches only its household, never sends board data, and l
     delete process.env.CYNTCH_BOARD_EVENTS_ENABLED
     assert.equal((await route.GET(request(f.transfer))).status, 404)
     process.env.CYNTCH_BOARD_EVENTS_ENABLED = 'true'
+    for (const invalid of ['', 'https://invalid.test', 'postgresql://ep-example-pooler.invalid.test/db', connectionString+'?pgbouncer=true']) {
+      process.env.CYNTCH_BOARD_LISTEN_URL = invalid
+      assert.equal((await route.GET(request(f.transfer))).status, 404, 'do not offer a listener on missing or transaction-pooled settings')
+    }
+    process.env.CYNTCH_BOARD_LISTEN_URL = connectionString
     assert.equal((await route.GET(request(f.transfer, { 'X-Cyntch-Session': 'different' }))).status, 403)
     assert.equal((await route.GET(request(randomUUID()))).status, 403)
     await f.db.query('alter table occurrence_tasks disable trigger board_occurrence_status_changed')
@@ -48,7 +55,7 @@ test('foreground boards share one PostgreSQL listener, release it on exit and re
   const f = await fixture(t), { BoardSignalHub } = f.load(['lib/board-signal-hub.ts'])
   const marker = 'cyntch_board_test_' + randomUUID()
   const pool = new Pool({ connectionString, application_name: marker, max: 1, connectionTimeoutMillis: 1_500 })
-  const hub = new BoardSignalHub(pool, 3), controllers = [], alerts = []
+  const hub = new BoardSignalHub(pool, f.db, 3), controllers = [], alerts = []
   const [first, second] = await Promise.all([f.transfer, f.shared].map(async id =>
     (await f.db.query("select 'cyntch_board_'||md5(current_schema()||':'||$1::text) channel", [id])).rows[0].channel))
   const session = async (channel, name) => {
@@ -66,6 +73,14 @@ test('foreground boards share one PostgreSQL listener, release it on exit and re
   }
   const notify = channel => f.db.query("select pg_notify($1,'')", [channel])
   try {
+    // A valid PostgreSQL session connected to the wrong database can accept
+    // LISTEN but cannot receive the application's committed probe.
+    const unrelated = new Pool({ connectionString: new URL('/postgres', connectionString).href, max: 1 })
+    try {
+      const wrong = new BoardSignalHub(pool, unrelated)
+      await assert.rejects(wrong.subscribe(first, new AbortController().signal, { changed() {}, disconnected() {} }), /probe timed out/)
+      await until(() => pool.totalCount === 0)
+    } finally { await unrelated.end() }
     const [phone, tablet, neighbour] = await Promise.all([session(first, 'phone'), session(first, 'tablet'), session(second, 'neighbour')])
     assert.equal(pool.totalCount, 1)
     await assert.rejects(session(first, 'extra'), /capacity/)

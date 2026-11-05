@@ -5,6 +5,7 @@ import { normalizeRole } from "@/lib/household-authz"
 import { ensureCurrentUserRecord } from "@/lib/user-sync"
 import { enforceRequestLimit } from "@/lib/usage-controls"
 import { EntitlementError } from "@/lib/entitlements"
+import { boardListenerUrl } from "@/lib/board-listen-db"
 
 export const dynamic = "force-dynamic"
 
@@ -24,7 +25,7 @@ async function handleGET(request: Request) {
     if (householdId && !selected) return Response.json({ error: "Household access is no longer available" }, { status: 403 })
     const board = selected ? await getHouseholdMemberViewData(selected.id, userId) : null
     return Response.json({ accountId: userId, households,
-      ...(process.env.CYNTCH_BOARD_EVENTS_ENABLED === "true" ? { boardStatusEvents: true } : {}), board: selected && board ? {
+      ...(boardListenerUrl() ? { boardStatusEvents: true } : {}), board: selected && board ? {
       household: selected, members: board.members, tasks: board.tasks, fetchedAt: new Date().toISOString(),
     } : null }, { headers: { "Cache-Control": "no-store" } })
   } catch (error) {

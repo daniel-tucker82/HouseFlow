@@ -9,6 +9,9 @@ test('a quiet foreground client learns committed peer task states, suspends and 
   const f = await fixture(t), run = randomUUID(), task = randomUUID(), remaining = randomUUID()
   f.identity.sessionClaims = { exp: Math.floor(Date.now()/1000) + 120 }
   const oldFlag = process.env.CYNTCH_BOARD_EVENTS_ENABLED
+  const oldDirect = process.env.CYNTCH_BOARD_LISTEN_URL
+  process.env.CYNTCH_BOARD_LISTEN_URL = connectionString
+  t.after(() => { if (oldDirect === undefined) delete process.env.CYNTCH_BOARD_LISTEN_URL; else process.env.CYNTCH_BOARD_LISTEN_URL = oldDirect })
   process.env.CYNTCH_BOARD_EVENTS_ENABLED = 'true'
   t.after(() => { if (oldFlag === undefined) delete process.env.CYNTCH_BOARD_EVENTS_ENABLED; else process.env.CYNTCH_BOARD_EVENTS_ENABLED = oldFlag })
   await f.db.query("insert into routine_occurrences(id,household_id,kind,title,scheduled_for) values($1,$2,'manual','Weekly tasks',now())", [run,f.transfer])
@@ -31,7 +34,10 @@ test('a quiet foreground client learns committed peer task states, suspends and 
       let response
       if (req.headers.authorization !== 'Bearer fixture') response = new Response(null, { status: 401 })
       else if (req.url.startsWith('/api/mobile/bootstrap?')) { bootstraps++; response = await bootstrap(request) }
-      else if (req.url.startsWith('/api/mobile/board-events?')) { watches++; response = await watch(request); openStreams++; res.once('close', () => { openStreams-- }) }
+      else if (req.url.startsWith('/api/mobile/board-events?')) {
+        watches++; openStreams++; res.once('close', () => { openStreams-- })
+        response = await watch(request)
+      }
       else { if (req.url === '/api/mobile/time') clocks++; response = new Response(null, { status: 404 }) }
       res.writeHead(response.status, Object.fromEntries(response.headers))
       if (response.body) Readable.fromWeb(response.body).on('error', () => res.destroy()).pipe(res)
