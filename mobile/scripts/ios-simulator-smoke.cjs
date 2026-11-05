@@ -18,13 +18,8 @@ if (!appPath || !maestro || !output || !fs.existsSync(path.join(appPath, 'main.j
   throw new Error('A compiled simulator app with bundled JavaScript is required.')
 }
 fs.mkdirSync(output, { recursive: true })
-// Keep the installed Xcode command reference beside the runtime evidence.
-const help = spawnSync('xcrun', ['simctl', 'help', 'ui'], { encoding: 'utf8', timeout: 30_000 })
-const helpText = `${help.stdout ?? ''}\n${help.stderr ?? ''}`
-fs.writeFileSync(path.join(output, 'simctl-ui-help.txt'), helpText)
-if (help.error || help.status !== 0 || !helpText.includes('content_size')) {
-  throw new Error('The installed simulator must support querying and setting Dynamic Type.')
-}
+// On cold hosts simctl help may time out before CoreSimulator is available.
+// The actual set/readback on each booted device below is the feature check.
 const command = (executable, args, timeout = 60_000) => {
   const label = `${executable} ${args.slice(0, 2).join(' ')}`, start = Date.now()
   console.log(`Starting ${label} (timeout ${timeout / 1000}s)`)
@@ -33,7 +28,7 @@ const command = (executable, args, timeout = 60_000) => {
   finally { console.log(`Finished ${label} after ${((Date.now() - start) / 1000).toFixed(1)}s`) }
 }
 const simctl = (...args) => command('xcrun', ['simctl', ...args])
-const inventory = JSON.parse(simctl('list', '--json'))
+const inventory = JSON.parse(command('xcrun', ['simctl', 'list', '--json'], 180_000))
 fs.writeFileSync(path.join(output, 'simulator-inventory.json'), JSON.stringify(inventory, null, 2))
 const requestedRuntime = process.env.CYNTCH_IOS_TEST_RUNTIME
 if (requestedRuntime && requestedRuntime !== '17.0') throw new Error('The configured minimum-iOS check requires exactly iOS 17.0.')

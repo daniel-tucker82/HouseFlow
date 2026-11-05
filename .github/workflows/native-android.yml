@@ -6,6 +6,7 @@ on:
     paths:
       - mobile/**
       - '!mobile/**/*.md'
+      - '!mobile/scripts/ios-*'
       - shared/**
       - lib/recurrence.ts
       - lib/time-rules.ts
@@ -30,8 +31,8 @@ permissions:
   contents: read
 
 concurrency:
-  # A newer emulator-only push must not replace a requested ARM64 bundle check.
-  group: native-android-${{ github.ref }}-${{ inputs.verify_arm64_bundle && 'bundle' || 'emulators' }}
+  # A signed-out push must not replace queued household or ARM bundle evidence.
+  group: native-android-${{ github.ref }}-${{ inputs.verify_arm64_bundle && 'bundle' || inputs.fixture_email && 'authenticated' || 'signed-out' }}
   # Finish device evidence for the active build; keep the newest next build queued.
   cancel-in-progress: false
 
