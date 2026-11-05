@@ -31,10 +31,19 @@ export async function GET(request: Request) {
   // idle. Recheck before signalling: membership, deletion and kiosk changes can
   // revoke a screen while its underlying socket remains open.
   const authorize = () => guardNativeKioskRequest(kioskGateDb, request, userId, sessionId, async () => {
-    const result = await db.query<{ channel: string }>(
-      "select 'cyntch_board_'||md5(current_schema()||':'||household_id::text) as channel from household_members where household_id=$1 and user_id=$2",
-      [household, userId])
-    if (!result.rows[0] || Date.now() >= leaseEnds) return empty(403)
+    if (Date.now() >= leaseEnds) return empty(401)
+    if (channel) {
+      const allowed = await db.query("select 1 from household_members where household_id=$1 and user_id=$2", [household, userId])
+      return empty(allowed.rowCount ? 204 : 403)
+    }
+    const result = await db.query<{ channel: string; installed: boolean }>(
+      `select 'cyntch_board_'||md5(n.nspname||':'||hm.household_id::text) as channel,
+        exists(select 1 from pg_trigger where tgrelid=c.oid and tgname='board_occurrence_status_changed' and tgenabled in ('O','A')) as installed
+       from household_members hm join pg_class c on c.oid='occurrence_tasks'::regclass
+       join pg_namespace n on n.oid=c.relnamespace where hm.household_id=$1 and hm.user_id=$2`, [household, userId])
+    if (!result.rows[0]) return empty(403)
+    // A flag switched on before its migration must not return a false "ready".
+    if (!result.rows[0].installed) return empty(503)
     channel = result.rows[0].channel
     return empty(204)
   })

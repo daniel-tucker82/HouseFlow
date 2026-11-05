@@ -22,6 +22,9 @@ test('a locked display watches only its household, never sends board data, and l
     process.env.CYNTCH_BOARD_EVENTS_ENABLED = 'true'
     assert.equal((await route.GET(request(f.transfer, { 'X-Cyntch-Session': 'different' }))).status, 403)
     assert.equal((await route.GET(request(randomUUID()))).status, 403)
+    await f.db.query('alter table occurrence_tasks disable trigger board_occurrence_status_changed')
+    assert.equal((await route.GET(request(f.transfer))).status, 503, 'enabling the flag before the signal is installed cannot advertise a ready stream')
+    await f.db.query('alter table occurrence_tasks enable trigger board_occurrence_status_changed')
     await f.db.query(`insert into native_kiosk_sessions(id,user_id,session_id,device_id,household_id,visible_member_ids,editable_member_ids,exit_secret_hash,request_hash)
       values($1,$2,$3,$4,$5,array[$2],array[$2],repeat('a',64),repeat('b',64))`, [randomUUID(), f.owner, f.scope.sessionId, f.scope.deviceId, f.transfer])
     assert.equal((await route.GET(request(f.deleting))).status, 423, 'kiosk cannot watch a second household its parent manages')
