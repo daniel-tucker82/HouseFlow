@@ -28,7 +28,7 @@ on:
         type: boolean
         default: false
       runner:
-        description: Build host and architecture (iOS 17 uses a matching macOS 15 host)
+        description: Build host and architecture (iOS 17 phone uses a matching macOS 15 host)
         type: choice
         default: macos-26-intel
         options: [macos-26-intel, macos-26]
@@ -216,8 +216,9 @@ jobs:
       actions: read
       contents: read
     # The app is compiled once with the release toolchain. Use an older XCTest
-    # host for the original iOS 17 runtime, preserving the binary architecture.
-    runs-on: ${{ matrix.runtime == '17.0' && (inputs.runner == 'macos-26' && 'macos-15' || 'macos-15-intel') || inputs.runner || 'macos-26-intel' }}
+    # host for the iOS 17 phone that could not start the driver. The iPad's
+    # original host already executed its UI tests. Preserve binary architecture.
+    runs-on: ${{ matrix.runtime == '17.0' && matrix.family == 'iphone' && (inputs.runner == 'macos-26' && 'macos-15' || 'macos-15-intel') || inputs.runner || 'macos-26-intel' }}
     timeout-minutes: 80
     strategy:
       fail-fast: false
@@ -231,7 +232,7 @@ jobs:
     env:
       CI: '1'
       EXPO_NO_DOTENV: '1'
-      DEVELOPER_DIR: ${{ matrix.runtime == '17.0' && '/Applications/Xcode_16.4.app/Contents/Developer' || '/Applications/Xcode_26.6.app/Contents/Developer' }}
+      DEVELOPER_DIR: ${{ matrix.runtime == '17.0' && matrix.family == 'iphone' && '/Applications/Xcode_16.4.app/Contents/Developer' || '/Applications/Xcode_26.6.app/Contents/Developer' }}
       CYNTCH_IOS_TEST_RUNTIME: ${{ matrix.runtime == '17.0' && '17.0' || '' }}
       CYNTCH_IOS_TEST_FAMILY: ${{ matrix.family }}
       CYNTCH_IOS_SIMULATOR_PRODUCER: ${{ inputs.simulator_from_run }}
@@ -302,7 +303,9 @@ jobs:
         run: |
           set -euo pipefail
           xcodebuild -version | tee "$RUNNER_TEMP/cyntch-ios17-toolchain.txt"
-          grep -Fx 'Xcode 16.4' "$RUNNER_TEMP/cyntch-ios17-toolchain.txt"
+          if [[ "$CYNTCH_IOS_TEST_FAMILY" == iphone ]]; then
+            grep -Fx 'Xcode 16.4' "$RUNNER_TEMP/cyntch-ios17-toolchain.txt"
+          fi
           if xcrun simctl list runtimes --json | jq -e 'any(.runtimes[]; .isAvailable and .version == "17.0" and (.identifier | contains(".iOS-")))' >/dev/null; then
             echo "The required iOS 17.0 runtime is already installed."
             exit 0
@@ -337,6 +340,15 @@ jobs:
       - name: Retain runtime inventory
         if: always()
         run: xcrun simctl list --json > "$RUNNER_TEMP/cyntch-ios-device-inventory.json"
+      - name: Diagnose the development sign-in connection after a failed journey
+        if: failure() && inputs.fixture_email
+        run: |
+          # Compare the runner's normal TLS trust with the simulator's retained
+          # URLSession error. Do not send account data, record bodies, or skip TLS.
+          curl --silent --show-error --max-time 15 --output /dev/null \
+            --write-out 'http=%{http_code} tls_verify=%{ssl_verify_result}\n' \
+            'https://emerging-toad-98.clerk.accounts.dev/v1/environment' \
+            > "$RUNNER_TEMP/cyntch-ios-auth-tls.txt" 2>&1 || true
       - name: Retain device evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -348,6 +360,7 @@ jobs:
             ${{ runner.temp }}/cyntch-ios17-toolchain.txt
             ${{ runner.temp }}/cyntch-ios17-import.log
             ${{ runner.temp }}/cyntch-ios-device-inventory.json
+            ${{ runner.temp }}/cyntch-ios-auth-tls.txt
             ${{ runner.temp }}/cyntch-ios-device-smoke.log
             ${{ runner.temp }}/cyntch-ios-device-smoke/
           if-no-files-found: warn

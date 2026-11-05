@@ -132,7 +132,7 @@ for (const [index, template] of devices.entries()) {
         let run
         try {
           run = spawnSync(maestro, [
-            '--device', ownedDevice, 'test', '--format', 'junit', '--output', path.join(caseFolder, 'report.xml'),
+            '--device', ownedDevice, 'test', '-e', `IOS_FAMILY=${label}`, '--format', 'junit', '--output', path.join(caseFolder, 'report.xml'),
             '--test-output-dir', caseFolder, '--debug-output', caseFolder, path.resolve('.maestro'),
           ], { stdio: ['ignore', log, log], timeout: 540_000, env: process.env })
         } finally { fs.closeSync(log) }

@@ -110,11 +110,15 @@ is not a separate iOS accessibility element. The test now opens the chooser to
 confirm the exact fixture name, closes it, and checks the fixture task before
 each board capture. That run did not reach the notification or restart checks.
 On the original iOS 17.0 phone the application installed and launched, but the
-XCTest driver timed out before running the journey. Minimum-OS tests now use
+XCTest driver timed out before running the journey. Minimum-OS phone tests now use
 the same simulator binary with Xcode 16.4 on a matching macOS 15 host. The
 [GitHub image inventory](https://github.com/actions/runner-images/blob/main/images/macos/macos-15-arm64-Readme.md)
 lists that toolchain, and [Apple’s support table](https://developer.apple.com/xcode/system-requirements)
 includes iOS 17 simulators. Passing journeys on that host are still required.
+The iOS 17 iPad completed both signed-out journeys at accessibility text size and
+displayed the authenticated household. At default text size, dragging down to
+dismiss its keyboard closed the entire sign-in sheet. The iPad check now uses
+the system keyboard's dismissal key and still checks the retained identifier.
 
 [The iPhoneOS device archive](https://github.com/daniel-tucker82/HouseFlow/actions/runs/41950126236)
 passed with the device SDK: Cyntch and 14 embedded framework binaries are ARM64
