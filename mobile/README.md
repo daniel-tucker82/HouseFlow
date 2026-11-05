@@ -105,6 +105,19 @@ local Windows checks cover syntax and signal scoping, but cannot establish
 POSIX termination. This addresses overlapping attempts, not the initial XCTest
 startup failure. Native verification remains required.
 
+Android `41962686020` compiled the updated app and passed API 24. Its foldable
+attempt stopped at the extra unlocked-icon assertion: both text sizes showed
+the same OS “Swipe up to continue” screen, but this time without that icon.
+Artifact `13386413303` was verified against SHA-256
+`236bb61840574ec07589c0ed81516960b402bd6a842a96e23c0eb9709e744b76`.
+The test now identifies the actual System UI lock-screen container and swipe
+instruction. The runner still requires the owned API 37 AVD with its swipe lock
+disabled; it never enters credentials, restarts Cyntch or refills between postures.
+A fold-only replay can reuse the same compiled APK after checking its producer,
+successful compiler job, source ancestry, a test-only diff, archive and APK hashes,
+and embedded isolated backend. It records app and harness revisions separately.
+This avoids rebuilding the unchanged app while other device checks finish.
+
 Android run `41867082612` (`93777e1`) passed the optimized API 36 phone/tablet
 matrix at 1x/1.6x text, including software-keyboard rotation, retained input,
 keyboard dismissal and app Back handling. Both devices also passed real native

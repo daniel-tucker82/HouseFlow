@@ -9,9 +9,11 @@ appId: com.cyntch.app
         id: "com.android.systemui:id/keyguard_indication_text_bottom"
         text: "Swipe up to continue"
     commands:
+      # The owned AVD's locksettings state was verified disabled by the runner.
+      # API 37 sometimes omits the decorative unlocked icon from this screen.
       - assertVisible:
-          id: "com.android.systemui:id/device_entry_icon_fg"
-          text: "Unlocked"
+          id: "com.android.systemui:id/keyguard_long_press"
+          text: "Lock screen"
       - takeScreenshot: system-swipe-lock
       - swipe:
           start: "50%,86%"

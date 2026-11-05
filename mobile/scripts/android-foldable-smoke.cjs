@@ -15,7 +15,8 @@ if (!fs.existsSync(apk) || !fs.existsSync(maestro)) throw new Error('Compiled AP
 fs.mkdirSync(output, { recursive: true })
 const serial = 'emulator-5554'
 const report = {
-  source: process.env.GITHUB_SHA, serial, expectedApiLevel: '37',
+  source: process.env.CYNTCH_ANDROID_APP_SHA || process.env.GITHUB_SHA,
+  verificationSource: process.env.GITHUB_SHA, serial, expectedApiLevel: '37',
   configuration: 'Release, minified, x86_64, development signing only',
   scope: 'Fold/unfold/fold a populated native sign-in form at default and enlarged text sizes. No authentication submission.',
   apkSha256: createHash('sha256').update(fs.readFileSync(apk)).digest('hex'),
