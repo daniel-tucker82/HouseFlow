@@ -6,6 +6,7 @@ const { execFileSync, spawnSync } = require('node:child_process')
 const { inspectScreenshotOrientations } = require('./device-screenshot-evidence.cjs')
 const { authFixture, runAuthenticatedSmoke } = require('./native-auth-smoke.cjs')
 const { runNotificationSmoke } = require('./ios-notification-smoke.cjs')
+const { runOfflineSmoke } = require('./ios-offline-smoke.cjs')
 const { runKioskSmoke } = require('./native-kiosk-smoke.cjs')
 const { runNotificationPreferencesSmoke } = require('./native-notification-preferences-smoke.cjs')
 const { householdFixture, runHouseholdSmoke } = require('./native-household-smoke.cjs')
@@ -29,12 +30,14 @@ const requestedFamily = process.env.CYNTCH_IOS_TEST_FAMILY
 const replay = process.env.CYNTCH_IOS_REPLAY_SCOPE
 const notificationsOnly = replay === 'notifications'
 const deletionOnly = replay === 'account-deletion'
+const offlineOnly = replay === 'offline'
 const householdOnly = process.env.CYNTCH_NATIVE_HOUSEHOLD_CHECK === 'true'
 if (householdOnly) {
   householdFixture()
-  if (deletionOnly || requestedFamily !== 'iphone' || process.env.CYNTCH_IOS_TEST_RUNTIME) throw new Error('Member editing requires its own current iPhone check.')
+  if (deletionOnly || offlineOnly || requestedFamily !== 'iphone' || process.env.CYNTCH_IOS_TEST_RUNTIME) throw new Error('Member editing requires its own current iPhone check.')
 }
-if (replay && (!['notifications','current-devices','minimum-devices','phones','account-deletion'].includes(replay) || !fixture || !/^[a-f0-9]{40}$/.test(process.env.CYNTCH_IOS_APP_SHA ?? ''))) throw new Error('Replaying a simulator check requires a verified app and sign-in fixture.')
+if (replay && (!['notifications','current-devices','minimum-devices','phones','account-deletion','offline'].includes(replay) || !fixture || !/^[a-f0-9]{40}$/.test(process.env.CYNTCH_IOS_APP_SHA ?? ''))) throw new Error('Replaying a simulator check requires a verified app and sign-in fixture.')
+if (offlineOnly && (requestedFamily !== 'iphone' || process.env.CYNTCH_IOS_TEST_RUNTIME || fixture?.email !== 'cyntch-native-20261103+clerk_test@example.com')) throw new Error('Offline verification requires its own current isolated iPhone check.')
 if (replay === 'phones' && requestedFamily !== 'iphone') throw new Error('Phone replay cannot repeat a tablet job.')
 if (notificationsOnly && (requestedFamily !== 'iphone' || process.env.CYNTCH_IOS_TEST_RUNTIME)) throw new Error('The notification check requires a current iPhone.')
 if (deletionOnly) {
@@ -81,7 +84,7 @@ const devices = requestedRuntime ? ['iPhone 15', 'iPad (10th generation)'].map(n
   available.find(device => device.name === 'iPad (A16)') ?? available.find(device => device.name.startsWith('iPad')),
 ]
 const report = { source: process.env.CYNTCH_IOS_APP_SHA || process.env.GITHUB_SHA, verificationSource: process.env.GITHUB_SHA,
-  scope: deletionOnly ? 'Disposable development account deletion and device recovery' : householdOnly ? 'Authenticated household journey only' : notificationsOnly ? 'Authenticated notification permission and Notification Center' : 'Device text sizes and optional household verification',
+  scope: deletionOnly ? 'Disposable development account deletion and device recovery' : offlineOnly ? 'Authenticated offline task completion and process restart' : householdOnly ? 'Authenticated household journey only' : notificationsOnly ? 'Authenticated notification permission and Notification Center' : 'Device text sizes and optional household verification',
   configuration: 'Release with local simulator signing', runtime: runtime.name,
   hostArchitecture: process.arch, runtimeVersion: runtime.version, requestedRuntime: requestedRuntime ?? 'latest installed', devices: [], passed: false }
 const save = () => fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify(report, null, 2))
@@ -138,7 +141,7 @@ for (const [index, template] of devices.entries()) {
     // Do not block the first UI action on a screenshot of a cold simulator.
     // The journeys require their own rendered evidence; finally also records
     // the visible screen if a journey fails before reaching an assertion.
-    for (const contentSize of (notificationsOnly || deletionOnly || householdOnly ? [] : ['large', 'accessibility-extra-large'])) {
+    for (const contentSize of (notificationsOnly || deletionOnly || householdOnly || offlineOnly ? [] : ['large', 'accessibility-extra-large'])) {
       const caseFolder = path.join(folder, contentSize === 'large' ? 'default-text' : 'large-text')
       fs.mkdirSync(caseFolder, { recursive: true })
       const textResult = { contentSize, passed: false }
@@ -223,6 +226,11 @@ for (const [index, template] of devices.entries()) {
       result.accountDeletion = runAccountDeletionSmoke({ maestro, device: ownedDevice, output: path.join(folder, 'account-deletion'),
         orientations: { portrait: 'PORTRAIT', landscape: 'LANDSCAPE_LEFT' } })
       if (!result.accountDeletion.passed) throw new Error(result.accountDeletion.error)
+    }
+    if (result.authentication?.passed && offlineOnly) {
+      stage('offline-completion-and-process-restart')
+      result.offline = runOfflineSmoke({ maestro, device: ownedDevice, output: path.join(folder, 'offline') })
+      if (!result.offline.passed) throw new Error(result.offline.error)
     }
     if (result.runs.some(run => !run.passed)) throw new Error('Simulator flow failed at one or more text sizes.')
     result.passed = true

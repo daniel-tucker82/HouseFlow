@@ -176,6 +176,19 @@ notification preferences match their saved snapshot, with no invitations or
 deletion requests. iOS compile `42022301424` passed; its compatible simulator app
 is ready for the ordinary iPhone journey after the Android replay.
 
+An explicit iOS `replay_scope=offline` journey is prepared, but has not run yet.
+It reuses the compatible simulator binary and shared disposable offline task.
+The iOS simulator has no airplane mode, so this check disables only the current
+GitHub-hosted macOS VM's previously enabled default Ethernet interface. Local
+machines, self-hosted runners and other journey scopes are rejected. A separate
+restoration process handles parent exit, normal recovery and a four-minute
+deadline; watchdog expiry cannot count as passing offline evidence. The flow
+requires the native offline banner, a durable pending completion, no owned app
+process after termination, cached sign-in and completion after restart, then
+acknowledged sync and reopening. Network guards and restoration decisions passed
+three local checks. Actual iPhone execution and server receipt inspection remain
+outstanding; no offline completion result is claimed from this preparation.
+
 Invitation confirmation now captures its screen generation. An alert opened
 before leaving, locking or disconnecting cannot revoke a link after returning,
 even after the list reloads. All six native-client checks, mobile lint and types
