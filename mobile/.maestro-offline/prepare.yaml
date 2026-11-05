@@ -7,7 +7,26 @@ appId: com.cyntch.app
 - scrollUntilVisible:
     element: "^Android offline verification,.*"
     direction: DOWN
+# A prior interrupted run may have acknowledged completion. Reopen only this
+# disposable task through the real UI; retain its server receipt history.
+- runFlow:
+    when:
+      visible:
+        text: "^Android offline verification,.*"
+        checked: true
+    commands:
+      - takeScreenshot: offline-existing-completion
+      - tapOn:
+          text: "^Android offline verification,.*"
+          checked: true
+      - scrollUntilVisible:
+          element: "^Android offline verification,.*"
+          direction: UP
+      - extendedWaitUntil:
+          notVisible: ".*change saved on this device.*"
+          timeout: 60000
 - assertVisible:
     text: "^Android offline verification,.*"
     checked: false
+- assertNotVisible: ".*change saved on this device.*"
 - takeScreenshot: offline-before-edit

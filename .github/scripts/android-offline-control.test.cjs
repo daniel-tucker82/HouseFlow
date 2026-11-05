@@ -50,6 +50,14 @@ test('only the owned emulator is allowed to change network settings', () => {
   assert.throws(h.run, /owned phone/)
   assert.equal(h.calls.some(args => args.includes('svc')), false)
 })
+
+test('failed online task preparation never disables network access', () => {
+  const h = harness({ failFlow: 'prepare' }), result = h.run()
+  assert.equal(result.passed, false); assert.match(result.error, /prepare flow failed/)
+  assert.equal(h.calls.some(args => args.includes('svc')), false)
+  assert.deepEqual(h.flows, ['prepare'])
+  assert.deepEqual(h.radios, { wifi: '1', data: '1' })
+})
 test('successful control sequence requires all phases and preserves radio settings', () => {
   const h = harness(), result = h.run()
   assert.equal(result.passed, true)

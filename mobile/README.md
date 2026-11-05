@@ -170,9 +170,32 @@ instead of repeatedly showing “Syncing…”. Explicit retry preserves the ope
 and its frozen clock correction. Both regressions failed before the changes;
 all 43 PostgreSQL route/SQLite synchronization checks now pass, including quota
 enforcement for a genuinely additional run and retry after capacity is available.
-Root/mobile type checks and focused root/mobile lint pass. Updated packaged
-backend and native verification are still required. The failing native fixture
-was left intact; only the separate two-task HTTP probe was removed.
+Root/mobile type checks and focused root/mobile lint pass. The isolated packaged
+`f4f52a3` backend now passes the real authenticated completion/reopening probe:
+both returned HTTP 200 with applied receipts (445/281 ms). Its temporary tasks
+were removed and session revoked. After all prior simulator jobs finished, the
+verified build replaced only the development tunnel backend; HTTPS sign-in,
+bootstrap, time and unauthenticated rejection passed again.
+
+Fresh native verification is still required because the app's 402 handling
+changed. `verify_offline_phone` builds the current APK and tests just that journey.
+If the dedicated task is completed from a failed attempt, preparation reopens it
+through the app and requires acknowledgement before going offline. Existing
+receipts remain intact; no database reset is used to make the test pass.
+
+On iOS run `41963857094`, all four simulators passed actual development sign-in,
+household selection, rotation and session persistence. Current iPhone and iOS 17
+iPad also passed both signed-out text sizes. Current iPhone's system permission,
+injected banner and Notification Center checks all passed for the same alert
+`Family update 46018`; the actual captures were inspected. Artifact `13388478670`
+SHA-256 `c9d0fdc3cc82a75e66ba7f95784d6d0f0cbff920181b9308457831434a6b18ea`
+was verified. This does not establish live APNs delivery. iOS 17 iPhone's first
+XCTest bootstrap failed before UI execution; its later large-text and authenticated
+journeys passed. Current iPad's initial Dynamic Type command timed out, then its
+large-text/authenticated journeys passed. Its kiosk setup failed to activate after
+the enable tap, with filled PINs, enabled button and no server activation row.
+The root cause remains unresolved; the next check captures the layout immediately
+before and after that tap, without retrying or bypassing the activation assertion.
 
 Android run `41867082612` (`93777e1`) passed the optimized API 36 phone/tablet
 matrix at 1x/1.6x text, including software-keyboard rotation, retained input,

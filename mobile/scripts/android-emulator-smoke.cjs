@@ -16,7 +16,7 @@ if (process.argv.length !== 5) throw new Error('Expected APK, Maestro executable
 const [apk, maestro, output] = process.argv.slice(2).map(value => path.resolve(value))
 const fixture = authFixture()
 const offlineOnly = process.env.CYNTCH_ANDROID_OFFLINE === 'true'
-if (offlineOnly && (!fixture || !/^[a-f0-9]{40}$/.test(process.env.CYNTCH_ANDROID_APP_SHA ?? ''))) throw new Error('Offline replay requires the verified APK and isolated sign-in fixture.')
+if (offlineOnly && (!fixture || !/^[a-f0-9]{40}$/.test(process.env.CYNTCH_ANDROID_APP_SHA ?? ''))) throw new Error('Offline verification requires the verified APK and isolated sign-in fixture.')
 if (!fs.existsSync(apk) || !fs.existsSync(maestro)) throw new Error('Compiled APK and Maestro are required.')
 fs.mkdirSync(output, { recursive: true })
 const serial = 'emulator-5554'

@@ -42,7 +42,14 @@ name: Family display survives restart and rejects parent routes and an incorrect
     element: "Enable kiosk mode"
     direction: DOWN
     centerElement: true
+- assertVisible:
+    text: "Enable kiosk mode"
+    enabled: true
+# Retain the actual pre-tap layout and keyboard state when native activation
+# does not begin; a tap acknowledgement alone is not an activation assertion.
+- takeScreenshot: kiosk-ready-to-enable
 - tapOn: "Enable kiosk mode"
+- takeScreenshot: kiosk-after-enable-tap
 - runFlow: verify-locked.yaml
 - extendedWaitUntil:
     notVisible: "Finishing secure setup. Please keep Cyntch open until this message disappears."
