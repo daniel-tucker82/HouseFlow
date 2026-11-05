@@ -14,6 +14,10 @@ on:
       - .github/scripts/ios-device-*
   workflow_dispatch:
     inputs:
+      compile_only:
+        description: Compile the simulator app for a later verified replay without starting device journeys
+        type: boolean
+        default: false
       simulator_from_run:
         description: Use the unchanged authenticated simulator app from this producer run
         type: string
@@ -222,7 +226,7 @@ jobs:
   device:
     name: Test ${{ matrix.family }} (${{ matrix.runtime }})
     needs: compile
-    if: ${{ always() && !cancelled() && (needs.compile.outputs.app_ready == 'true' || (inputs.simulator_from_run && !inputs.verify_device_archive && needs.compile.result == 'skipped')) }}
+    if: ${{ always() && !cancelled() && !inputs.compile_only && (needs.compile.outputs.app_ready == 'true' || (inputs.simulator_from_run && !inputs.verify_device_archive && needs.compile.result == 'skipped')) }}
     permissions:
       actions: read
       contents: read
