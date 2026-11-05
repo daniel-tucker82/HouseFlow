@@ -130,3 +130,4 @@ name: A parent can rename a no-email member and choose a persistent colour
 - takeScreenshot: member-removed-after-restart
 - stopApp
 - runFlow: invitations.yaml
+- runFlow: deletion-review.yaml

@@ -31,8 +31,22 @@ Ten focused database/HTTP/worker checks and fourteen existing recovery checks
 passed, including transaction rollback, lost responses, conflicting workers,
 late provider results, consent, kiosk locks, owner/receipt isolation and cron
 authentication. Thirty-five existing account-deletion and native-billing checks
-also passed. Root/mobile types and lint passed. Actual native household deletion,
-the final production build and real provider cleanup remain unverified.
+also passed. Root/mobile types and lint passed. The `6bcb8cd` production build
+passed, and its isolated server on localhost:3016 passed real development sign-in,
+invitation permissions, account-scoped deletion receipts and signed-out rejection.
+Migration `0042` was applied only to the local test database; the original
+household and notification preferences still matched their saved hash afterwards.
+
+The opt-in `tests/integration/household-deletion-stripe.cjs` passed against the
+existing authenticated Stripe test sandbox. Two new zero-priced subscriptions
+were created. Deleting one household cancelled only its subscription. A simulated
+lost response retained the durable job; a second worker read the provider's
+deleted-customer receipt and completed without issuing another DELETE. The other
+household, account and active subscription were unchanged. Disposable customers
+were cleaned up and the new price/product were archived. Evidence:
+`C:/Users/danie/AppData/Local/Temp/cyntch-household-deletion-stripe-c9e3416a-6e71-47bf-9b9a-09dd0fd9811e.json`.
+This uses the CLI transport against real test APIs; production runtime credentials,
+deployed scheduling and actual native household deletion remain unverified.
 
 iPhone deletion run `42006225356` compiled successfully but its native journey
 stopped before submission. Both review orientations and consents passed; the final
@@ -44,8 +58,14 @@ adds a final scroll and a pre-tap capture, reusing the exact compiled `e79d851`
 app with unchanged runtime inputs. Its parser and eight fixture/auth checks pass.
 The scratch workflow requires the mobile producer branch explicitly and retains
 the same-repository, ancestry, runtime-diff, artifact-digest and signing checks.
-The same flow correction is included here for future builds. Do not replay the
-newer invitation/household features with that old application binary.
+The same flow correction is included here for future builds. That replay,
+`42017249607`, stopped at the welcome-screen sign-in tap, before any identifier
+entry or deletion journey. Artifact `13409588585` was verified against
+`16cf3ef07a684e77c93966ad4ba774dc68a44d439c5b5c5f905650a03eed6722`.
+The screenshot and hierarchy show the welcome screen; the precise cause is not
+established. A focused follow-up adds an animation-settle wait and pre-tap capture,
+preserving a single opening tap. Do not replay newer invitation/household features
+with the old application binary.
 
 Invitation parity update, 2026-11-05: household owners can now choose 1–100 uses
 and 1–365 days, retrieve existing links after restarting, copy or share them,
@@ -60,18 +80,23 @@ revocation, retained memberships, tied-timestamp pagination, permissions, kiosk
 locks, account/household response isolation, double presses, lost responses and
 blur/reconnect races. Root/mobile types and lint passed. The guarded household
 phone journey now also covers custom limits, copy, rotation, restart and cancelled/
-confirmed revocation, requiring nine captures overall; its pinned Maestro parser
-and eight fixture/auth checks passed. Native invitation UI execution is still
+confirmed revocation, plus household-deletion consent, rotation and cancellation
+without submission. It requires eleven captures overall; the pinned Maestro parser
+and nine fixture/auth checks passed. Native invitation UI execution is still
 outstanding and needs a fresh binary including `expo-clipboard`. Do not replay
 this expanded journey with the older `e79d851` deletion binary.
 
-Current queued verification, 2026-11-05: `42017249607` reuses app `e79d851`
-with verification-only harness `6b13d26` for the isolated account-deletion journey.
+Current queued verification, 2026-11-05: `42019096557` reuses app `e79d851`
+with verification-only harness `c3b6d98` for the isolated account-deletion journey.
 Compilation is skipped. Inspect its artifact and the disposable schema/provider
-boundary before any follow-up submission. All three earlier deletion attempts
+boundary before any follow-up submission. All four earlier deletion attempts
 stopped before submission. Keep the original household unchanged
 until that evidence is saved; the subsequent Android/iPhone member journeys must
 run sequentially. No new Android build or household journey has started yet.
+Android's explicit `household_phone_from_run` input now permits an unchanged APK
+to be reused for this journey. Both platforms retain their same-repository,
+ancestry, runtime-diff and artifact checks; household test harness changes are
+excluded from the runtime comparison. Actionlint passed for both workflows.
 
 The matching household backend build `8ae2111` passed production compilation,
 retained all 16 web palette classes, and passed real development email-code
@@ -82,12 +107,8 @@ deletion backend and has provider/deletion gates disabled. Evidence is in
 `C:/Users/danie/.codex/tmp/cyntch-native-http-build-8ae2111.json` and
 `C:/Users/danie/.codex/tmp/cyntch-native-http-preflight-8ae2111-direct.json`.
 
-The feature-parity audit also found outstanding standalone household deletion.
-The web UI already exposes that control. Before exposing household
-deletion on mobile, verify its billing consequences: the existing route deletes
-the household directly, website billing rows cascade, and native purchase
-identities retire. This audit does not establish provider cancellation for that
-separate operation. These are remaining engineering tasks, not store-only blockers.
+The standalone household-deletion gap found by the parity audit is implemented
+above. Its native device journey and production rollout checks remain outstanding.
 
 Household parity update, 2026-11-05: the native household screen now lets owners
 rename profiles without an independent sign-in and lets owners/supervisors choose

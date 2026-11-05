@@ -13,7 +13,14 @@ name: Native sign-in opens the household and preserves the session
     element: "Sign in or create an account"
     direction: DOWN
     visibilityPercentage: 100
-- tapOn: "Sign in or create an account"
+# A newly rotated simulator can expose the welcome button before its touch
+# surface has settled. Retain its actual geometry before the single opening tap.
+- waitForAnimationToEnd:
+    timeout: 5000
+- takeScreenshot: native-sign-in-ready
+- tapOn:
+    text: "Sign in or create an account"
+    enabled: true
 - extendedWaitUntil:
     visible:
       id: "clerk.auth.start.identifier"

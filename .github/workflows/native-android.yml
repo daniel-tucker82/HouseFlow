@@ -23,12 +23,16 @@ on:
         description: Verify offline completion on a disposable phone using an unchanged APK and the prepared isolated task
         type: string
         default: ''
+      household_phone_from_run:
+        description: Verify household controls using an unchanged APK and the isolated parent fixture
+        type: string
+        default: ''
       verify_offline_phone:
         description: Build a fresh APK and verify offline completion on the isolated phone fixture
         type: boolean
         default: false
       verify_household_phone:
-        description: Build once and verify member editing on the isolated phone fixture
+        description: Build once and verify members, invitations and deletion review on the isolated phone
         type: boolean
         default: false
       verify_arm64_bundle:
@@ -49,13 +53,13 @@ permissions:
 
 concurrency:
   # A signed-out push must not replace queued household or ARM bundle evidence.
-  group: native-android-${{ github.ref }}-${{ inputs.offline_phone_from_run && 'offline-phone-replay' || inputs.foldable_from_run && 'foldable-replay' || inputs.verify_arm64_bundle && 'bundle' || inputs.fixture_email && 'authenticated' || 'signed-out' }}
+  group: native-android-${{ github.ref }}-${{ inputs.household_phone_from_run && 'household-phone-replay' || inputs.offline_phone_from_run && 'offline-phone-replay' || inputs.foldable_from_run && 'foldable-replay' || inputs.verify_arm64_bundle && 'bundle' || inputs.fixture_email && 'authenticated' || 'signed-out' }}
   # Finish device evidence for the active build; keep the newest next build queued.
   cancel-in-progress: false
 
 jobs:
   verify:
-    if: ${{ !inputs.foldable_from_run && !inputs.offline_phone_from_run }}
+    if: ${{ !inputs.foldable_from_run && !inputs.offline_phone_from_run && !inputs.household_phone_from_run }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     outputs:
@@ -176,7 +180,7 @@ jobs:
   device:
     name: Test Android (${{ matrix.device }})
     needs: verify
-    if: ${{ always() && !cancelled() && (needs.verify.outputs.apk_ready == 'true' || ((inputs.foldable_from_run || inputs.offline_phone_from_run) && !(inputs.foldable_from_run && inputs.offline_phone_from_run) && !inputs.verify_arm64_bundle && needs.verify.result == 'skipped')) }}
+    if: ${{ always() && !cancelled() && (needs.verify.outputs.apk_ready == 'true' || ((inputs.foldable_from_run || inputs.offline_phone_from_run || inputs.household_phone_from_run) && !(inputs.foldable_from_run && inputs.offline_phone_from_run) && !(inputs.foldable_from_run && inputs.household_phone_from_run) && !(inputs.offline_phone_from_run && inputs.household_phone_from_run) && !inputs.verify_arm64_bundle && needs.verify.result == 'skipped')) }}
     permissions:
       actions: read
       contents: read
@@ -185,7 +189,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON((inputs.verify_household_phone || inputs.offline_phone_from_run || inputs.verify_offline_phone) && '[{"device":"phone","avd":"cyntch-phone","api":"37.0","target":"google_apis_ps16k","profile":"pixel_6"}]' || inputs.foldable_from_run && '[{"device":"foldable","avd":"cyntch-foldable","api":"37.0","target":"google_apis_ps16k","profile":"pixel_fold"}]' || '[{"device":"phone","avd":"cyntch-phone","api":"37.0","target":"google_apis_ps16k","profile":"pixel_6"},{"device":"tablet","avd":"cyntch-tablet","api":"37.0","target":"google_apis_ps16k","profile":"pixel_tablet"},{"device":"foldable","avd":"cyntch-foldable","api":"37.0","target":"google_apis_ps16k","profile":"pixel_fold"},{"device":"minimum-api-24","avd":"cyntch-minimum","api":"24","target":"google_apis","profile":"Nexus 5"}]') }}
+        include: ${{ fromJSON((inputs.verify_household_phone || inputs.household_phone_from_run || inputs.offline_phone_from_run || inputs.verify_offline_phone) && '[{"device":"phone","avd":"cyntch-phone","api":"37.0","target":"google_apis_ps16k","profile":"pixel_6"}]' || inputs.foldable_from_run && '[{"device":"foldable","avd":"cyntch-foldable","api":"37.0","target":"google_apis_ps16k","profile":"pixel_fold"}]' || '[{"device":"phone","avd":"cyntch-phone","api":"37.0","target":"google_apis_ps16k","profile":"pixel_6"},{"device":"tablet","avd":"cyntch-tablet","api":"37.0","target":"google_apis_ps16k","profile":"pixel_tablet"},{"device":"foldable","avd":"cyntch-foldable","api":"37.0","target":"google_apis_ps16k","profile":"pixel_fold"},{"device":"minimum-api-24","avd":"cyntch-minimum","api":"24","target":"google_apis","profile":"Nexus 5"}]') }}
     defaults:
       run:
         working-directory: mobile
@@ -199,19 +203,19 @@ jobs:
       EXPO_PUBLIC_API_URL: ${{ inputs.fixture_url || 'https://cyntch-simulator.invalid' }}
       CYNTCH_NATIVE_TEST_EMAIL: ${{ inputs.fixture_email || '' }}
       MAESTRO_CLI_NO_ANALYTICS: '1'
-      CYNTCH_ANDROID_APK_PRODUCER: ${{ inputs.foldable_from_run || inputs.offline_phone_from_run }}
+      CYNTCH_ANDROID_APK_PRODUCER: ${{ inputs.foldable_from_run || inputs.offline_phone_from_run || inputs.household_phone_from_run }}
       CYNTCH_ANDROID_OFFLINE: ${{ (inputs.offline_phone_from_run || inputs.verify_offline_phone) && 'true' || 'false' }}
-      CYNTCH_NATIVE_HOUSEHOLD_CHECK: ${{ inputs.verify_household_phone && 'true' || 'false' }}
+      CYNTCH_NATIVE_HOUSEHOLD_CHECK: ${{ (inputs.verify_household_phone || inputs.household_phone_from_run) && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: ${{ (inputs.foldable_from_run || inputs.offline_phone_from_run) && '0' || '1' }}
+          fetch-depth: ${{ (inputs.foldable_from_run || inputs.offline_phone_from_run || inputs.household_phone_from_run) && '0' || '1' }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22.23.3'
       - name: Verify the source of the reusable APK
-        if: inputs.foldable_from_run || inputs.offline_phone_from_run
+        if: inputs.foldable_from_run || inputs.offline_phone_from_run || inputs.household_phone_from_run
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -232,7 +236,7 @@ jobs:
             ':!mobile/.maestro*/**' ':!mobile/scripts/ios-*-smoke.cjs' ':!mobile/scripts/native-auth-smoke.cjs' \
             ':!mobile/scripts/native-kiosk-smoke.cjs' ':!mobile/scripts/android-foldable-smoke.cjs' \
             ':!mobile/scripts/android-emulator-smoke.cjs' ':!mobile/scripts/android-offline-smoke.cjs' \
-            ':!mobile/scripts/native-notification-preferences-smoke.cjs'
+            ':!mobile/scripts/native-notification-preferences-smoke.cjs' ':!mobile/scripts/native-household-smoke.cjs' ':!mobile/scripts/native-household-smoke.test.cjs'
           printf 'CYNTCH_ANDROID_APP_SHA=%s\n' "$sha" >> "$GITHUB_ENV"
       - name: Verify UI process cleanup
         if: matrix.device == 'foldable'
@@ -246,7 +250,7 @@ jobs:
           name: native-android-verification
           path: ${{ runner.temp }}/cyntch-android-compile-evidence
           digest-mismatch: error
-          run-id: ${{ inputs.foldable_from_run || inputs.offline_phone_from_run || github.run_id }}
+          run-id: ${{ inputs.foldable_from_run || inputs.offline_phone_from_run || inputs.household_phone_from_run || github.run_id }}
           github-token: ${{ github.token }}
       - name: Verify the exact compiled APK
         run: |

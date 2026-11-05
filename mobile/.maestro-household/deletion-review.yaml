@@ -1,0 +1,46 @@
+appId: com.cyntch.app
+name: Household deletion requires consent and cancellation keeps the household
+---
+# Review only: NEVER confirm deletion of the shared ordinary test household.
+# The ordinary fixture backend keeps household deletion submission disabled.
+- launchApp
+- setOrientation: ${PORTRAIT_ORIENTATION}
+- tapOn: "(?i)^Household(,.*)?$"
+- scrollUntilVisible:
+    element: "Household deletion"
+    direction: DOWN
+    centerElement: true
+    timeout: 60000
+- scrollUntilVisible:
+    element: "^Delete this household$"
+    direction: DOWN
+- assertVisible:
+    text: "^Delete this household$"
+    enabled: false
+- scrollUntilVisible:
+    element: "I understand household deletion and subscription cancellation"
+    direction: UP
+    centerElement: true
+- tapOn: "I understand household deletion and subscription cancellation"
+- assertVisible:
+    text: "I understand household deletion and subscription cancellation"
+    checked: true
+- takeScreenshot: household-deletion-review-portrait
+- setOrientation: ${LANDSCAPE_ORIENTATION}
+- scrollUntilVisible:
+    element: "I understand household deletion and subscription cancellation"
+    direction: DOWN
+    centerElement: true
+- takeScreenshot: household-deletion-review-landscape
+- setOrientation: ${PORTRAIT_ORIENTATION}
+- scroll
+- scrollUntilVisible:
+    element: "^Delete this household$"
+    direction: DOWN
+- tapOn: "^Delete this household$"
+- assertVisible: "^Delete Cyntch emulator family[?]$"
+- tapOn: "^Keep household$"
+- assertNotVisible: "^Delete Cyntch emulator family[?]$"
+- tapOn: "(?i)^Today(,.*)?$"
+- assertVisible: "^Choose household: Cyntch emulator family$"
+- stopApp
