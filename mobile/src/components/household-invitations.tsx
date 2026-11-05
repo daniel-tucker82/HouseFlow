@@ -53,10 +53,10 @@ export function HouseholdInvitations({ householdId, online }: { householdId: str
           <Action secondary disabled={disabled} label="Copy link" accessibilityLabel={`Copy invitation ${invite.code}`} onPress={() => void share(invite.code, true)} />
           <Action secondary disabled={disabled} label="Share link" accessibilityLabel={`Share invitation ${invite.code}`} onPress={() => void share(invite.code, false)} />
         </View>}
-      <Action secondary disabled={disabled} label="Revoke link" accessibilityLabel={`Revoke invitation ${invite.code}`} onPress={() => Alert.alert("Revoke this invitation?",
+      <Action secondary disabled={disabled} label="Revoke link" accessibilityLabel={`Revoke invitation ${invite.code}`} onPress={() => { const confirm = controller.prepareRevocation(invite.id); Alert.alert("Revoke this invitation?",
         "This link will stop working. Existing household members will keep their access.", [
-          { text: "Cancel", style: "cancel" }, { text: "Revoke invitation", style: "destructive", onPress: () => { setFeedback(null); void controller.revoke(invite.id) } },
-        ])} />
+          { text: "Cancel", style: "cancel" }, { text: "Revoke invitation", style: "destructive", onPress: () => { setFeedback(null); void confirm() } },
+        ]) }} />
     </View>)}
     <Action secondary disabled={!available || state.busy} label="Refresh invitations" onPress={() => { setFeedback(null); void controller.refresh() }} />
     {state.page?.nextCursor ? <Action secondary disabled={disabled} label="Load older invitations" onPress={() => void controller.refresh(true)} /> : null}

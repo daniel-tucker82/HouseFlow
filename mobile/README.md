@@ -86,17 +86,39 @@ and nine fixture/auth checks passed. Native invitation UI execution is still
 outstanding and needs a fresh binary including `expo-clipboard`. Do not replay
 this expanded journey with the older `e79d851` deletion binary.
 
-Current queued verification, 2026-11-05: `42019096557` reuses app `e79d851`
-with verification-only harness `c3b6d98` for the isolated account-deletion journey.
-Compilation is skipped. Inspect its artifact and the disposable schema/provider
-boundary before any follow-up submission. All four earlier deletion attempts
-stopped before submission. Keep the original household unchanged
-until that evidence is saved; the subsequent Android/iPhone member journeys must
-run sequentially. No new Android build or household journey has started yet.
+Account-deletion verification update, 2026-11-05: `42019096557` reused app
+`e79d851` with harness `c3b6d98`. Native authentication, both review orientations,
+cancelled confirmation, one accepted submission and receipt persistence after
+restart passed. The run timed out at completion because the isolated server had
+no Stripe credentials for its required orphan-customer inventory. Artifact
+`13410939537` was verified against
+`6fa38dd33daefb83f3d41f3e89919a87eac3c40c5641cbebd4671b105f721a49`.
+
+The existing request was recovered with the unchanged worker/adapters, actual
+read-only inventory in the authenticated Stripe test sandbox, and the strict
+marked-development-user Clerk boundary. It completed at 11:45:39 UTC; exactly
+one Clerk DELETE returned 200 and a subsequent lookup returned the provider's
+resource-not-found response. The original provider account, household and
+notification preferences were verified unchanged. **Do not replay submission
+for this deleted identity.** Its simulator was already removed after the failed
+run; final native cleanup and receipt removal are still unverified.
+
+The fixture also used a synthetic child ID outside the application's normal
+`local_member_<UUID>` format. That profile remains, so this run does not establish
+orphan-child erasure. Preserve its evidence; use a correctly created fresh fixture
+and configure the provider inventory before another full deletion journey.
+Partial evidence is saved in
+`C:/Users/danie/.codex/tmp/cyntch-native-deletion-server-evidence-42019096557.json`.
+The subsequent Android/iPhone member journeys must run sequentially.
 Android's explicit `household_phone_from_run` input now permits an unchanged APK
 to be reused for this journey. Both platforms retain their same-repository,
 ancestry, runtime-diff and artifact checks; household test harness changes are
 excluded from the runtime comparison. Actionlint passed for both workflows.
+
+Invitation confirmation now captures its screen generation. An alert opened
+before leaving, locking or disconnecting cannot revoke a link after returning,
+even after the list reloads. All six native-client checks, mobile lint and types
+passed, including this leave/return race.
 
 The matching household backend build `8ae2111` passed production compilation,
 retained all 16 web palette classes, and passed real development email-code

@@ -51,6 +51,18 @@ test('a mutation finishing across blur/refocus refreshes without reviving old su
   assert.equal(reads, 2); assert.equal(c.snapshot().message, null); assert.equal(c.snapshot().ready, true)
 })
 
+test('a revocation alert opened before leaving or locking the screen cannot act after returning', async () => {
+  const writes = []
+  const c = new InvitationController({ invitations: async () => page(), request: async (path, body) => { writes.push(body) } }, 'home')
+  c.setEnabled(true); await settle()
+  const oldConfirmation = c.prepareRevocation(item.id)
+  c.setEnabled(false); c.setEnabled(true); await settle()
+  assert.equal(c.snapshot().ready, true)
+  await oldConfirmation(); assert.deepEqual(writes, [])
+  await c.prepareRevocation(item.id)()
+  assert.deepEqual(writes, [{ action: 'deactivateInvite', householdId: 'home', inviteId: item.id }])
+})
+
 test('invitation transport rejects another account or household response', async t => {
   const oldFetch = global.fetch
   t.after(() => { global.fetch = oldFetch })

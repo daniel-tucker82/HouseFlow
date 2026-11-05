@@ -44,6 +44,12 @@ export class InvitationController {
     if (!this.state.page?.items.some(item => item.id === inviteId)) return
     await this.change("deactivateInvite", { inviteId }, "Invitation revoked. Existing members still belong to your household.")
   }
+  prepareRevocation(inviteId: string) {
+    const generation = this.generation
+    // A native alert may outlive its screen or a kiosk/connection interruption.
+    // Returning to the same household must not reactivate an older confirmation.
+    return async () => { if (this.current(generation)) await this.revoke(inviteId) }
+  }
   private async change(action: string, values: Record<string, unknown>, message: string) {
     if (!this.enabled || this.state.busy || !this.state.ready || this.mutation) return
     const generation = this.generation
