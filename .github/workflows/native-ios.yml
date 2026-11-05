@@ -11,8 +11,13 @@ on:
       - lib/time-rules.ts
       - lib/types.ts
       - .github/workflows/native-ios.yml
+      - .github/scripts/ios-device-*
   workflow_dispatch:
     inputs:
+      verify_device_archive:
+        description: Build and inspect a device SDK archive without distribution signing or submission
+        type: boolean
+        default: false
       runner:
         description: Standard Mac runner used for both simulator jobs
         type: choice
@@ -32,7 +37,7 @@ permissions:
 
 concurrency:
   # Keep a capacity-starved host pool from holding up the other architecture.
-  group: native-ios-${{ github.ref }}-${{ inputs.runner || 'macos-26-intel' }}
+  group: native-ios-${{ github.ref }}-${{ inputs.verify_device_archive && 'device-archive' || inputs.runner || 'macos-26-intel' }}
   # Finish device evidence for the active build; keep the newest next build queued.
   cancel-in-progress: false
 
@@ -101,6 +106,7 @@ jobs:
           set -o pipefail
           pod install 2>&1 | tee "$RUNNER_TEMP/cyntch-ios-pods.log"
       - name: Compile the locally signed release simulator app
+        if: ${{ !inputs.verify_device_archive }}
         run: |
           set -euo pipefail
           arch="$(uname -m)"
@@ -123,6 +129,7 @@ jobs:
           test -s "$RUNNER_TEMP/cyntch-derived/Build/Products/Release-iphonesimulator/Cyntch.app/main.jsbundle"
       - name: Verify simulator signing and retain the test app
         id: simulator_app
+        if: ${{ !inputs.verify_device_archive }}
         run: |
           set -euo pipefail
           app="$RUNNER_TEMP/cyntch-derived/Build/Products/Release-iphonesimulator/Cyntch.app"
@@ -148,6 +155,7 @@ jobs:
           shasum -a 256 "$RUNNER_TEMP/cyntch-ios-simulator.zip" > "$RUNNER_TEMP/cyntch-ios-simulator.sha256"
           echo "app_ready=true" >> "$GITHUB_OUTPUT"
       - name: Share the compiled app with both simulator jobs
+        if: ${{ !inputs.verify_device_archive }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-ios-simulator
@@ -155,6 +163,17 @@ jobs:
             ${{ runner.temp }}/cyntch-ios-simulator.zip
             ${{ runner.temp }}/cyntch-ios-simulator.sha256
           if-no-files-found: error
+          retention-days: 7
+      - name: Archive and verify the ARM64 iPhone and iPad app
+        if: inputs.verify_device_archive
+        run: bash ../.github/scripts/ios-device-archive.sh
+      - name: Retain device archive evidence
+        if: ${{ always() && inputs.verify_device_archive }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-ios-device-archive
+          path: ${{ runner.temp }}/cyntch-ios-archive-evidence/
+          if-no-files-found: warn
           retention-days: 7
       - name: Retain compiler evidence
         if: always()

@@ -90,6 +90,19 @@ segments in its 30 libraries passed ELF alignment. Five ARM64 libraries in
 React Native 0.88.1's release AAR passed; a deliberately misaligned library
 was rejected. These checks do not substitute for examining the final ARM bundle.
 
+[Run 41947020033](https://github.com/daniel-tucker82/HouseFlow/actions/runs/41947020033/job/126986148379)
+passed on the final development-signed bundle: 30 ARM64 libraries in the four
+Google-selected APKs passed, and the downloaded artifact digest was verified.
+The AAB SHA-256 is `0c98912881034a25a71c08a264043e31d79ce12914be75a743dad608210f8d6d`.
+
+For the corresponding Apple device compilation check, dispatch the iOS workflow
+with `verify_device_archive` enabled. Xcode archives against the iPhoneOS SDK
+without a developer team or distribution signing. The check verifies the device
+platform of the app and embedded binaries, phone/tablet metadata, matching crash
+symbols, a bundled JavaScript entry point and parseable privacy manifests. It
+does not install the app, verify the declarations' accuracy, export an IPA or
+submit to Apple. Simulator checks remain a separate run.
+
 ### Live task boards
 
 When `CYNTCH_BOARD_EVENTS_ENABLED=true` and a direct database URL is configured, bootstrap advertises live board
