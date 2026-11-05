@@ -1,0 +1,25 @@
+appId: com.cyntch.app
+---
+- scrollUntilVisible:
+    element:
+      id: "Name for Native member check"
+    direction: DOWN
+    centerElement: true
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - longPressOn:
+          id: "Name for Native member check"
+      - tapOn: "(?i)^Select all$"
+      - eraseText: 1
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      # A long press on the previously unfocused iOS field did not focus it.
+      # Tap beyond the short fixture name so backspace starts at its end.
+      - tapOn:
+          id: "Name for Native member check"
+          point: "95%,50%"
+      - eraseText: 50

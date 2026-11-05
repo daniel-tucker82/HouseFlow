@@ -219,6 +219,19 @@ The matching full iPhone journey `42032868908` is running at `7ed7e61`, reusing
 simulator producer `42022301424`; its result remains outstanding. Run the iPhone
 offline task mutation only after the private deletion preservation checks finish.
 
+iPhone `42032868908` passed native authentication, rotation and session restart,
+then created its dedicated no-email member. The next long press did not focus
+the iOS name field or display Select All. Artifact `13418377096` was verified
+against `a723c2b53d5bcf4869b61bf4a1f03b15953c01c96c77e38716e9041a528510f6`;
+its screenshot and hierarchy show the unchanged, unfocused field. The corrected
+iOS test taps near the end of this short fixture name before clearing it and
+still requires the exact replacement value. Android's verified selection method
+is retained. An explicit `household-resume-member` scope continues with the same
+test member rather than creating another; it cannot submit household deletion.
+No iPhone name change, invitation or deletion was submitted in the failed run.
+Keep the original-household deletion attestations blocked until the resumed
+journey removes this temporary membership and the complete saved hash matches.
+
 Invitation confirmation now captures its screen generation. An alert opened
 before leaving, locking or disconnecting cannot revoke a link after returning,
 even after the list reloads. All six native-client checks, mobile lint and types
@@ -1462,6 +1475,14 @@ checks cover required environments, malformed/mismatched files, private-key
 rejection without disclosure and preservation of existing app settings. Mobile
 lint and type checking passed. Native compilation with Firebase configuration
 and on-device registration/delivery remain unverified.
+
+The prepared isolated Firebase Android project also passed
+`:app:processReleaseGoogleServices` on 2026-11-05. Generated `google_app_id`,
+`gcm_defaultSenderId`, `project_id` and `google_api_key` resources match the
+existing client file exactly. Evidence is
+`C:/Users/danie/.codex/tmp/cyntch-firebase-resource-evidence-20261105.json`.
+This validates the Google Services build step, not a full Firebase-configured
+APK, token registration, provider credentials or delivered notifications.
 
 The root `.easignore` uploads `mobile`, `shared`, and the three package-free
 calendar/type utilities in `lib`. It excludes generated app projects while

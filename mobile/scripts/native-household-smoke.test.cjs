@@ -25,4 +25,8 @@ test('partial household replay excludes destructive submission and rejects unkno
   assert.throws(() => householdSection({ ...env, CYNTCH_NATIVE_HOUSEHOLD_SECTION: 'invitations-and-review', CYNTCH_NATIVE_HOUSEHOLD_DELETE_CHECK: 'true' }))
   assert.throws(() => householdSection({ ...env, CYNTCH_NATIVE_HOUSEHOLD_SECTION: 'unknown' }))
   assert.throws(() => householdSection({ ...env, CYNTCH_NATIVE_HOUSEHOLD_CHECK: '' }))
+  assert.equal(householdSection({ ...env, CYNTCH_NATIVE_HOUSEHOLD_RESUME_MEMBER: 'true', CYNTCH_IOS_REPLAY_SCOPE: 'household-resume-member' }), 'all')
+  assert.throws(() => householdSection({ ...env, CYNTCH_NATIVE_HOUSEHOLD_RESUME_MEMBER: 'true' }))
+  assert.throws(() => householdSection({ ...env, CYNTCH_NATIVE_HOUSEHOLD_RESUME_MEMBER: 'true', CYNTCH_IOS_REPLAY_SCOPE: 'household-resume-member', CYNTCH_NATIVE_HOUSEHOLD_DELETE_CHECK: 'true' }))
+  assert.throws(() => householdSection({ ...env, CYNTCH_NATIVE_HOUSEHOLD_RESUME_MEMBER: 'true', CYNTCH_IOS_REPLAY_SCOPE: 'household-resume-member', CYNTCH_NATIVE_HOUSEHOLD_SECTION: 'invitations-and-review' }))
 })

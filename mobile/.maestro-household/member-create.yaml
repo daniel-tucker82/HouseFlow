@@ -1,0 +1,20 @@
+appId: com.cyntch.app
+---
+- scrollUntilVisible:
+    element: "Their name"
+    direction: DOWN
+    centerElement: true
+- tapOn:
+    id: "Their name"
+- inputText: "Native member check"
+- hideKeyboard
+- scrollUntilVisible:
+    element: "^Add member$"
+    direction: DOWN
+    centerElement: true
+- tapOn: "^Add member$"
+- scrollUntilVisible:
+    element: "Rename Native member check"
+    direction: UP
+    centerElement: true
+    timeout: 60000

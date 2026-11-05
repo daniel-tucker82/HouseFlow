@@ -10,29 +10,21 @@ name: A parent can rename a no-email member and choose a persistent colour
     visible: "Everyone at home"
     timeout: 60000
 - assertNotVisible: "Rename Taylor Test"
-- scrollUntilVisible:
-    element: "Their name"
-    direction: DOWN
-    centerElement: true
-- tapOn:
-    id: "Their name"
-- inputText: "Native member check"
-- hideKeyboard
-- scrollUntilVisible:
-    element: "^Add member$"
-    direction: DOWN
-    centerElement: true
-- tapOn: "^Add member$"
-- scrollUntilVisible:
-    element: "Rename Native member check"
-    direction: UP
-    centerElement: true
-    timeout: 60000
+- runFlow:
+    when:
+      true: ${RESUME_MEMBER_CHECK !== 'true'}
+    file: member-create.yaml
+- runFlow:
+    when:
+      true: ${RESUME_MEMBER_CHECK === 'true'}
+    commands:
+      - scrollUntilVisible:
+          element: "Rename Native member check"
+          direction: DOWN
+          centerElement: true
+          timeout: 60000
 - tapOn: "Rename Native member check"
-- longPressOn:
-    id: "Name for Native member check"
-- tapOn: "(?i)^Select all$"
-- eraseText: 1
+- runFlow: clear-member-name.yaml
 - inputText: "Cancelled name"
 - copyTextFrom:
     id: "Name for Native member check"
@@ -46,10 +38,7 @@ name: A parent can rename a no-email member and choose a persistent colour
 - assertVisible: "Rename Native member check"
 - assertNotVisible: "Rename Cancelled name"
 - tapOn: "Rename Native member check"
-- longPressOn:
-    id: "Name for Native member check"
-- tapOn: "(?i)^Select all$"
-- eraseText: 1
+- runFlow: clear-member-name.yaml
 - inputText: "Native member renamed"
 - copyTextFrom:
     id: "Name for Native member check"
