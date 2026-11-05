@@ -8,6 +8,7 @@ const { authFixture, runAuthenticatedSmoke } = require('./native-auth-smoke.cjs'
 const { runNotificationSmoke } = require('./ios-notification-smoke.cjs')
 const { runKioskSmoke } = require('./native-kiosk-smoke.cjs')
 const { runNotificationPreferencesSmoke } = require('./native-notification-preferences-smoke.cjs')
+const { householdFixture, runHouseholdSmoke } = require('./native-household-smoke.cjs')
 const { deletionFixture, runAccountDeletionSmoke } = require('./native-account-deletion-smoke.cjs')
 const { runIOSUI, canRetryIOSBootstrap } = require('../../.github/scripts/ios-device-process.cjs')
 const { collectStartupDiagnostics } = require('../../.github/scripts/ios-device-startup-diagnostics.cjs')
@@ -28,6 +29,11 @@ const requestedFamily = process.env.CYNTCH_IOS_TEST_FAMILY
 const replay = process.env.CYNTCH_IOS_REPLAY_SCOPE
 const notificationsOnly = replay === 'notifications'
 const deletionOnly = replay === 'account-deletion'
+const householdOnly = process.env.CYNTCH_NATIVE_HOUSEHOLD_CHECK === 'true'
+if (householdOnly) {
+  householdFixture()
+  if (deletionOnly || requestedFamily !== 'iphone' || process.env.CYNTCH_IOS_TEST_RUNTIME) throw new Error('Member editing requires its own current iPhone check.')
+}
 if (replay && (!['notifications','current-devices','minimum-devices','phones','account-deletion'].includes(replay) || !fixture || !/^[a-f0-9]{40}$/.test(process.env.CYNTCH_IOS_APP_SHA ?? ''))) throw new Error('Replaying a simulator check requires a verified app and sign-in fixture.')
 if (replay === 'phones' && requestedFamily !== 'iphone') throw new Error('Phone replay cannot repeat a tablet job.')
 if (notificationsOnly && (requestedFamily !== 'iphone' || process.env.CYNTCH_IOS_TEST_RUNTIME)) throw new Error('The notification check requires a current iPhone.')
@@ -197,7 +203,13 @@ for (const [index, template] of devices.entries()) {
         orientations: { portrait: 'PORTRAIT', landscape: 'LANDSCAPE_LEFT' } })
       if (!result.kiosk.passed) throw new Error(result.kiosk.error)
     }
-    if (result.authentication?.passed && label === 'iphone' && !requestedRuntime && (!replay || notificationsOnly || replay === 'phones')) {
+    if (result.authentication?.passed && householdOnly) {
+      stage('household-members-and-restart')
+      result.householdMembers = runHouseholdSmoke({ maestro, device: ownedDevice, output: path.join(folder, 'household-members'),
+        orientations: { portrait: 'PORTRAIT', landscape: 'LANDSCAPE_LEFT' } })
+      if (!result.householdMembers.passed) throw new Error(result.householdMembers.error)
+    }
+    if (!householdOnly && result.authentication?.passed && label === 'iphone' && !requestedRuntime && (!replay || notificationsOnly || replay === 'phones')) {
       stage('notification-permission-and-center')
       result.notifications = runNotificationSmoke({device:ownedDevice,maestro,output:path.join(folder,'notifications')})
       if (!result.notifications.passed) throw new Error(result.notifications.error)

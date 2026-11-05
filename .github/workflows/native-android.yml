@@ -27,6 +27,10 @@ on:
         description: Build a fresh APK and verify offline completion on the isolated phone fixture
         type: boolean
         default: false
+      verify_household_phone:
+        description: Build once and verify member editing on the isolated phone fixture
+        type: boolean
+        default: false
       verify_arm64_bundle:
         description: Also build an ARM64 App Bundle and check Play-style device splits
         type: boolean
@@ -89,6 +93,7 @@ jobs:
           node --test scripts/device-screenshot-evidence.test.cjs
           node --test scripts/check-build-env.test.cjs
           node --test scripts/native-auth-smoke.test.cjs
+          node --test scripts/native-household-smoke.test.cjs
           node scripts/native-auth-smoke.cjs
       - name: Generate the native Android project
         run: |
@@ -180,7 +185,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON((inputs.offline_phone_from_run || inputs.verify_offline_phone) && '[{"device":"phone","avd":"cyntch-phone","api":"37.0","target":"google_apis_ps16k","profile":"pixel_6"}]' || inputs.foldable_from_run && '[{"device":"foldable","avd":"cyntch-foldable","api":"37.0","target":"google_apis_ps16k","profile":"pixel_fold"}]' || '[{"device":"phone","avd":"cyntch-phone","api":"37.0","target":"google_apis_ps16k","profile":"pixel_6"},{"device":"tablet","avd":"cyntch-tablet","api":"37.0","target":"google_apis_ps16k","profile":"pixel_tablet"},{"device":"foldable","avd":"cyntch-foldable","api":"37.0","target":"google_apis_ps16k","profile":"pixel_fold"},{"device":"minimum-api-24","avd":"cyntch-minimum","api":"24","target":"google_apis","profile":"Nexus 5"}]') }}
+        include: ${{ fromJSON((inputs.verify_household_phone || inputs.offline_phone_from_run || inputs.verify_offline_phone) && '[{"device":"phone","avd":"cyntch-phone","api":"37.0","target":"google_apis_ps16k","profile":"pixel_6"}]' || inputs.foldable_from_run && '[{"device":"foldable","avd":"cyntch-foldable","api":"37.0","target":"google_apis_ps16k","profile":"pixel_fold"}]' || '[{"device":"phone","avd":"cyntch-phone","api":"37.0","target":"google_apis_ps16k","profile":"pixel_6"},{"device":"tablet","avd":"cyntch-tablet","api":"37.0","target":"google_apis_ps16k","profile":"pixel_tablet"},{"device":"foldable","avd":"cyntch-foldable","api":"37.0","target":"google_apis_ps16k","profile":"pixel_fold"},{"device":"minimum-api-24","avd":"cyntch-minimum","api":"24","target":"google_apis","profile":"Nexus 5"}]') }}
     defaults:
       run:
         working-directory: mobile
@@ -196,6 +201,7 @@ jobs:
       MAESTRO_CLI_NO_ANALYTICS: '1'
       CYNTCH_ANDROID_APK_PRODUCER: ${{ inputs.foldable_from_run || inputs.offline_phone_from_run }}
       CYNTCH_ANDROID_OFFLINE: ${{ (inputs.offline_phone_from_run || inputs.verify_offline_phone) && 'true' || 'false' }}
+      CYNTCH_NATIVE_HOUSEHOLD_CHECK: ${{ inputs.verify_household_phone && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

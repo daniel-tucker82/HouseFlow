@@ -119,6 +119,7 @@ type MemberViewMember = {
   name: string
   avatar_url: string | null
   token_color: string | null
+  is_clerk_linked: boolean
   role: AppRole
 }
 
@@ -333,6 +334,7 @@ export async function getHouseholdMemberViewData(
             coalesce(u.full_name, u.email, hm.user_id) as name,
             u.avatar_url,
             hm.token_color,
+            (u.email is not null or hm.user_id like 'user_%') as is_clerk_linked,
             hm.role
      from household_members hm
      left join users u on u.id = hm.user_id

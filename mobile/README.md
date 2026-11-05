@@ -4,6 +4,27 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
+Household parity update, 2026-11-05: the native household screen now lets owners
+rename profiles without an independent sign-in and lets owners/supervisors choose
+member colours. Linked identities remain editable through their own account
+profile. The server supplies that distinction explicitly; older cached responses
+do not enable renaming. Names have save/cancel controls, colour choices have
+accessible labels and selected states, and the chosen colours appear in Today
+and family-display member initials. Web/native automatic colours share the
+existing assignment rules. Drafts and invitation codes reset when the account,
+household or role changes. Existing server permissions and kiosk checks apply.
+
+Eight focused PostgreSQL/SQLite/palette checks passed, including linked identities
+with or without email, saved names and colours,
+supervisor/member permissions, household isolation, kiosk blocking and readable
+initials. Eight native fixture/auth guard checks also passed. Root/mobile lint
+and types, workflow validation and the pinned Maestro parser passed. An explicit
+phone-only journey is prepared for each platform, using a temporary no-email
+member to test add, cancelled/saved rename, colour, rotation, restart, board display
+and removal. Run the two platforms sequentially against this shared test household.
+Actual device evidence for these new controls is still outstanding; earlier native
+runs used older application code and cannot verify this update.
+
 Latest verified result, 2026-11-05: notification replay `41990431535` passed on
 the current iPhone simulator (iOS 26.5), reusing app `e22da8a` with harness
 `f5acb64`; compilation was skipped. Real email-code sign-in, the system permission

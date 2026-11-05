@@ -5,17 +5,18 @@ import { Bell, Check, ChevronDown, Gift, LockKeyhole, RefreshCw, Search, Users, 
 import { router } from "expo-router"
 import type { BoardTask, HouseholdMember } from "../../../shared/mobile/contracts"
 import type { NativeKioskSession } from "../../../shared/mobile/kiosk"
+import { buildNativeMemberColorMap, type NativeMemberColor } from "../../../shared/member-tokens"
 import { boardCompletionActor, boardDisplayAccess, boardTaskKey, defaultBoardDisplay, filterBoardTasks, orderBoardTasks, taskMembers, type BoardDisplayPreferences, type BoardFilter } from "../../../shared/mobile/board-view"
 import { useBoard, useRuntime } from "../providers/runtime"
 import { Action, Card, Copy, Loading, styles, usePalette } from "./ui"
 import { BoardDisplaySettings } from "./board-display-settings"
 import { BoardTaskDetails, taskWaitingLabel } from "./board-task-details"
 
-function Person({ member, selected, onPress, allLabel }: { member: HouseholdMember | null; selected: boolean; onPress: () => void; allLabel?: string }) {
+function Person({ member, selected, onPress, allLabel, token }: { member: HouseholdMember | null; selected: boolean; onPress: () => void; allLabel?: string; token?: NativeMemberColor }) {
   const colors = usePalette()
-  return <Pressable accessibilityRole="button" accessibilityState={{ selected }} onPress={onPress}
+  return <Pressable accessibilityRole="button" accessibilityLabel={member?.name ?? allLabel ?? "Everyone"} accessibilityState={{ selected }} onPress={onPress}
     style={[boardStyles.person, { borderColor: selected ? colors.primary : colors.border, backgroundColor: selected ? colors.soft : colors.surface }]}>
-    <View style={[boardStyles.avatar, { backgroundColor: colors.soft }]}>{member ? <Copy tone="label">{member.name.trim().slice(0, 1).toLocaleUpperCase()}</Copy> : <Users color={colors.primary} size={19} />}</View>
+    <View style={[boardStyles.avatar, { backgroundColor: token?.background ?? colors.soft }]}>{member ? <Copy tone="label" style={{ color: token?.foreground ?? colors.text }}>{member.name.trim().slice(0, 1).toLocaleUpperCase()}</Copy> : <Users color={colors.primary} size={19} />}</View>
     <Copy tone="label">{member?.name ?? allLabel ?? "Everyone"}</Copy>
   </Pressable>
 }
@@ -82,6 +83,7 @@ function BoardWorkspace({ kiosk, onParentAccess, notice }: BoardProps) {
   const [displayOpen, setDisplayOpen] = useState(false), [activeTaskKey, setActiveTaskKey] = useState<string | null>(null)
   const [showHouseholds, setShowHouseholds] = useState(false)
   const board = state.board
+  const memberColors = buildNativeMemberColorMap(board?.members ?? [])
   const householdId = board?.household.id, role = board?.household.role
   const [displayReady, setDisplayReady] = useState(Boolean(kiosk) || !householdId || role === "member")
   const [displayError, setDisplayError] = useState<string | null>(null), [displayAttempt, setDisplayAttempt] = useState(0)
@@ -126,7 +128,7 @@ function BoardWorkspace({ kiosk, onParentAccess, notice }: BoardProps) {
   </View> : <Loading label="Opening this display…" />
   const people = <>
     <Person member={null} allLabel={members.length === board?.members.length ? "Everyone" : "Shown members"} selected={memberId === null} onPress={() => setMember(null)} />
-    {members.map(member => <Person key={member.id} member={member} selected={memberId === member.id} onPress={() => setMember(member.id)} />)}
+    {members.map(member => <Person key={member.id} member={member} token={memberColors.get(member.id)} selected={memberId === member.id} onPress={() => setMember(member.id)} />)}
   </>
   return <SafeAreaView edges={kiosk ? ["top", "left", "right", "bottom"] : ["top", "left", "right"]} style={{ flex: 1, backgroundColor: colors.background }}>
     <View style={[boardStyles.top, { borderBottomColor: colors.border }]}>

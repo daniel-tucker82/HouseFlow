@@ -9,6 +9,7 @@ const { authFixture, runAuthenticatedSmoke } = require('./native-auth-smoke.cjs'
 const { runKioskSmoke } = require('./native-kiosk-smoke.cjs')
 const { runOfflineSmoke } = require('./android-offline-smoke.cjs')
 const { runNotificationPreferencesSmoke } = require('./native-notification-preferences-smoke.cjs')
+const { householdFixture, runHouseholdSmoke } = require('./native-household-smoke.cjs')
 
 if (process.platform !== 'linux' || process.env.GITHUB_ACTIONS !== 'true') {
   throw new Error('Run this verification on the Linux GitHub Actions host.')
@@ -17,6 +18,11 @@ if (process.argv.length !== 5) throw new Error('Expected APK, Maestro executable
 const [apk, maestro, output] = process.argv.slice(2).map(value => path.resolve(value))
 const fixture = authFixture()
 const offlineOnly = process.env.CYNTCH_ANDROID_OFFLINE === 'true'
+const householdOnly = process.env.CYNTCH_NATIVE_HOUSEHOLD_CHECK === 'true'
+if (householdOnly) {
+  householdFixture()
+  if (offlineOnly) throw new Error('Choose household or offline verification, not both.')
+}
 if (offlineOnly && (!fixture || !/^[a-f0-9]{40}$/.test(process.env.CYNTCH_ANDROID_APP_SHA ?? ''))) throw new Error('Offline verification requires the verified APK and isolated sign-in fixture.')
 if (!fs.existsSync(apk) || !fs.existsSync(maestro)) throw new Error('Compiled APK and Maestro are required.')
 fs.mkdirSync(output, { recursive: true })
@@ -108,7 +114,12 @@ try {
     report.kiosk = runKioskSmoke({ maestro, device: serial, output: path.join(output, 'kiosk'), orientations: report.orientations })
     if (!report.kiosk.passed) throw new Error(report.kiosk.error)
   }
-  if (!offlineOnly && report.authentication?.passed && report.avd === 'cyntch-phone') {
+  if (householdOnly) {
+    if (!report.authentication?.passed || report.avd !== 'cyntch-phone') throw new Error('Household editing requires the authenticated phone.')
+    report.householdMembers = runHouseholdSmoke({ maestro, device: serial, output: path.join(output, 'household-members'), orientations: report.orientations })
+    if (!report.householdMembers.passed) throw new Error(report.householdMembers.error)
+  }
+  if (!offlineOnly && !householdOnly && report.authentication?.passed && report.avd === 'cyntch-phone') {
     const folder=path.join(output,'notifications')
     fs.mkdirSync(folder,{recursive:true})
     const log=fs.openSync(path.join(folder,'maestro.log'),'w')
@@ -135,7 +146,7 @@ try {
   }
   // Both a full authenticated phone check and an offline-only check verify the
   // prepared disposable task. Compile once for the current application revision.
-  if (report.authentication?.passed && report.avd === 'cyntch-phone') {
+  if (!householdOnly && report.authentication?.passed && report.avd === 'cyntch-phone') {
     report.offline = runOfflineSmoke({ maestro, device: serial, output: path.join(output, 'offline'), orientations: report.orientations })
     if (!report.offline.passed) throw new Error(report.offline.error)
   }

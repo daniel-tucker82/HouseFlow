@@ -53,7 +53,8 @@ export async function readMobileRuns(userId: string, params: URLSearchParams): P
     }
     const run = (await client.query<RunSummary>(`${summary} where ro.household_id=$1 and ro.id=$2`, [householdId, occurrenceId])).rows[0]
     if (!run) throw new RunReadError("This run was removed from the household.", 404)
-    const members = (await client.query<HouseholdMember>(`select hm.user_id as id,coalesce(u.full_name,u.email,hm.user_id) as name,u.avatar_url,hm.token_color,hm.role
+    const members = (await client.query<HouseholdMember>(`select hm.user_id as id,coalesce(u.full_name,u.email,hm.user_id) as name,u.avatar_url,hm.token_color,hm.role,
+      (u.email is not null or hm.user_id like 'user_%') as is_clerk_linked
       from household_members hm left join users u on u.id=hm.user_id where hm.household_id=$1 order by name`, [householdId])).rows.map(member => ({ ...member, role: normalizeRole(member.role) }))
     const tasks = (await client.query<BoardTask>(`select t.id,ot.occurrence_id,$3::text as occurrence_title,$4::text as occurrence_kind,
       t.title,t.description,t.is_reward,ot.status,ot.status_version::text,t.unlock_at,t.expires_at,

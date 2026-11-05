@@ -14,6 +14,8 @@ export interface HouseholdMember {
   name: string
   avatar_url: string | null
   token_color: string | null
+  /** Absent in older cached boards. Only an explicit false permits parent renaming. */
+  is_clerk_linked?: boolean
   role: MemberRole
 }
 

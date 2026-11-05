@@ -1,0 +1,131 @@
+appId: com.cyntch.app
+name: A parent can rename a no-email member and choose a persistent colour
+---
+# Explicit isolated-fixture check. Create a dedicated local member, then remove
+# that membership; never rename the original parent or child used by other tests.
+- launchApp
+- setOrientation: ${PORTRAIT_ORIENTATION}
+- tapOn: "(?i)^Household(,.*)?$"
+- extendedWaitUntil:
+    visible: "Everyone at home"
+    timeout: 60000
+- assertNotVisible: "Rename Taylor Test"
+- scrollUntilVisible:
+    element: "Their name"
+    direction: DOWN
+    centerElement: true
+- tapOn:
+    id: "Their name"
+- inputText: "Native member check"
+- hideKeyboard
+- scrollUntilVisible:
+    element: "^Add member$"
+    direction: DOWN
+    centerElement: true
+- tapOn: "^Add member$"
+- scrollUntilVisible:
+    element: "Rename Native member check"
+    direction: UP
+    centerElement: true
+    timeout: 60000
+- tapOn: "Rename Native member check"
+- tapOn:
+    id: "Name for Native member check"
+- eraseText
+- inputText: "Cancelled name"
+- hideKeyboard
+- scrollUntilVisible:
+    element: "Cancel name change"
+    direction: DOWN
+    centerElement: true
+- tapOn: "Cancel name change"
+- assertVisible: "Rename Native member check"
+- assertNotVisible: "Rename Cancelled name"
+- tapOn: "Rename Native member check"
+- tapOn:
+    id: "Name for Native member check"
+- eraseText
+- inputText: "Native member renamed"
+- hideKeyboard
+- scrollUntilVisible:
+    element: "Save name"
+    direction: DOWN
+    centerElement: true
+- tapOn: "Save name"
+- extendedWaitUntil:
+    visible: "Rename Native member renamed"
+    timeout: 60000
+- scrollUntilVisible:
+    element: "Change colour for Native member renamed"
+    direction: DOWN
+    centerElement: true
+- tapOn: "Change colour for Native member renamed"
+- scrollUntilVisible:
+    element: "Native member renamed: Violet colour"
+    direction: DOWN
+    centerElement: true
+- tapOn: "Native member renamed: Violet colour"
+- extendedWaitUntil:
+    visible: "Change colour for Native member renamed"
+    timeout: 60000
+- tapOn: "Change colour for Native member renamed"
+- scrollUntilVisible:
+    element: "Native member renamed: Violet colour"
+    direction: DOWN
+    centerElement: true
+- assertVisible:
+    text: "Native member renamed: Violet colour"
+    selected: true
+- takeScreenshot: member-colour-portrait
+- setOrientation: ${LANDSCAPE_ORIENTATION}
+- scrollUntilVisible:
+    element: "Native member renamed: Violet colour"
+    direction: DOWN
+    centerElement: true
+- assertVisible:
+    text: "Native member renamed: Violet colour"
+    selected: true
+- takeScreenshot: member-colour-landscape
+- setOrientation: ${PORTRAIT_ORIENTATION}
+- stopApp
+- launchApp
+- tapOn: "(?i)^Household(,.*)?$"
+- scrollUntilVisible:
+    element: "Rename Native member renamed"
+    direction: DOWN
+    centerElement: true
+    timeout: 60000
+- assertNotVisible: "Rename Native member check"
+- tapOn: "Change colour for Native member renamed"
+- scrollUntilVisible:
+    element: "Native member renamed: Violet colour"
+    direction: DOWN
+    centerElement: true
+- assertVisible:
+    text: "Native member renamed: Violet colour"
+    selected: true
+- takeScreenshot: member-colour-after-restart
+- tapOn: "(?i)^Today(,.*)?$"
+- scrollUntilVisible:
+    element: "Native member renamed"
+    direction: RIGHT
+    centerElement: true
+- takeScreenshot: member-colour-on-board
+- tapOn: "(?i)^Household(,.*)?$"
+- scrollUntilVisible:
+    element: "Remove Native member renamed"
+    direction: DOWN
+    centerElement: true
+- tapOn: "Remove Native member renamed"
+- assertVisible: "Remove Native member renamed[?]"
+- tapOn: "^Remove$"
+- extendedWaitUntil:
+    notVisible: "Remove Native member renamed"
+    timeout: 60000
+- stopApp
+- launchApp
+- tapOn: "(?i)^Household(,.*)?$"
+- assertVisible: "Everyone at home"
+- assertNotVisible: ".*Native member renamed.*"
+- takeScreenshot: member-removed-after-restart
+- stopApp

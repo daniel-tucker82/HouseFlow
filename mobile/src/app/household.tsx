@@ -1,18 +1,25 @@
-import { useState } from "react"
-import { Alert, KeyboardAvoidingView, Platform, ScrollView, Share, TextInput, View } from "react-native"
+import { useRef, useState } from "react"
+import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, Share, TextInput, View } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
+import { buildNativeMemberColorMap, NATIVE_TOKEN_COLOR_OPTIONS } from "../../../shared/member-tokens"
 import { Action, Card, Copy, styles, usePalette } from "../components/ui"
 import { useBoard, useRuntime } from "../providers/runtime"
 
 function Field({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string }) {
   const colors = usePalette()
-  return <View style={{ gap: 6 }}><Copy tone="label">{label}</Copy><TextInput accessibilityLabel={label} value={value} onChangeText={onChange}
+  return <View style={{ gap: 6 }}><Copy tone="label">{label}</Copy><TextInput testID={label} accessibilityLabel={label} value={value} onChangeText={onChange}
     placeholder={placeholder} placeholderTextColor={colors.muted} maxLength={150} style={{ color: colors.text, backgroundColor: colors.background,
       borderWidth: 1, borderColor: colors.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 14, minHeight: 50, fontSize: 16 }} /></View>
 }
 
 export default function HouseholdScreen() {
-  const { api, controller } = useRuntime()
+  const state = useBoard(), { controller } = useRuntime()
+  // Drafts and invitation codes belong to one account, household and role.
+  return <HouseholdWorkspace key={`${controller.accountId}:${state.board?.household.id}:${state.board?.household.role}`} />
+}
+
+function HouseholdWorkspace() {
+  const { api, controller, syncPaused } = useRuntime()
   const state = useBoard()
   const colors = usePalette()
   const [name, setName] = useState("")
@@ -21,15 +28,21 @@ export default function HouseholdScreen() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [inviteCode, setInviteCode] = useState<string | null>(null)
+  const [rename, setRename] = useState<{ id: string; name: string } | null>(null)
+  const [colorMemberId, setColorMemberId] = useState<string | null>(null)
+  const saving = useRef(false)
   const household = state.board?.household
   const manager = household?.role === "manager"
-  const disabled = busy || !state.online
+  const management = manager || household?.role === "supervisor"
+  const memberColors = buildNativeMemberColorMap(state.board?.members ?? [])
+  const disabled = busy || !state.online || syncPaused
 
   async function act(work: () => Promise<void>) {
-    if (busy) return
+    if (saving.current || !state.online || syncPaused) return
+    saving.current = true
     setBusy(true); setError(null)
     try { await work() } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to save. Please try again.") }
-    finally { setBusy(false) }
+    finally { saving.current = false; setBusy(false) }
   }
 
   async function flow(action: string, values: Record<string, unknown>) {
@@ -45,7 +58,35 @@ export default function HouseholdScreen() {
         {error ? <View accessibilityRole="alert"><Copy style={{ color: colors.danger }}>{error}</Copy></View> : null}
         {household ? <Card><Copy tone="heading">Everyone at home</Copy>
           {state.board?.members.map(member => <View key={member.id} style={{ gap: 10, paddingVertical: 12, borderTopWidth: 1, borderColor: colors.border }}>
-            <View style={[styles.row, { justifyContent: "space-between", flexWrap: "wrap" }]}><Copy style={{ fontWeight: "600" }}>{member.name}</Copy><Copy tone="muted">{member.role === "manager" ? "Household owner" : member.role === "supervisor" ? "Supervisor" : "Member"}</Copy></View>
+            <View style={[styles.row, { justifyContent: "space-between", flexWrap: "wrap" }]}>
+              <View style={[styles.row, { flexShrink: 1 }]}><View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: memberColors.get(member.id)?.background, borderWidth: 1, borderColor: colors.muted }} /><Copy style={{ fontWeight: "600", flexShrink: 1 }}>{member.name}</Copy></View>
+              <Copy tone="muted">{member.role === "manager" ? "Household owner" : member.role === "supervisor" ? "Supervisor" : "Member"}</Copy>
+            </View>
+            {manager && member.is_clerk_linked === false ? rename?.id === member.id ? <View style={{ gap: 8 }}>
+              <Field label={`Name for ${member.name}`} value={rename.name} onChange={name => setRename({ id: member.id, name })} />
+              <Action disabled={disabled || !rename.name.trim() || rename.name.trim() === member.name} label="Save name" onPress={() => void act(async () => {
+                await flow("renameHouseholdMember", { memberUserId: member.id, name: rename.name.trim() }); setRename(null)
+              })} />
+              <Action secondary disabled={busy} label="Cancel name change" onPress={() => setRename(null)} />
+            </View> : <Action secondary disabled={disabled} label={`Rename ${member.name}`} onPress={() => { setRename({ id: member.id, name: member.name }); setColorMemberId(null) }} /> : null}
+            {management ? colorMemberId === member.id ? <View style={{ gap: 10 }}>
+              <Copy tone="label">Colour for {member.name}</Copy>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                {NATIVE_TOKEN_COLOR_OPTIONS.map(option => <Pressable key={option.id} accessibilityRole="button"
+                  accessibilityLabel={`${member.name}: ${option.label} colour`} accessibilityState={{ selected: member.token_color === option.id, disabled }} disabled={disabled}
+                  onPress={() => void act(async () => { await flow("updateMemberTokenColor", { memberUserId: member.id, tokenColor: option.id }); setColorMemberId(null) })}
+                  style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 48, minWidth: 110, padding: 12, borderRadius: 12,
+                    borderWidth: member.token_color === option.id ? 2 : 1, borderColor: member.token_color === option.id ? colors.primary : colors.border,
+                    backgroundColor: colors.surface, opacity: disabled ? 0.5 : pressed ? 0.75 : 1 })}>
+                  <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: option.background, borderWidth: 1, borderColor: option.foreground }} />
+                  <Copy>{option.label}{member.token_color === option.id ? " ✓" : ""}</Copy>
+                </Pressable>)}
+              </View>
+              <Action secondary disabled={disabled} selected={!member.token_color} label="Use automatic colour" onPress={() => void act(async () => {
+                await flow("updateMemberTokenColor", { memberUserId: member.id, tokenColor: null }); setColorMemberId(null)
+              })} />
+              <Action secondary disabled={busy} label="Cancel colour change" onPress={() => setColorMemberId(null)} />
+            </View> : <Action secondary disabled={disabled} label={`Change colour for ${member.name}`} onPress={() => { setColorMemberId(member.id); setRename(null) }} /> : null}
             {manager && member.id !== household.leaderId ? <View style={{ gap: 8 }}>
               <Action secondary disabled={disabled} label={member.role === "supervisor" ? "Make a member" : "Make a supervisor"} onPress={() => Alert.alert("Change household role?",
                 member.role === "supervisor" ? `${member.name} will be able to update their own tasks.` : `${member.name} will be able to manage routines and tasks for the household.`, [
