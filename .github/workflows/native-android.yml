@@ -30,7 +30,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: native-android-${{ github.ref }}
+  # A newer emulator-only push must not replace a requested ARM64 bundle check.
+  group: native-android-${{ github.ref }}-${{ inputs.verify_arm64_bundle && 'bundle' || 'emulators' }}
   # Finish device evidence for the active build; keep the newest next build queued.
   cancel-in-progress: false
 
@@ -155,7 +156,7 @@ jobs:
     needs: verify
     if: ${{ always() && !cancelled() && needs.verify.outputs.apk_ready == 'true' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -171,6 +172,8 @@ jobs:
     env:
       CI: '1'
       CYNTCH_DEVICE: ${{ matrix.device }}
+      CYNTCH_AVD: ${{ matrix.avd }}
+      CYNTCH_PROFILE: ${{ matrix.profile }}
       EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ZW1lcmdpbmctdG9hZC05OC5jbGVyay5hY2NvdW50cy5kZXYk
       EXPO_PUBLIC_API_URL: ${{ inputs.fixture_url || 'https://cyntch-simulator.invalid' }}
       CYNTCH_NATIVE_TEST_EMAIL: ${{ inputs.fixture_email || '' }}
@@ -219,11 +222,11 @@ jobs:
           printf '%s\n' 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Select the SDK tools containing Google's Pixel Fold profile
-        if: matrix.device == 'foldable'
+      - name: Select SDK tools that understand the Android 17 system image
+        if: matrix.device != 'minimum-api-24'
         run: |
           set -euo pipefail
-          sdk="$RUNNER_TEMP/cyntch-fold-sdk"
+          sdk="$RUNNER_TEMP/cyntch-api37-sdk"
           mkdir -p "$sdk"
           cp -R "$ANDROID_HOME/licenses" "$sdk/licenses"
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$sdk" --install 'cmdline-tools;22.0'
@@ -231,12 +234,13 @@ jobs:
           ln -s 22.0 "$sdk/cmdline-tools/latest"
           test -x "$sdk/cmdline-tools/latest/bin/avdmanager"
           grep -Fxq 'Pkg.Revision=22.0' "$sdk/cmdline-tools/22.0/source.properties"
-          ANDROID_HOME="$sdk" ANDROID_SDK_ROOT="$sdk" "$sdk/cmdline-tools/latest/bin/avdmanager" list device > "$RUNNER_TEMP/cyntch-android-foldable/profiles.txt"
-          grep -F '"pixel_fold"' "$RUNNER_TEMP/cyntch-android-foldable/profiles.txt"
+          inventory="$RUNNER_TEMP/cyntch-android-$CYNTCH_DEVICE/profiles.txt"
+          ANDROID_HOME="$sdk" ANDROID_SDK_ROOT="$sdk" "$sdk/cmdline-tools/latest/bin/avdmanager" list device > "$inventory"
+          grep -F "\"${CYNTCH_PROFILE}\"" "$inventory"
           printf 'ANDROID_HOME=%s\nANDROID_SDK_ROOT=%s\n' "$sdk" "$sdk" >> "$GITHUB_ENV"
       - name: Boot device and verify the compiled app
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
-        timeout-minutes: 18
+        timeout-minutes: 30
         with:
           api-level: ${{ matrix.api }}
           target: ${{ matrix.target }}

@@ -21,9 +21,16 @@ name: Native sign-in opens the household and preserves the session
 - tapOn:
     id: "clerk.auth.start.identifier"
 - inputText: ${TEST_EMAIL}
-- hideKeyboard
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - hideKeyboard
+# On iOS the identified Continue button is usable with the keyboard shown.
+# The generic dismiss command can tap the neighboring Google sign-in button.
 - scrollUntilVisible:
-    element: "Continue"
+    element:
+      id: "clerk.auth.start.continue"
     direction: DOWN
     visibilityPercentage: 100
     centerElement: true

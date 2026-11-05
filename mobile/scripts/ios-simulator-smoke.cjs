@@ -12,6 +12,8 @@ if (process.platform !== 'darwin' || process.env.GITHUB_ACTIONS !== 'true') {
 if (process.argv.length !== 5) throw new Error('Expected simulator app, Maestro executable and output directory.')
 const [appPath, maestro, output] = process.argv.slice(2).map(value => path.resolve(value))
 const fixture = authFixture()
+const requestedFamily = process.env.CYNTCH_IOS_TEST_FAMILY
+if (requestedFamily && !['iphone', 'ipad'].includes(requestedFamily)) throw new Error('Unknown simulator family.')
 if (!appPath || !maestro || !output || !fs.existsSync(path.join(appPath, 'main.jsbundle'))) {
   throw new Error('A compiled simulator app with bundled JavaScript is required.')
 }
@@ -60,9 +62,10 @@ const report = { source: process.env.GITHUB_SHA, configuration: 'Release with lo
 const save = () => fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify(report, null, 2))
 let failed = false
 for (const [index, template] of devices.entries()) {
+  const label = index === 0 ? 'iphone' : 'ipad'
+  if (requestedFamily && label !== requestedFamily) continue
   const type = template.deviceTypeIdentifier ?? inventory.devicetypes.find(item => item.name === template.name)?.identifier
   if (!type) throw new Error(`No simulator type found for ${template.name}`)
-  const label = index === 0 ? 'iphone' : 'ipad'
   const folder = path.join(output, label)
   fs.mkdirSync(folder, { recursive: true })
   const result = { family: label, model: template.name, type, runs: [], passed: false, cleaned: false }
@@ -99,7 +102,17 @@ for (const [index, template] of devices.entries()) {
     // simctl and Maestro both target the booted UDID directly. There is no
     // reason to launch a desktop Simulator window to install or inspect the app.
     stage('install')
-    simctl('install', ownedDevice, appPath)
+    command('xcrun', ['simctl', 'install', ownedDevice, appPath], 180_000)
+    if (!simctl('get_app_container', ownedDevice, 'com.cyntch.app', 'app').trim().endsWith('.app')) throw new Error('Installed application bundle not found.')
+    stage('launch')
+    const launched = command('xcrun', ['simctl', 'launch', ownedDevice, 'com.cyntch.app'], 120_000).trim()
+    const launchPid = /^com\.cyntch\.app:\s*(\d+)$/m.exec(launched)
+    if (!launchPid) throw new Error('CoreSimulator did not acknowledge the application launch.')
+    result.launchPid = Number(launchPid[1])
+    save()
+    // A launch PID is distinct from a rendered screen or a passing UI flow.
+    // Keep an independent screen capture even when XCTest cannot start.
+    simctl('io', ownedDevice, 'screenshot', path.join(folder, 'after-system-launch.png'))
     for (const contentSize of ['large', 'accessibility-extra-large']) {
       const caseFolder = path.join(folder, contentSize === 'large' ? 'default-text' : 'large-text')
       fs.mkdirSync(caseFolder, { recursive: true })
@@ -119,7 +132,7 @@ for (const [index, template] of devices.entries()) {
           run = spawnSync(maestro, [
             '--device', ownedDevice, 'test', '--format', 'junit', '--output', path.join(caseFolder, 'report.xml'),
             '--test-output-dir', caseFolder, '--debug-output', caseFolder, path.resolve('.maestro'),
-          ], { stdio: ['ignore', log, log], timeout: 300_000, env: process.env })
+          ], { stdio: ['ignore', log, log], timeout: 540_000, env: process.env })
         } finally { fs.closeSync(log) }
         console.log(fs.readFileSync(path.join(caseFolder, 'maestro.log'), 'utf8'))
         textResult.exitCode = run.status
