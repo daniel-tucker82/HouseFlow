@@ -98,6 +98,28 @@ try {
     report.authentication = runAuthenticatedSmoke({ maestro, device: serial, output: path.join(output, 'authenticated'), orientations: report.orientations, fixture })
   }
   if (report.authentication && !report.authentication.passed) throw new Error(report.authentication.error)
+  if (report.authentication?.passed && report.avd === 'cyntch-phone') {
+    const folder=path.join(output,'notifications')
+    fs.mkdirSync(folder,{recursive:true})
+    const log=fs.openSync(path.join(folder,'maestro.log'),'w')
+    let run
+    try {
+      run=spawnSync(maestro,['--device',serial,'test','--format','junit','--output',path.join(folder,'report.xml'),
+        '-e','PORTRAIT_ORIENTATION='+report.orientations.portrait,'--test-output-dir',folder,'--debug-output',folder,
+        path.resolve('.maestro-android-notifications/permission.yaml')],{stdio:['ignore',log,log],timeout:240000,env:process.env})
+    } finally { fs.closeSync(log) }
+    const permission=adb('shell','dumpsys','package','com.cyntch.app')
+    const screen=adb('shell','dumpsys','activity','activities')
+    fs.writeFileSync(path.join(folder,'settings-activity.txt'),screen)
+    report.notifications={flow:run.status===0&&!run.error,
+      granted:/android\.permission\.POST_NOTIFICATIONS:\s*granted=true/.test(permission),
+      systemSettings:/(?:topResumedActivity|mResumedActivity)[^\n]*com\.android\.settings\//.test(screen),
+      screenshots:inspectScreenshotOrientations(folder,{'android-notification-permission.png':'portrait',
+        'android-notifications-granted.png':'portrait','android-notification-settings.png':'portrait'},{includeStartup:false})}
+    if (!report.notifications.flow || !report.notifications.granted || !report.notifications.systemSettings || !report.notifications.screenshots.passed) {
+      throw new Error('Android notification authorization or system settings verification failed.')
+    }
+  }
   if (report.runs.some(result => !result.passed)) throw new Error('Android native flow failed at one or more text sizes.')
   report.passed = true
 } catch (error) {

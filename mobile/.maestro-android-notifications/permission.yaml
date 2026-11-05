@@ -1,0 +1,29 @@
+appId: com.cyntch.app
+name: Android grants notification permission and opens the app notification settings
+---
+- launchApp:
+    permissions:
+      notifications: unset
+- setOrientation: ${PORTRAIT_ORIENTATION}
+- runFlow: ../.maestro-auth/verify-household.yaml
+- tapOn: "(?i)^Settings(,.*)?$"
+- scrollUntilVisible:
+    element: "Choose notifications"
+    direction: DOWN
+- tapOn: "Choose notifications"
+- tapOn: "Allow device notifications"
+- extendedWaitUntil:
+    visible: "(?i).*allow cyntch to send you notifications.*"
+    timeout: 15000
+- takeScreenshot: android-notification-permission
+- tapOn:
+    id: ".*permissioncontroller:id/permission_allow_button"
+- extendedWaitUntil:
+    visible: "Notifications are allowed by this device."
+    timeout: 15000
+- takeScreenshot: android-notifications-granted
+- tapOn: "Open Cyntch’s device settings"
+- extendedWaitUntil:
+    visible: "Cyntch"
+    timeout: 15000
+- takeScreenshot: android-notification-settings
