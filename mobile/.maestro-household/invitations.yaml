@@ -1,0 +1,94 @@
+appId: com.cyntch.app
+name: Invitation limits, copy, persistence and revocation
+---
+# Runs only with the guarded ordinary fixture. Capture the newly created code;
+# never revoke any pre-existing invitation or automatically retry creation.
+- launchApp
+- setOrientation: ${PORTRAIT_ORIENTATION}
+- tapOn: "(?i)^Household(,.*)?$"
+- scrollUntilVisible:
+    element: "Maximum uses"
+    direction: DOWN
+    centerElement: true
+    timeout: 60000
+- tapOn:
+    id: "Maximum uses"
+- eraseText
+- inputText: "3"
+- hideKeyboard
+- tapOn:
+    id: "Expires after (days)"
+- eraseText
+- inputText: "7"
+- hideKeyboard
+- scrollUntilVisible:
+    element: "^Create invitation$"
+    direction: DOWN
+    centerElement: true
+- extendedWaitUntil:
+    visible:
+      text: "^Create invitation$"
+      enabled: true
+    timeout: 60000
+- tapOn: "^Create invitation$"
+- extendedWaitUntil:
+    visible: "Invitation created."
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "^Invitation code: .*"
+      index: 0
+    direction: DOWN
+    centerElement: true
+- copyTextFrom:
+    text: "^Invitation code: .*"
+    index: 0
+- evalScript: ${output.inviteCode = maestro.copiedText.replace('Invitation code\u003a ', '').trim()}
+- assertTrue: ${/^[a-f0-9]{12}$/.test(output.inviteCode)}
+- assertVisible: "3 uses.*|0 of 3 uses.*"
+- takeScreenshot: invitation-created-portrait
+- scrollUntilVisible:
+    element: ${'Copy invitation ' + output.inviteCode}
+    direction: DOWN
+    centerElement: true
+- tapOn: ${'Copy invitation ' + output.inviteCode}
+- scrollUntilVisible:
+    element: "Invitation link copied."
+    direction: UP
+    centerElement: true
+- setOrientation: ${LANDSCAPE_ORIENTATION}
+- scrollUntilVisible:
+    element: "${'Invitation code: ' + output.inviteCode}"
+    direction: DOWN
+    centerElement: true
+- takeScreenshot: invitation-created-landscape
+- setOrientation: ${PORTRAIT_ORIENTATION}
+- stopApp
+- launchApp
+- tapOn: "(?i)^Household(,.*)?$"
+- scrollUntilVisible:
+    element: "${'Invitation code: ' + output.inviteCode}"
+    direction: DOWN
+    centerElement: true
+    timeout: 60000
+- assertVisible: "0 of 3 uses.*"
+- takeScreenshot: invitation-after-restart
+- scrollUntilVisible:
+    element: ${'Revoke invitation ' + output.inviteCode}
+    direction: DOWN
+    centerElement: true
+- tapOn: ${'Revoke invitation ' + output.inviteCode}
+- assertVisible: "Revoke this invitation[?]"
+- tapOn: "^Cancel$"
+- assertVisible: ${'Revoke invitation ' + output.inviteCode}
+- tapOn: ${'Revoke invitation ' + output.inviteCode}
+- tapOn: "^Revoke invitation$"
+- extendedWaitUntil:
+    notVisible: ${'Revoke invitation ' + output.inviteCode}
+    timeout: 60000
+- scrollUntilVisible:
+    element: "Invitation revoked. Existing members still belong to your household."
+    direction: UP
+    centerElement: true
+- takeScreenshot: invitation-revoked
+- stopApp

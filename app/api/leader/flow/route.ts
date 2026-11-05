@@ -1,5 +1,6 @@
 import { recheckNativeKioskFlow, withNativeKioskRequest } from "@/lib/native-kiosk-guard"
 import { createHouseholdWithAdmission } from "@/lib/household-admission"
+import { validInvitationLimits } from "@/shared/mobile/invitations"
 import { enforceRequestLimit, recordHouseholdUsage, recordHouseholdActivity } from "@/lib/usage-controls"
 import { after, NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
@@ -1332,6 +1333,9 @@ async function handleFlowPost(request: Request, context?: {
     const code = crypto.randomUUID().replaceAll("-", "").slice(0, 12)
     const maxUses = Number(body?.maxUses ?? 10)
     const expiresInDays = Number(body?.expiresInDays ?? 30)
+    if (!validInvitationLimits(maxUses, expiresInDays)) {
+      return NextResponse.json({ error: "Choose 1–100 uses and an expiry of 1–365 days." }, { status: 400 })
+    }
     const expiresAt = new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000).toISOString()
 
     const result = await db.query(
@@ -1345,8 +1349,8 @@ async function handleFlowPost(request: Request, context?: {
 
   if (action === "deactivateInvite") {
     const inviteId = String(body?.inviteId ?? "").trim()
-    if (!inviteId) {
-      return NextResponse.json({ error: "inviteId is required" }, { status: 400 })
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(inviteId)) {
+      return NextResponse.json({ error: "A valid inviteId is required" }, { status: 400 })
     }
     const result = await db.query(
       `update household_invites

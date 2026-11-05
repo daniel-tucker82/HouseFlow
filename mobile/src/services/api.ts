@@ -6,6 +6,7 @@ import type { RunPage, RunSnapshot, RunView } from "../../../shared/mobile/runs"
 import type { NativeNotificationDevice, NotificationSettingsOperation, NotificationSettingsSnapshot } from "../../../shared/mobile/notification-settings"
 import type { NotificationHistoryAction, NotificationHistoryPage, NotificationHistoryScope, NotificationHistorySource } from "../../../shared/mobile/notification-history"
 import type { AccountDeletionReview } from "../../../shared/mobile/account-deletion"
+import type { InvitationPage } from "../../../shared/mobile/invitations"
 import { parseAccountDeletionReview } from "./account-deletion-review"
 import { parseNativeKioskSession, type NativeKioskOperation, type NativeKioskResult } from "../../../shared/mobile/kiosk"
 import { isWebBillingCancellationUrl, type NativeBillingAction, type NativeBillingScope, type NativeBillingSetup, type NativeBillingStatus, type NativeBillingStore, type WebBillingCancellation } from "../../../shared/mobile/billing"
@@ -54,6 +55,13 @@ export class MobileApi implements SyncTransport {
   }
 
   async serverTime() { return (await this.request<{ serverTimeMs: number }>("/api/mobile/time")).serverTimeMs }
+
+  async invitations(householdId: string, cursor?: string): Promise<InvitationPage> {
+    const params = new URLSearchParams({ householdId, ...(cursor ? { cursor } : {}) })
+    const result = await this.request<InvitationPage>(`/api/mobile/invitations?${params}`)
+    if (result.accountId !== this.accountId || result.householdId !== householdId) throw new Error("Your household changed. Refresh invitations before continuing.")
+    return result
+  }
 
   async watchBoard(householdId: string, signal: AbortSignal, hint: () => void,
     streamFetch: (url: string, options: { headers: Record<string, string>; signal: AbortSignal }) => Promise<Pick<Response, "ok" | "status" | "body">>) {

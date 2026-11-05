@@ -129,3 +129,4 @@ name: A parent can rename a no-email member and choose a persistent colour
 - assertNotVisible: ".*Native member renamed.*"
 - takeScreenshot: member-removed-after-restart
 - stopApp
+- runFlow: invitations.yaml

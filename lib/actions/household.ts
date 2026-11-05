@@ -1,6 +1,7 @@
 "use server"
 
 import { randomUUID } from "node:crypto"
+import { validInvitationLimits } from "@/shared/mobile/invitations"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { auth } from "@clerk/nextjs/server"
@@ -37,8 +38,7 @@ export async function createInvite(formData: FormData) {
   const householdId = String(formData.get("householdId") ?? "")
   const maxUses = Number(formData.get("maxUses") ?? 10)
   const expiresInDays = Number(formData.get("expiresInDays") ?? 30)
-  if (!Number.isInteger(maxUses) || maxUses < 1 || maxUses > 100 ||
-      !Number.isInteger(expiresInDays) || expiresInDays < 1 || expiresInDays > 365) {
+  if (!validInvitationLimits(maxUses, expiresInDays)) {
     throw new EntitlementError("Choose 1–100 uses and an expiry of 1–365 days.", 400)
   }
   const code = makeInviteCode()

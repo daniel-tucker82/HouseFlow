@@ -1,9 +1,10 @@
 import { useRef, useState } from "react"
-import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, Share, TextInput, View } from "react-native"
+import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { buildNativeMemberColorMap, NATIVE_TOKEN_COLOR_OPTIONS } from "../../../shared/member-tokens"
 import { Action, Card, Copy, styles, usePalette } from "../components/ui"
 import { useBoard, useRuntime } from "../providers/runtime"
+import { HouseholdInvitations } from "../components/household-invitations"
 
 function Field({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string }) {
   const colors = usePalette()
@@ -27,7 +28,6 @@ function HouseholdWorkspace() {
   const [invitation, setInvitation] = useState("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [inviteCode, setInviteCode] = useState<string | null>(null)
   const [rename, setRename] = useState<{ id: string; name: string } | null>(null)
   const [colorMemberId, setColorMemberId] = useState<string | null>(null)
   const saving = useRef(false)
@@ -105,13 +105,7 @@ function HouseholdWorkspace() {
               await flow("createHouseholdMember", { name: childName.trim(), role: "member" }); setChildName("")
             })} />
           </Card>
-          <Card><Copy tone="heading">Invite someone with an account</Copy><Copy tone="muted">Share an invitation so they can join on their own device.</Copy>
-            <Action secondary disabled={disabled} label="Create invitation" onPress={() => void act(async () => {
-              const result = await api.request<{ invite: { code: string } }>("/api/leader/flow", { action: "createInvite", householdId: household?.id, maxUses: 10, expiresInDays: 30 })
-              setInviteCode(result.invite.code)
-            })} />
-            {inviteCode ? <><Copy>Invitation code: {inviteCode}</Copy><Copy tone="muted">Valid for 30 days, for up to 10 people.</Copy><Action label="Share invitation" onPress={() => void Share.share({ message: `Join our household on Cyntch: https://www.cyntch.com/join/${inviteCode}` }).catch(cause => setError(cause.message))} /></> : null}
-          </Card>
+          <HouseholdInvitations householdId={household.id} online={state.online} />
         </> : null}
         <Card><Copy tone="heading">Create a household</Copy><Copy tone="muted">Give your household a name everyone recognises.</Copy>
           <Field label="Household name" value={name} onChange={setName} placeholder="Our family" />

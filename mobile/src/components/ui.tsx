@@ -14,9 +14,9 @@ export function Copy({ children, tone = "body", style }: PropsWithChildren<{ ton
       tone === "label" && { fontSize: 14, lineHeight: 20, fontWeight: "600" }, style]}>{children}</Text>
 }
 
-export function Action({ label, onPress, secondary = false, disabled = false, selected }: { label: string; onPress: () => void; secondary?: boolean; disabled?: boolean; selected?: boolean }) {
+export function Action({ label, onPress, secondary = false, disabled = false, selected, accessibilityLabel }: { label: string; onPress: () => void; secondary?: boolean; disabled?: boolean; selected?: boolean; accessibilityLabel?: string }) {
   const colors = usePalette()
-  return <Pressable accessibilityRole="button" accessibilityLabel={selected !== undefined ? label : undefined}
+  return <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel ?? (selected !== undefined ? label : undefined)}
     accessibilityState={{ disabled, selected }} disabled={disabled} onPress={onPress}
     style={({ pressed }) => [styles.action, { backgroundColor: secondary ? colors.soft : colors.primary, opacity: disabled ? 0.5 : pressed ? 0.75 : 1 }]}>
     <Text style={{ color: secondary ? colors.text : colors.onPrimary, fontWeight: "600", fontSize: 16, textAlign: "center" }}>{label}</Text>

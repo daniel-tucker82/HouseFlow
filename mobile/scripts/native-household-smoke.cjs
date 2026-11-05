@@ -18,7 +18,7 @@ function runHouseholdSmoke({ maestro, device, output, orientations }) {
   if (process.env.GITHUB_ACTIONS !== 'true' || !['linux', 'darwin'].includes(process.platform)) throw new Error('Use an owned Actions emulator or simulator.')
   fs.mkdirSync(output, { recursive: true })
   const result = { source: process.env.CYNTCH_ANDROID_APP_SHA || process.env.CYNTCH_IOS_APP_SHA || process.env.GITHUB_SHA,
-    verificationSource: process.env.GITHUB_SHA, scope: 'Dedicated no-email member: add, cancelled rename, saved rename/colour, rotation, restart, board and removal.', passed: false }
+    verificationSource: process.env.GITHUB_SHA, scope: 'Dedicated no-email member: add, cancelled rename, saved rename/colour, rotation, restart, board and removal. New invitation: custom limits, copy, rotation, restart, cancelled/confirmed revocation.', passed: false }
   const log = fs.openSync(path.join(output, 'maestro.log'), 'w')
   try {
     const execute = process.platform === 'darwin' ? runIOSUI : spawnSync
@@ -30,6 +30,7 @@ function runHouseholdSmoke({ maestro, device, output, orientations }) {
     result.screenshots = inspectScreenshotOrientations(output, {
       'member-colour-portrait.png': 'portrait', 'member-colour-landscape.png': 'landscape',
       'member-colour-after-restart.png': 'portrait', 'member-colour-on-board.png': 'portrait', 'member-removed-after-restart.png': 'portrait',
+      'invitation-created-portrait.png': 'portrait', 'invitation-created-landscape.png': 'landscape', 'invitation-after-restart.png': 'portrait', 'invitation-revoked.png': 'portrait',
     }, { includeStartup: false })
     if (run.error || run.status !== 0) throw new Error(`Native household flow failed (${run.error?.code ?? run.status}).`)
     if (!result.screenshots.passed) throw new Error('Member verification lacks required orientation/restart captures.')

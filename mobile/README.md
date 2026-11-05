@@ -4,6 +4,24 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
+Invitation parity update, 2026-11-05: household owners can now choose 1–100 uses
+and 1–365 days, retrieve existing links after restarting, copy or share them,
+and revoke a link without removing joined members. A paginated, owner-only read
+endpoint applies account and kiosk checks and returns server-calculated expiry
+and usage status. The existing flow write endpoint now validates the same bounds
+as the website form. Clipboard writes use Expo's SDK-compatible module and mark
+the link sensitive on Android. Links are not persisted in the offline cache.
+
+Seven focused real PostgreSQL/native-client checks passed: creation, use counting,
+revocation, retained memberships, tied-timestamp pagination, permissions, kiosk
+locks, account/household response isolation, double presses, lost responses and
+blur/reconnect races. Root/mobile types and lint passed. The guarded household
+phone journey now also covers custom limits, copy, rotation, restart and cancelled/
+confirmed revocation, requiring nine captures overall; its pinned Maestro parser
+and eight fixture/auth checks passed. Native invitation UI execution is still
+outstanding and needs a fresh binary including `expo-clipboard`. Do not replay
+this expanded journey with the older `e79d851` deletion binary.
+
 Current queued verification, 2026-11-05: `42006225356` compiles app `e79d851`
 once, then runs the isolated account-deletion journey on the current iPhone.
 This includes the household improvements below. Inspect its artifact and the
@@ -21,9 +39,8 @@ deletion backend and has provider/deletion gates disabled. Evidence is in
 `C:/Users/danie/.codex/tmp/cyntch-native-http-build-8ae2111.json` and
 `C:/Users/danie/.codex/tmp/cyntch-native-http-preflight-8ae2111-direct.json`.
 
-The feature-parity audit also found outstanding native invitation expiry/use
-configuration, invitation listing/copy/revocation, and standalone household
-deletion. The web UI already exposes those controls. Before exposing household
+The feature-parity audit also found outstanding standalone household deletion.
+The web UI already exposes that control. Before exposing household
 deletion on mobile, verify its billing consequences: the existing route deletes
 the household directly, website billing rows cascade, and native purchase
 identities retire. This audit does not establish provider cancellation for that
