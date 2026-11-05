@@ -69,6 +69,13 @@ reach Cyntch: both logs contain a SurfaceFlinger graphics-mapper assertion durin
 installation. All three API 37 profiles now use Android command-line tools 22
 and check the generated AVD target before attributing a result to Cyntch.
 
+[Run 41948910094](https://github.com/daniel-tucker82/HouseFlow/actions/runs/41948910094)
+then passed all four device jobs on the same signed-out build: minimum API 24
+and API 37 phone, tablet and Pixel Fold. All three API 37 devices recorded
+`target=android-37.0` and 16,384-byte pages. Their default and 1.6x text
+journeys passed. The verified phone and tablet landscape captures show the
+full email label and entered identifier above the keyboard.
+
 On [the iOS simulator run](https://github.com/daniel-tucker82/HouseFlow/actions/runs/41941864555),
 the iPhone 17 on iOS 26.5 passed signed-out startup, rotation and entry to the
 native authentication screen at both text sizes. It did not complete email sign-in.
@@ -160,6 +167,18 @@ operations and the expected state of every task must be present after reopening.
 On the Windows test host, p95 durable save time was 10.97 ms offline and 10.36 ms
 with the network stalled. These measurements exclude native rendering and mobile
 storage performance; record those separately on the intended devices.
+
+`tests/integration/device-clock-replay.cjs` exercises two independent SQLite
+queues and real PostgreSQL with clocks eight hours fast and three hours slow.
+The later edit arrives first; the older edit cannot overwrite it. The test
+interrupts acknowledgement after the later edit commits, reopens that device
+eleven hours fast, and verifies that replay uses its original correction.
+Each device samples time once, the empty queues do not sample time, and the
+replay adds no completion receipts or notification events. The same scenario
+passed against the packaged `269aa47` HTTP API with a real development sign-in;
+the session was revoked and the disposable fixture removed afterward. This
+assumes each device's clock offset stayed stable between its offline edit and
+its first successful time sample.
 
 Cyntch's 16 modal presentations now use the system reduced-motion preference.
 One root provider reads the setting at startup, listens for changes and refreshes
