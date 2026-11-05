@@ -43,10 +43,14 @@ try {
   }
   owned = true
   report.dataPartitionBeforeInstall = adb('shell', 'df', '-k', '/data').trim()
+  report.memoryBeforeInstall = adb('shell', 'cat', '/proc/meminfo').split(/\r?\n/).filter(line => /^(MemTotal|MemAvailable|SwapFree):/.test(line))
   report.displaySize = adb('shell', 'wm', 'size').trim()
   report.displayDensity = adb('shell', 'wm', 'density').trim()
   report.orientations = androidOrientationParameters(report.displaySize)
-  adb('install', '-r', apk)
+  const install = command('adb', ['-s', serial, 'install', '--no-streaming', '-r', apk], 120_000)
+  if (!/^Success$/m.test(install.trim()) || !adb('shell', 'pm', 'path', 'com.cyntch.app').includes('package:')) {
+    throw new Error('Cyntch installation was not acknowledged on the owned emulator.')
+  }
   adb('logcat', '-c')
   for (const fontScale of [1, 1.6]) {
     const folder = path.join(output, fontScale === 1 ? 'default-text' : 'large-text')

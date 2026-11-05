@@ -223,7 +223,7 @@ jobs:
           avd-name: ${{ matrix.avd }}
           disk-size: 6G
           cores: 2
-          ram-size: 2048M
+          ram-size: ${{ matrix.device == 'minimum-api-24' && '2048M' || '4096M' }}
           disable-animations: true
           disable-linux-hw-accel: false
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none

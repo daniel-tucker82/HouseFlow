@@ -43,8 +43,10 @@ async function changePosture(posture, expectedState) {
       lastState = deviceState()
       observationError = undefined
       if (lastState !== before && (expectedState === undefined || lastState === expectedState)) {
-        // Waking the same unlocked test device does not restart the application.
+        // Folding the disposable Pixel can lock its cover display. Wake the
+        // current activity and dismiss only the OS keyguard on this no-PIN AVD.
         adb(['shell', 'input', 'keyevent', 'KEYCODE_WAKEUP'])
+        adb(['shell', 'wm', 'dismiss-keyguard'])
         return { before, after: lastState, command: posture }
       }
     } catch (error) { observationError = error.message }
@@ -108,6 +110,7 @@ async function main() {
     }
     owned = true
     report.dataPartitionBeforeInstall = adb(['shell', 'df', '-k', '/data']).trim()
+    report.memoryBeforeInstall = adb(['shell', 'cat', '/proc/meminfo']).split(/\r?\n/).filter(line => /^(MemTotal|MemAvailable|SwapFree):/.test(line))
     fs.writeFileSync(path.join(output, 'supported-device-states.txt'), adb(['shell', 'cmd', 'device_state', 'print-states']))
     adb(['install', '-r', apk], 120_000)
     adb(['logcat', '-c'])
