@@ -191,7 +191,7 @@ for (const [index, template] of devices.entries()) {
         orientations: { portrait: 'PORTRAIT', landscape: 'LANDSCAPE_LEFT' } })
       if (!result.kiosk.passed) throw new Error(result.kiosk.error)
     }
-    if (result.authentication?.passed && label === 'iphone' && !requestedRuntime && (!replay || notificationsOnly)) {
+    if (result.authentication?.passed && label === 'iphone' && !requestedRuntime && (!replay || notificationsOnly || replay === 'phones')) {
       stage('notification-permission-and-center')
       result.notifications = runNotificationSmoke({device:ownedDevice,maestro,output:path.join(folder,'notifications')})
       if (!result.notifications.passed) throw new Error(result.notifications.error)

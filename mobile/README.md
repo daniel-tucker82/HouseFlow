@@ -94,9 +94,19 @@ The original setup deadlines, failure status and UI assertions are retained.
 The `phones` replay scope selects only current and iOS 17 iPhones and reuses the
 verified app with the existing source, digest, signature and architecture checks.
 It does not compile again or repeat the tablet jobs. Replay `41981704262`, harness
-`1d4e0eb`, is running both phone checks against the verified `e22da8a` app;
-compilation is skipped and both artifact-validation steps passed. The producer's
-tablet jobs are now complete. Phone journey results remain pending.
+`1d4e0eb`, reuses the verified `e22da8a` app; compilation is skipped and both
+artifact-validation steps passed. Its current iPhone passed both text sizes and
+real sign-in, household/task loading, rotation and session restart, each on one
+attempt. Artifact `13394458680` was verified against SHA-256
+`d27b0bc071ce4b085bc85c37f58d7c18d8973b42ad2ef7a3dcb9758b5563518a`.
+The iOS 17 phone remains pending. No setup or TLS failure occurred on this current
+phone replay; that does not establish the cause of the earlier failures.
+
+Inspection found that the newly added `phones` replay scope did not enter the
+notification block. Future phone replays now include it on the current iPhone,
+matching full-build verification. The completed replay provides no notification
+evidence. A separate notification-only replay can reuse this same app without
+recompiling or repeating the text-size and tablet journeys.
 
 The next fresh authenticated phone builds also run
 `.maestro-notification-preferences/settings.yaml`. It selects Alex's completions
