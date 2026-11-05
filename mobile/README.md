@@ -111,6 +111,14 @@ Partial evidence is saved in
 `C:/Users/danie/.codex/tmp/cyntch-native-deletion-server-evidence-42019096557.json`.
 The subsequent Android/iPhone member journeys must run sequentially.
 
+Future account-deletion journeys now require a fresh backend attestation before
+the native flow starts. It must identify an unused private schema, the marked
+development identity, an application-format child profile, preserved original
+household, working provider inventory and a worker with at least fifteen minutes
+left. Missing, stale, reused or mismatched fixtures stop before submission. Nine
+fixture/authentication guard checks, mobile lint/types and workflow validation
+passed. This does not complete the outstanding device cleanup verification.
+
 Current builds: Android `42022161954` at `b2487b1` compiles the updated app and
 then runs the ordinary member/invitation/deletion-review journey. iOS
 `42022301424` at `cfba236` is compile-only on `macos-26`; reuse that app for the

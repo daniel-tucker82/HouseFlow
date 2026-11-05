@@ -241,7 +241,8 @@ jobs:
             ':!mobile/.maestro*/**' ':!mobile/scripts/ios-*-smoke.cjs' ':!mobile/scripts/native-auth-smoke.cjs' \
             ':!mobile/scripts/native-kiosk-smoke.cjs' ':!mobile/scripts/android-foldable-smoke.cjs' \
             ':!mobile/scripts/android-emulator-smoke.cjs' ':!mobile/scripts/android-offline-smoke.cjs' \
-            ':!mobile/scripts/native-notification-preferences-smoke.cjs' ':!mobile/scripts/native-household-smoke.cjs' ':!mobile/scripts/native-household-smoke.test.cjs' ':!mobile/scripts/native-household-deletion-smoke.cjs' ':!mobile/scripts/native-household-deletion-smoke.test.cjs'
+            ':!mobile/scripts/native-notification-preferences-smoke.cjs' ':!mobile/scripts/native-household-smoke.cjs' ':!mobile/scripts/native-household-smoke.test.cjs' ':!mobile/scripts/native-household-deletion-smoke.cjs' ':!mobile/scripts/native-household-deletion-smoke.test.cjs' \
+            ':!mobile/scripts/native-account-deletion-smoke.cjs' ':!mobile/scripts/native-account-deletion-smoke.test.cjs'
           printf 'CYNTCH_ANDROID_APP_SHA=%s\n' "$sha" >> "$GITHUB_ENV"
       - name: Verify UI process cleanup
         if: matrix.device == 'foldable'
