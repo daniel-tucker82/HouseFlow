@@ -130,6 +130,16 @@ to be reused for this journey. Both platforms retain their same-repository,
 ancestry, runtime-diff and artifact checks; household test harness changes are
 excluded from the runtime comparison. Actionlint passed for both workflows.
 
+Android `42022161954` compiled successfully and passed native authentication.
+Its member journey then saved `Native member renamedk`: the field tap placed the
+cursor before the final character, and simulated backspaces left that suffix.
+Artifact `13413137834` was digest-verified against
+`dfb31797acdde821a0fea007ab2b5ec7b8db3a01490ef2736ae9b39ccd6034a3`;
+the failed screenshot, commands and database value were inspected. The harness
+now selects all text explicitly and verifies the exact replacement before saving.
+It reuses the existing APK; colour, invitation and deletion-review captures remain
+outstanding until the corrected journey passes.
+
 Invitation confirmation now captures its screen generation. An alert opened
 before leaving, locking or disconnecting cannot revoke a link after returning,
 even after the list reloads. All six native-client checks, mobile lint and types

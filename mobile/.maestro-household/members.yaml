@@ -29,10 +29,14 @@ name: A parent can rename a no-email member and choose a persistent colour
     centerElement: true
     timeout: 60000
 - tapOn: "Rename Native member check"
-- tapOn:
+- longPressOn:
     id: "Name for Native member check"
-- eraseText
+- tapOn: "(?i)^Select all$"
+- eraseText: 1
 - inputText: "Cancelled name"
+- copyTextFrom:
+    id: "Name for Native member check"
+- assertTrue: ${maestro.copiedText === 'Cancelled name'}
 - hideKeyboard
 - scrollUntilVisible:
     element: "Cancel name change"
@@ -42,10 +46,14 @@ name: A parent can rename a no-email member and choose a persistent colour
 - assertVisible: "Rename Native member check"
 - assertNotVisible: "Rename Cancelled name"
 - tapOn: "Rename Native member check"
-- tapOn:
+- longPressOn:
     id: "Name for Native member check"
-- eraseText
+- tapOn: "(?i)^Select all$"
+- eraseText: 1
 - inputText: "Native member renamed"
+- copyTextFrom:
+    id: "Name for Native member check"
+- assertTrue: ${maestro.copiedText === 'Native member renamed'}
 - hideKeyboard
 - scrollUntilVisible:
     element: "Save name"
