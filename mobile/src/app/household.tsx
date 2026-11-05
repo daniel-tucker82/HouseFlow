@@ -5,6 +5,7 @@ import { buildNativeMemberColorMap, NATIVE_TOKEN_COLOR_OPTIONS } from "../../../
 import { Action, Card, Copy, styles, usePalette } from "../components/ui"
 import { useBoard, useRuntime } from "../providers/runtime"
 import { HouseholdInvitations } from "../components/household-invitations"
+import { HouseholdDeletionCard } from "../components/household-deletion"
 
 function Field({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string }) {
   const colors = usePalette()
@@ -126,6 +127,7 @@ function HouseholdWorkspace() {
             await controller.selectHousehold(result.householdId); setInvitation("")
           })} />
         </Card>
+        <HouseholdDeletionCard />
       </ScrollView>
     </KeyboardAvoidingView>
   </SafeAreaView>

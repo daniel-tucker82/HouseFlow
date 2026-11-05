@@ -27,7 +27,7 @@ export default function middleware(request: NextRequest, event: NextFetchEvent) 
   // These exact routes authenticate their own recovery key or cron secret.
   // A deleted identity, stale cookie or provider outage must not gate durable
   // recovery. Each cron handler verifies its secret before starting any work.
-  if (["/api/mobile/account-deletion/status", "/api/internal/account-deletions", "/api/internal/notifications", "/api/cron", "/api/internal/recurrence"].includes(request.nextUrl.pathname)) return NextResponse.next()
+  if (["/api/mobile/account-deletion/status", "/api/internal/account-deletions", "/api/internal/household-deletions", "/api/internal/notifications", "/api/cron", "/api/internal/recurrence"].includes(request.nextUrl.pathname)) return NextResponse.next()
   return withClerk(request, event)
 }
 

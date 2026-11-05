@@ -4,6 +4,49 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
+Standalone household deletion update, 2026-11-05 (verification in progress):
+an isolated PostgreSQL audit reproduced the old route deleting an active Stripe
+billing binding without a provider call. The replacement saves a durable cleanup
+receipt in migration `0042` in the same transaction that removes the household.
+The account and other households remain. Store purchase identities retire and
+are not made claimable by another household. Native and web confirmations explain
+that Apple/Google renewals require separate cancellation. A native status card
+retrieves receipts after restart, without persisting billing identifiers locally.
+
+Both `HOUSEHOLD_DELETION_SUBMISSION_ENABLED` and
+`HOUSEHOLD_DELETION_PROCESSING_ENABLED` default off. Enable only after migration,
+native verification and isolated provider verification. Paid website households
+also require configured cleanup before acceptance. Active purchase reservations
+block deletion. An accepted request remains drainable if submission is disabled.
+The worker uses bounded calls and recoverable leases, verifies the dedicated
+Stripe customer and environment, and clears provider identifiers only after
+confirmed cleanup. A lost DELETE response is recovered through the provider's
+deleted-customer receipt, not an arbitrary 404. No provider call runs in task-save
+or deletion acceptance requests. The existing scheduler starts this worker and
+the dedicated `/api/internal/household-deletions` endpoint requires `CRON_SECRET`.
+Production scheduler cadence and provider cleanup remain rollout checks; no
+infrastructure upgrade or live provider mutation has been performed here.
+
+Ten focused database/HTTP/worker checks and fourteen existing recovery checks
+passed, including transaction rollback, lost responses, conflicting workers,
+late provider results, consent, kiosk locks, owner/receipt isolation and cron
+authentication. Thirty-five existing account-deletion and native-billing checks
+also passed. Root/mobile types and lint passed. Actual native household deletion,
+the final production build and real provider cleanup remain unverified.
+
+iPhone deletion run `42006225356` compiled successfully but its native journey
+stopped before submission. Both review orientations and consents passed; the final
+tap selected the Runs tab. Artifact `13408306857` was digest verified against
+`6629cf6e0283a0c46818ae34abd06757f869f72ca7528373bef92b48b30d18c0`.
+The original household remains unchanged and no deletion request was recorded.
+A verification-only branch `codex/native-deletion-verification` at `6b13d26`
+adds a final scroll and a pre-tap capture, reusing the exact compiled `e79d851`
+app with unchanged runtime inputs. Its parser and eight fixture/auth checks pass.
+The scratch workflow requires the mobile producer branch explicitly and retains
+the same-repository, ancestry, runtime-diff, artifact-digest and signing checks.
+The same flow correction is included here for future builds. Do not replay the
+newer invitation/household features with that old application binary.
+
 Invitation parity update, 2026-11-05: household owners can now choose 1–100 uses
 and 1–365 days, retrieve existing links after restarting, copy or share them,
 and revoke a link without removing joined members. A paginated, owner-only read
@@ -22,11 +65,11 @@ and eight fixture/auth checks passed. Native invitation UI execution is still
 outstanding and needs a fresh binary including `expo-clipboard`. Do not replay
 this expanded journey with the older `e79d851` deletion binary.
 
-Current queued verification, 2026-11-05: `42006225356` compiles app `e79d851`
-once, then runs the isolated account-deletion journey on the current iPhone.
-This includes the household improvements below. Inspect its artifact and the
-disposable schema/provider boundary before any follow-up submission. Both earlier
-deletion attempts stopped before submission. Keep the original household unchanged
+Current queued verification, 2026-11-05: `42017249607` reuses app `e79d851`
+with verification-only harness `6b13d26` for the isolated account-deletion journey.
+Compilation is skipped. Inspect its artifact and the disposable schema/provider
+boundary before any follow-up submission. All three earlier deletion attempts
+stopped before submission. Keep the original household unchanged
 until that evidence is saved; the subsequent Android/iPhone member journeys must
 run sequentially. No new Android build or household journey has started yet.
 

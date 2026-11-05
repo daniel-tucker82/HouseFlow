@@ -20,6 +20,7 @@ import { dispatchPushForNotificationIds } from "@/lib/push"
 import { runNativeNotifications } from "@/lib/run-native-notifications"
 import { runNativeBilling } from "@/lib/run-native-billing"
 import { runAccountDeletions } from "@/lib/run-account-deletions"
+import { runHouseholdDeletions } from "@/lib/run-household-deletions"
 
 function authorizedByCronSecret(request: Request) {
   const secret = process.env.CRON_SECRET?.trim()
@@ -658,6 +659,8 @@ async function runScheduledTasks(deadline: SchedulerDeadline, responseDeadline: 
   if (nativeBilling) after(async () => { await nativeBilling })
   const accountDeletions = process.env.ACCOUNT_DELETION_PROCESSING_ENABLED === "true" ? runAccountDeletions() : null
   if (accountDeletions) after(async () => { await accountDeletions })
+  const householdDeletions = process.env.HOUSEHOLD_DELETION_PROCESSING_ENABLED === "true" ? runHouseholdDeletions() : null
+  if (householdDeletions) after(async () => { await householdDeletions })
 
   const households = await schedulerTransaction(db, deadline, async client => {
     // Check the schema inside this bounded transaction. Do not cache an ALTER
@@ -751,11 +754,13 @@ async function runScheduledTasks(deadline: SchedulerDeadline, responseDeadline: 
 
   const billingResult = await nativeBilling
   const deletionResult = await accountDeletions
+  const householdDeletionResult = await householdDeletions
   const body = {
-    ok: !budgetExhausted && householdsFailed === 0 && billingResult?.ok !== false && deletionResult?.ok !== false,
+    ok: !budgetExhausted && householdsFailed === 0 && billingResult?.ok !== false && deletionResult?.ok !== false && householdDeletionResult?.ok !== false,
     budgetExhausted,
     ...(billingResult ? { nativeBilling: billingResult } : {}),
     ...(deletionResult ? { accountDeletions: deletionResult } : {}),
+    ...(householdDeletionResult ? { householdDeletions: householdDeletionResult } : {}),
     householdsProcessed,
     householdsFailed,
     occurrencesProcessed,

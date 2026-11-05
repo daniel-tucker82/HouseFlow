@@ -63,6 +63,9 @@ name: Disposable account deletion preserves its receipt and completes device cle
 - assertVisible:
     text: "I understand the subscription consequences"
     checked: true
+# Accessibility can report a button above a tab's label while its tap centre
+# still overlaps the tab icon. Finish scrolling the final card before tapping.
+- scroll
 - scrollUntilVisible:
     element:
       text: "^Delete my account$"
@@ -71,6 +74,7 @@ name: Disposable account deletion preserves its receipt and completes device cle
 - assertVisible:
     text: "Delete my account"
     enabled: true
+- takeScreenshot: deletion-submit-ready
 - tapOn:
     text: "^Delete my account$"
     above: "(?i)^Today(,.*)?$"

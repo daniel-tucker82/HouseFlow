@@ -1,6 +1,8 @@
 import { recheckNativeKioskFlow, withNativeKioskRequest } from "@/lib/native-kiosk-guard"
 import { createHouseholdWithAdmission } from "@/lib/household-admission"
 import { validInvitationLimits } from "@/shared/mobile/invitations"
+import { acceptHouseholdDeletion } from "@/lib/household-deletion"
+import { runHouseholdDeletions } from "@/lib/run-household-deletions"
 import { enforceRequestLimit, recordHouseholdUsage, recordHouseholdActivity } from "@/lib/usage-controls"
 import { after, NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
@@ -980,6 +982,17 @@ async function handlePOST(request: Request) {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return NextResponse.json({ error: "Expected a JSON object" }, { status: 400 })
   }
+  if (body.action === "deleteHousehold") {
+    try {
+      const receipt = await acceptHouseholdDeletion(db, userId, String(body.householdId ?? ""), body.confirmHouseholdDeletion === true && body.acknowledgeSubscriptions === true)
+      if (receipt.state === "pending") after(async () => { await runHouseholdDeletions() })
+      return NextResponse.json({ ok: true, deletedHouseholdId: receipt.householdId, receipt })
+    } catch (error) {
+      if (error instanceof EntitlementError) return NextResponse.json({ error: error.message }, { status: error.status })
+      console.error("[household-deletion] Unable to accept request")
+      return NextResponse.json({ error: "Unable to confirm household deletion. Refresh your household list before trying again." }, { status: 503 })
+    }
+  }
   if (body.action === "updateTask" && !validTaskEditVersion(body)) {
     return NextResponse.json({ error: "Invalid task save version" }, { status: 400 })
   }
@@ -1077,28 +1090,6 @@ async function handleFlowPost(request: Request, context?: {
       if (error instanceof EntitlementError) return NextResponse.json({ error: error.message }, { status: error.status })
       throw error
     }
-  }
-
-  if (action === "deleteHousehold") {
-    const deleteHouseholdId = String(body?.householdId ?? "").trim()
-    if (!deleteHouseholdId) {
-      return NextResponse.json({ error: "householdId is required" }, { status: 400 })
-    }
-    const ownerCheck = await db.query<{ leader_id: string }>(
-      `select leader_id from households where id = $1::uuid`,
-      [deleteHouseholdId],
-    )
-    if (!ownerCheck.rows[0]) {
-      return NextResponse.json({ error: "Household not found" }, { status: 404 })
-    }
-    if (ownerCheck.rows[0].leader_id !== userId) {
-      return NextResponse.json(
-        { error: "Only the household owner can delete it." },
-        { status: 403 },
-      )
-    }
-    await db.query(`delete from households where id = $1::uuid`, [deleteHouseholdId])
-    return NextResponse.json({ ok: true, deletedHouseholdId: deleteHouseholdId })
   }
 
   const householdId = String(body?.householdId ?? "")

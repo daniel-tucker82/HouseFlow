@@ -7,6 +7,7 @@ import type { NativeNotificationDevice, NotificationSettingsOperation, Notificat
 import type { NotificationHistoryAction, NotificationHistoryPage, NotificationHistoryScope, NotificationHistorySource } from "../../../shared/mobile/notification-history"
 import type { AccountDeletionReview } from "../../../shared/mobile/account-deletion"
 import type { InvitationPage } from "../../../shared/mobile/invitations"
+import type { HouseholdDeletionReceipt } from "../../../shared/mobile/household-deletion"
 import { parseAccountDeletionReview } from "./account-deletion-review"
 import { parseNativeKioskSession, type NativeKioskOperation, type NativeKioskResult } from "../../../shared/mobile/kiosk"
 import { isWebBillingCancellationUrl, type NativeBillingAction, type NativeBillingScope, type NativeBillingSetup, type NativeBillingStatus, type NativeBillingStore, type WebBillingCancellation } from "../../../shared/mobile/billing"
@@ -61,6 +62,19 @@ export class MobileApi implements SyncTransport {
     const result = await this.request<InvitationPage>(`/api/mobile/invitations?${params}`)
     if (result.accountId !== this.accountId || result.householdId !== householdId) throw new Error("Your household changed. Refresh invitations before continuing.")
     return result
+  }
+
+  async householdDeletions() {
+    const result = await this.request<{ accountId: string; receipts: HouseholdDeletionReceipt[] }>("/api/mobile/household-deletions")
+    if (result.accountId !== this.accountId) throw new Error("Your account changed. Refresh before continuing.")
+    return result.receipts
+  }
+
+  async deleteHousehold(householdId: string) {
+    const result = await this.request<{ deletedHouseholdId: string; receipt: HouseholdDeletionReceipt }>("/api/leader/flow",
+      { action: "deleteHousehold", householdId, confirmHouseholdDeletion: true, acknowledgeSubscriptions: true })
+    if (result.deletedHouseholdId !== householdId || result.receipt?.householdId !== householdId) throw new Error("The deletion reply did not match this household. Refresh before continuing.")
+    return result.receipt
   }
 
   async watchBoard(householdId: string, signal: AbortSignal, hint: () => void,

@@ -2683,7 +2683,7 @@ export function LeaderFlowEditor({
     const label = localHouseholds.find((h) => h.id === selectedHouseholdId)?.name?.trim() || "this household"
     if (
       !window.confirm(
-        `Delete "${label}" and all routines, tasks, boards, and members in it? This cannot be undone.`,
+        `Delete "${label}" and all routines, tasks, boards, and memberships in it? This cannot be undone. Your account and other households stay.\n\nWebsite subscription cancellation will finish in the background. Apple and Google Play subscriptions must be cancelled separately in the store to stop future charges; deleting a household does not cancel them. Purchases cannot be moved to another household.`,
       )
     ) {
       return
@@ -2691,11 +2691,11 @@ export function LeaderFlowEditor({
     const res = await fetch("/api/leader/flow", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "deleteHousehold", householdId: selectedHouseholdId }),
+      body: JSON.stringify({ action: "deleteHousehold", householdId: selectedHouseholdId, confirmHouseholdDeletion: true, acknowledgeSubscriptions: true }),
     })
-    let body: { error?: string } = {}
+    let body: { error?: string; receipt?: { state: string } } = {}
     try {
-      body = (await res.json()) as { error?: string }
+      body = (await res.json()) as { error?: string; receipt?: { state: string } }
     } catch {
       /* ignore */
     }
@@ -2704,6 +2704,7 @@ export function LeaderFlowEditor({
       return
     }
     const deletedId = selectedHouseholdId
+    if (body.receipt?.state === "pending") window.alert("Household data has been deleted. Website subscription cancellation is saved and will finish in the background. Apple and Google subscriptions must be cancelled separately in your store.")
     const nextHouseholds = localHouseholds.filter((h) => h.id !== deletedId)
     setLocalHouseholds(nextHouseholds)
     startTransition(() => {
