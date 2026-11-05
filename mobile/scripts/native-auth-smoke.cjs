@@ -21,6 +21,10 @@ function authFixture(env = process.env) {
   return { email, origin: url.origin }
 }
 
+function exactTextPattern(value) {
+  return '^' + value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$'
+}
+
 function runAuthenticatedSmoke({ maestro, device, output, orientations, fixture }) {
   fs.mkdirSync(output, { recursive: true })
   const result = { source: process.env.CYNTCH_IOS_APP_SHA || process.env.CYNTCH_ANDROID_APP_SHA || process.env.GITHUB_SHA, origin: fixture.origin,
@@ -28,12 +32,14 @@ function runAuthenticatedSmoke({ maestro, device, output, orientations, fixture 
   const log = fs.openSync(path.join(output, 'maestro.log'), 'w')
   try {
     const run = spawnSync(maestro, ['--device', device, 'test', '--format', 'junit', '--output', path.join(output, 'report.xml'),
-      '-e', `TEST_EMAIL=${fixture.email}`, '-e', `PORTRAIT_ORIENTATION=${orientations.portrait}`,
+      '-e', `TEST_EMAIL=${fixture.email}`, '-e', `TEST_EMAIL_PATTERN=${exactTextPattern(fixture.email)}`,
+      '-e', `PORTRAIT_ORIENTATION=${orientations.portrait}`,
       '-e', `LANDSCAPE_ORIENTATION=${orientations.landscape}`, '--test-output-dir', output, '--debug-output', output,
       path.resolve('.maestro-auth/household.yaml')], { stdio: ['ignore', log, log],
       timeout: process.platform !== 'darwin' ? 300_000 : process.env.CYNTCH_IOS_TEST_RUNTIME === '17.0' ? 720_000 : 540_000, env: process.env })
     result.exitCode = run.status
     result.orientationEvidence = inspectScreenshotOrientations(output, {
+      'native-sign-in-identifier.png': 'portrait',
       'native-sign-in-challenge.png': 'portrait',
       'native-sign-in-methods.png': 'portrait',
       'authenticated-board-portrait.png': 'portrait', 'authenticated-household-chooser.png': 'portrait',
@@ -53,4 +59,4 @@ function runAuthenticatedSmoke({ maestro, device, output, orientations, fixture 
 }
 
 if (require.main === module) console.log(authFixture() ? 'Isolated authenticated fixture configured.' : 'Signed-out verification only.')
-module.exports = { authFixture, runAuthenticatedSmoke }
+module.exports = { authFixture, exactTextPattern, runAuthenticatedSmoke }

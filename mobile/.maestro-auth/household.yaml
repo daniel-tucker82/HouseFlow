@@ -21,6 +21,12 @@ name: Native sign-in opens the household and preserves the session
 - tapOn:
     id: "clerk.auth.start.identifier"
 - inputText: ${TEST_EMAIL}
+# Verify the actual field value before submitting. Acknowledging inputText alone
+# cannot prove that the keyboard delivered the reserved fixture's full address.
+- assertVisible:
+    id: "clerk.auth.start.identifier"
+    text: ${TEST_EMAIL_PATTERN}
+- takeScreenshot: native-sign-in-identifier
 - runFlow:
     when:
       platform: Android

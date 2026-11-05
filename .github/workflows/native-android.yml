@@ -232,7 +232,7 @@ jobs:
         if: matrix.device == 'foldable'
         run: node --test ../.github/scripts/ios-device-process.test.cjs
       - name: Verify offline test controls
-        if: inputs.offline_phone_from_run || inputs.verify_offline_phone
+        if: matrix.device == 'phone' && inputs.fixture_email
         run: node --test ../.github/scripts/android-offline-control.test.cjs
       - name: Download the selected compiled APK
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2

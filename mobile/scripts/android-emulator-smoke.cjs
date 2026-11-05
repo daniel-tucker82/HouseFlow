@@ -104,11 +104,6 @@ try {
     report.authentication = runAuthenticatedSmoke({ maestro, device: serial, output: path.join(output, 'authenticated'), orientations: report.orientations, fixture })
   }
   if (report.authentication && !report.authentication.passed) throw new Error(report.authentication.error)
-  if (offlineOnly && report.authentication?.passed) {
-    if (report.avd !== 'cyntch-phone') throw new Error('Offline replay requires the phone fixture.')
-    report.offline = runOfflineSmoke({ maestro, device: serial, output: path.join(output, 'offline'), orientations: report.orientations })
-    if (!report.offline.passed) throw new Error(report.offline.error)
-  }
   if (report.authentication?.passed && report.avd === 'cyntch-tablet') {
     report.kiosk = runKioskSmoke({ maestro, device: serial, output: path.join(output, 'kiosk'), orientations: report.orientations })
     if (!report.kiosk.passed) throw new Error(report.kiosk.error)
@@ -137,6 +132,12 @@ try {
     report.notificationPreferences = runNotificationPreferencesSmoke({ maestro, device: serial,
       output: path.join(output, 'notification-preferences'), orientations: report.orientations })
     if (!report.notificationPreferences.passed) throw new Error(report.notificationPreferences.error)
+  }
+  // Both a full authenticated phone check and an offline-only check verify the
+  // prepared disposable task. Compile once for the current application revision.
+  if (report.authentication?.passed && report.avd === 'cyntch-phone') {
+    report.offline = runOfflineSmoke({ maestro, device: serial, output: path.join(output, 'offline'), orientations: report.orientations })
+    if (!report.offline.passed) throw new Error(report.offline.error)
   }
   if (report.runs.some(result => !result.passed)) throw new Error('Android native flow failed at one or more text sizes.')
   report.passed = true

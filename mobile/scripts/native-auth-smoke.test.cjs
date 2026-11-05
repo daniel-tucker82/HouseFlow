@@ -3,7 +3,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
-const { authFixture } = require('./native-auth-smoke.cjs')
+const { authFixture, exactTextPattern } = require('./native-auth-smoke.cjs')
 const { inspectScreenshotOrientations } = require('./device-screenshot-evidence.cjs')
 
 const configured = {
@@ -11,6 +11,15 @@ const configured = {
   CYNTCH_NATIVE_TEST_EMAIL: 'cyntch-native-test+clerk_test@example.com',
   EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: 'pk_test_ZW1lcmdpbmctdG9hZC05OC5jbGVyay5hY2NvdW50cy5kZXYk',
 }
+
+test('the submitted identifier check requires the exact fixture including literal plus and dots', () => {
+  const email = configured.CYNTCH_NATIVE_TEST_EMAIL
+  const pattern = new RegExp(exactTextPattern(email))
+  assert.equal(pattern.test(email), true)
+  for (const other of [email.replace('+', ''), email.replace('+', 't'), email.replace('.', 'x'), 'x' + email, email + 'x']) {
+    assert.equal(pattern.test(other), false)
+  }
+})
 test('ordinary CI stays signed out and explicit configuration selects only the test fixture', () => {
   assert.equal(authFixture({}), null)
   assert.equal(authFixture({EXPO_PUBLIC_API_URL:'https://cyntch-simulator.invalid'}), null)

@@ -22,7 +22,9 @@ The later Settings keyboard-capture correction remains unverified on iPad.
 Android `41967101792` proved offline completion, force-stop persistence and upload
 on reconnect, then failed reopening. The reproduced quota/sync defects are fixed;
 43 route/SQLite regressions and real packaged-backend HTTP checks pass. Fresh
-Android `41970440613` and iOS `41970677603` are in progress. They predate the latest
+Android `41970440613` compiled but failed before authentication; its unexpected
+password-creation screen is investigated below. iOS `41970677603` is in progress.
+Both predate the latest
 Settings keyboard fix and notification-preference test identifiers. Neither may
 be reused as proof of those app changes.
 
@@ -42,6 +44,23 @@ are required. Only the disposable device's preferences change; this is not an
 offline-persistence, cross-device isolation or provider-delivery test. Local
 lint/types, YAML/JavaScript parsing and eight fixture/screenshot checks pass;
 the native preference journey has not yet run.
+
+The next full authenticated Android phone check also runs the prepared offline
+task journey after notification checks, using the same compiled APK. The separate
+offline-only mode remains available for unchanged-binary verification.
+
+Android `41970440613` artifact `13390690546`, SHA-256
+`48fbd228cfab024c83ca1415eea598271c45ca9098877dfa4ce6770a7c0513ee`,
+was downloaded, verified and visually inspected. It showed “Create a unique
+password”, not the expected existing-account challenge; no offline task action
+ran and the original server receipt remains intact. A fresh provider/backend
+preflight authenticated the existing fixture successfully and revoked its session.
+The submitted field value was not retained by the failed run, so neither dropped
+input nor provider routing is yet proven as the cause. Authentication checks now
+require the actual field to equal the exact escaped fixture email before Continue,
+and retain that screen. The input acknowledgement alone is no longer sufficient.
+The added regex regression rejects a missing plus, altered dot and extra prefix
+or suffix. Nine fixture/screenshot checks pass; native verification remains pending.
 
 An already-authorized Android installation now creates any missing Cyntch
 notification channels before registering its provider token. Previously channel
