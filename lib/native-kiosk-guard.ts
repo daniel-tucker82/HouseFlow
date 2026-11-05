@@ -14,7 +14,7 @@ async function restrictRequest(client: PoolClient, request: Request, row: KioskR
   if (request.method === "GET" && url.pathname === "/api/mobile/time") return request
   const membership = (await client.query<{ role: string }>("select role from household_members where household_id=$1 and user_id=$2", [row.household_id, row.user_id])).rows[0]
   if (!membership || normalizeRole(membership.role) !== "manager") throw new KioskError("Parent access to this household changed. Kiosk mode remains locked.", 423, "kiosk_access_changed")
-  if (request.method === "GET" && url.pathname === "/api/mobile/bootstrap") {
+  if (request.method === "GET" && ["/api/mobile/bootstrap", "/api/mobile/board-events"].includes(url.pathname)) {
     const requested = url.searchParams.get("householdId")
     if (requested && requested !== row.household_id) throw new KioskError("Unlock kiosk mode to switch households.", 423)
     url.searchParams.set("householdId", row.household_id)
@@ -38,10 +38,14 @@ async function restrictRequest(client: PoolClient, request: Request, row: KioskR
 }
 async function restrictResponse(client: PoolClient, request: Request, response: Response, row: KioskRow) {
   if (!response.ok || new URL(request.url).pathname === "/api/mobile/time") return response
+  // The watch route admits only a data-free handshake under this lock. The
+  // stream is opened outside it; all task data still uses restricted bootstrap.
+  if (request.method === "GET" && new URL(request.url).pathname === "/api/mobile/board-events" && response.status === 204) return response
   let body = await response.json()
   if (request.method === "GET") {
     const board = body.board ? restrictKioskBoard(body.board as BoardSnapshot, kioskSnapshot(row)) : null
-    body = { accountId: row.user_id, households: board ? [board.household] : [], board, kiosk: kioskSnapshot(row) }
+    body = { accountId: row.user_id, households: board ? [board.household] : [], board, kiosk: kioskSnapshot(row),
+      ...(body.boardStatusEvents === true ? { boardStatusEvents: true } : {}) }
   } else {
     const payload = await request.clone().json()
     const tasks = (await client.query<{ task_id: string }>(`select distinct ot.task_id from occurrence_tasks ot

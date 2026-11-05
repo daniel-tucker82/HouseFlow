@@ -10,7 +10,9 @@ import { parseAccountDeletionReview } from "./account-deletion-review"
 import { parseNativeKioskSession, type NativeKioskOperation, type NativeKioskResult } from "../../../shared/mobile/kiosk"
 import { isWebBillingCancellationUrl, type NativeBillingAction, type NativeBillingScope, type NativeBillingSetup, type NativeBillingStatus, type NativeBillingStore, type WebBillingCancellation } from "../../../shared/mobile/billing"
 
-export interface BootstrapResult { accountId: string; households: HouseholdSummary[]; board: BoardSnapshot | null }
+import { readBoardHints } from "./board-live"
+
+export interface BootstrapResult { accountId: string; households: HouseholdSummary[]; board: BoardSnapshot | null; boardStatusEvents?: true }
 
 /** All requests are bound to the account which opened this runtime. */
 export class MobileApi implements SyncTransport {
@@ -52,6 +54,23 @@ export class MobileApi implements SyncTransport {
   }
 
   async serverTime() { return (await this.request<{ serverTimeMs: number }>("/api/mobile/time")).serverTimeMs }
+
+  async watchBoard(householdId: string, signal: AbortSignal, hint: () => void,
+    streamFetch: (url: string, options: { headers: Record<string, string>; signal: AbortSignal }) => Promise<Pick<Response, "ok" | "status" | "body">>) {
+    const token = await this.token()
+    if (signal.aborted) return
+    if (!token || !this.sessionId) throw new TransportError("Sign in again to watch this board.", 401)
+    const url = new URL("/api/mobile/board-events", this.baseUrl)
+    url.searchParams.set("householdId", householdId)
+    const response = await streamFetch(url.toString(), { signal, headers: {
+      Authorization: `Bearer ${token}`, "X-Task-Save-User": this.accountId, "X-Cyntch-Device": this.deviceId, "X-Cyntch-Session": this.sessionId,
+    } })
+    if (!response.ok || !response.body) {
+      await response.body?.cancel()
+      throw new TransportError("Board updates are unavailable.", response.status)
+    }
+    await readBoardHints(response.body, signal, hint)
+  }
 
   async accountDeletionReview(): Promise<AccountDeletionReview> {
     const review = await this.request<AccountDeletionReview>("/api/mobile/account-deletion", undefined, await this.notificationHeaders())

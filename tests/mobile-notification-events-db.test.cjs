@@ -49,6 +49,63 @@ async function fixture(t) {
   return { db, household, routine, transaction, run, events, clear }
 }
 
+test('a second database session receives one empty board hint after commit, without a push subscription', { skip: !url, timeout: 20_000 }, async t => {
+  const f = await fixture(t), { tasks } = await f.run()
+  const channelFor = async id => (await f.db.query("select 'cyntch_board_' || md5(current_schema() || ':' || $1::text) as channel", [id])).rows[0].channel
+  const family = await channelFor(f.household), otherId = randomUUID(), other = await channelFor(otherId)
+  const barrier = 'board_test_' + randomUUID().replaceAll('-', '')
+  const reader = await f.db.connect(), writer = await f.db.connect(), inbox = []
+  let completeBarrier
+  const receive = event => {
+    if (event.channel === barrier) completeBarrier?.()
+    else inbox.push([event.channel, event.payload ?? ''])
+  }
+  async function observed() {
+    // A marker committed by an independent connection orders prior notifications
+    // without sleeping or accidentally committing the transaction under test.
+    let timeout
+    const marked = new Promise((resolve, reject) => {
+      completeBarrier = resolve
+      timeout = setTimeout(() => reject(new Error('Database notification marker timed out')), 1_500)
+    })
+    try {
+      await Promise.all([marked, f.db.query("select pg_notify($1,'')", [barrier])])
+      return inbox.splice(0)
+    } finally { clearTimeout(timeout); completeBarrier = undefined }
+  }
+  try {
+    reader.on('notification', receive)
+    for (const channel of [family, other, barrier]) {
+      assert.match(channel, /^[a-z0-9_]+$/)
+      await reader.query('listen ' + channel)
+    }
+    const change = "update occurrence_tasks set status='completed' where task_id=any($1::uuid[])"
+    await writer.query('begin')
+    await writer.query(change, [tasks])
+    assert.deepEqual(await observed(), [], 'uncommitted edits cannot wake another client')
+    await writer.query('rollback')
+    assert.deepEqual(await observed(), [], 'rollback sends nothing')
+    await writer.query('begin')
+    for (const id of tasks) await writer.query(change, [[id]])
+    await writer.query('commit')
+    assert.deepEqual(await observed(), [[family, '']], 'two edits in one transaction wake only the affected household once')
+    await writer.query(change, [tasks])
+    assert.deepEqual(await observed(), [], 'an unchanged board does not wake clients')
+    const otherRun = randomUUID(), otherTask = randomUUID()
+    await writer.query("insert into households(id,name,leader_id) values($1,'Other family','user_parent')", [otherId])
+    await writer.query("insert into routine_occurrences(id,household_id,kind,title,scheduled_for) values($1,$2,'manual','Other board',now())", [otherRun, otherId])
+    await writer.query("insert into tasks(id,household_id,routine_occurrence_id,title) values($1,$2,$3,'Other task')", [otherTask, otherId, otherRun])
+    await writer.query("insert into occurrence_tasks(occurrence_id,task_id,status) values($1,$2,'unlocked')", [otherRun, otherTask])
+    assert.deepEqual(await observed(), [[other, ''], [other, '']], 'new board and added task wake only their own household')
+    await writer.query(change, [[otherTask]])
+    assert.deepEqual(await observed(), [[other, '']], 'another household uses its own channel')
+  } finally {
+    reader.removeListener('notification', receive)
+    // These clients can be listening or mid-transaction after a failed assertion.
+    writer.release(true); reader.release(true)
+  }
+})
+
 test('all native notification events commit with net task/routine/member changes and retain final assignments', { skip: !url }, async t => {
   const f = await fixture(t), seen = new Set()
   async function kinds() { const rows = await f.events(); rows.forEach(row => seen.add(row.kind)); return rows.map(row => row.kind).sort() }

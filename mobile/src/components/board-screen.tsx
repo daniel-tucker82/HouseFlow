@@ -57,6 +57,14 @@ export function BoardTaskRow({ task, canEdit, memberNames, saving, needsAttentio
 type BoardProps = { kiosk?: NativeKioskSession; onParentAccess?: () => void; notice?: ReactNode }
 export default function BoardScreen(props: BoardProps) {
   const state = useBoard(), { controller } = useRuntime()
+  const familyDisplay = Boolean(props.kiosk)
+  // The family display sits outside tab navigation and remains visible until
+  // unlocked. The Today tab separately observes its navigation focus.
+  useEffect(() => {
+    if (!familyDisplay) return
+    controller.setBoardVisible(true)
+    return () => controller.setBoardVisible(false)
+  }, [familyDisplay, controller])
   if (state.loading) return <Loading />
   return <BoardWorkspace key={`${controller.accountId}:${state.board?.household.id}:${state.board?.household.role}:${props.kiosk?.id ?? "parent"}`} {...props} />
 }

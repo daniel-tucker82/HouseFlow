@@ -210,9 +210,8 @@ export async function getHouseholdMemberViewData(
          join tasks t on t.id = ot.task_id
          where ot.occurrence_id in (select id from active_occurrences)
            and ot.status <> 'completed'::task_status
-       )
-       update occurrence_tasks ot
-       set status = case
+       ), desired as (
+         select lf.occurrence_id, lf.task_id, lf.is_expired, case
           when lf.is_expired then 'completed'::task_status
            when (
              case
@@ -226,16 +225,17 @@ export async function getHouseholdMemberViewData(
              end
            ) then 'locked'::task_status
            else 'unlocked'::task_status
-         end,
-        completion_reason = case when lf.is_expired then 'expiry' else ot.completion_reason end,
-        completed_at = case
-          when lf.is_expired then coalesce(ot.completed_at, now())
-          else ot.completed_at
-        end,
+         end as next_status from lock_flags lf
+       )
+       update occurrence_tasks ot
+       set status = d.next_status,
+         completion_reason = case when d.is_expired then 'expiry' else ot.completion_reason end,
+         completed_at = case when d.is_expired then coalesce(ot.completed_at, now()) else ot.completed_at end,
          updated_at = now()
-       from lock_flags lf
-       where ot.occurrence_id = lf.occurrence_id
-         and ot.task_id = lf.task_id
+       from desired d
+       where ot.occurrence_id = d.occurrence_id
+         and ot.task_id = d.task_id
+         and ot.status is distinct from d.next_status
          and ot.status <> 'completed'::task_status`,
       [householdId],
     )

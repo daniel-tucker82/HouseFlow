@@ -53,6 +53,45 @@ desktop Simulator window. The minimum job checks for an existing 17.0 runtime
 before requesting the exact release for its host; another OS is never accepted.
 Neither runtime has a passing device result from that run.
 
+Android run `41941833400` compiled the new landscape header, passed API 24
+and booted the actual Pixel Fold profile. The API 37 phone/tablet had about
+5 GB free in `/data` but package installation hit a broken pipe amid Android
+low-memory kills. The foldable installed the APK and changed state from 2 to 0;
+its final hierarchy showed Android's swipe lock screen covering Cyntch. The
+next checks give API 37 guests 4 GB RAM, stage the phone/tablet APK before
+installation and dismiss the disposable foldable's keyguard after a posture
+change. The sign-in and retained-text assertions remain required.
+
+### Live task boards
+
+When `CYNTCH_BOARD_EVENTS_ENABLED=true`, bootstrap advertises live board
+updates. Today and the locked family display subscribe only while visible,
+active and connected. No push permission or notification preference is needed.
+A committed change sends a data-free hint; the client reads its normal,
+permission-filtered board, coalescing changes while a refresh is running.
+Going offline, switching households, leaving the board or backgrounding the
+app closes the watch. On return, the first read happens after the new database
+subscription is ready so edits missed during a disconnect are recovered.
+Offline saves and clock checks use their existing paths.
+
+Apply `database/0041_board_status_signals.sql` before opting in. The service
+uses a session-capable PostgreSQL connection shared among active screens on
+each server instance, released when the last subscriber leaves. It rechecks
+household, kiosk and account access before signalling and closes before the
+authentication or request lease expires. Reopening a healthy lease entails an
+authorized snapshot read; measure actual idle bandwidth and hosting costs on a
+kitchen tablet before enabling production. No provider or rollout flag has
+been enabled by these changes.
+
+With `CYNTCH_TEST_DATABASE_URL` pointing to the isolated local database, run
+`node --test tests/integration/foreground-board.cjs tests/mobile-board-signal-hub-db.test.cjs`.
+On 2026-11-05, 20 peer task transitions appeared in the receiving controller
+at median 200.0 ms, p95 235.6 ms and maximum 235.8 ms after commit (loopback
+HTTP, real PostgreSQL, real SQLite, test identity). The same client picked up
+task and household renames, caught up on foreground/focus/reconnect, and made
+zero clock requests. This does not measure physical rendering, hosted network
+latency or concurrent web UI performance.
+
 Cyntch's 16 modal presentations now use the system reduced-motion preference.
 One root provider reads the setting at startup, listens for changes and refreshes
 it when the app returns to the foreground. Until a successful read, or if a read

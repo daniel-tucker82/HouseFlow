@@ -1,6 +1,7 @@
 import { useAuth } from "@clerk/expo"
 import { CryptoDigestAlgorithm, digestStringAsync, randomUUID } from "expo-crypto"
 import * as Network from "expo-network"
+import { fetch as streamingFetch } from "expo/fetch"
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake"
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type PropsWithChildren } from "react"
 import { AppState, View } from "react-native"
@@ -62,7 +63,8 @@ export function RuntimeProvider({ children, accountId, sessionId, restricted = f
       }, getInstallationSecret, sessionId)
       const displaySetting = await store.setting<boolean>(accountId, "keep-awake")
       if (cancelled) return
-      controller = new BoardController(store, accountId, deviceId, api, randomUUID)
+      controller = new BoardController(store, accountId, deviceId, api, randomUUID,
+        (household, signal, hint) => api.watchBoard(household, signal, hint, streamingFetch))
       planner = new PlannerController(store.planner, accountId, deviceId, api, randomUUID,
         async () => { await Promise.all([controller?.refresh(), runs?.reloadAfterCreation()]) }, () => runs?.invalidateCreationReads())
       runs = new RunsController(store, accountId, api, controller, householdId => {

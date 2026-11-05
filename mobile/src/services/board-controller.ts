@@ -3,6 +3,7 @@ import type { LocalStore } from "../storage/local-store"
 import { SyncEngine, TransportError, type SyncTransport } from "../storage/sync-engine"
 import type { BootstrapResult } from "./api"
 import type { RunSnapshot } from "../../../shared/mobile/runs"
+import { ForegroundBoardWatch, type BoardWatch } from "./board-live"
 
 interface BoardApi extends SyncTransport { bootstrap(householdId?: string): Promise<BootstrapResult>; run?(householdId: string, occurrenceId: string): Promise<RunSnapshot> }
 export interface BoardState {
@@ -25,6 +26,9 @@ export class BoardController {
   private state: BoardState = { board: null, households: [], pending: [], loading: true, refreshing: false, online: false, error: null }
   private listeners = new Set<() => void>()
   private engine: SyncEngine
+  private live?: ForegroundBoardWatch
+  private visibleBoard = false
+  private watchableHousehold: string | null = null
   private stopped = false
   private active = true
   private selected: string | undefined
@@ -37,7 +41,8 @@ export class BoardController {
   private optimistic = new Map<string, { id: string; completed: boolean }>()
 
   constructor(private readonly store: LocalStore, readonly accountId: string, readonly deviceId: string,
-    private readonly api: BoardApi, private readonly uuid: () => string) {
+    private readonly api: BoardApi, private readonly uuid: () => string, watch?: BoardWatch) {
+    if (watch) this.live = new ForegroundBoardWatch(watch, () => this.refresh(true))
     this.engine = new SyncEngine(store, accountId, api, acknowledged => {
       this.refreshAfterSync ||= acknowledged === true
       this.mutationRevision++
@@ -54,6 +59,11 @@ export class BoardController {
     this.listeners.forEach(listener => listener())
   }
   private fail(error: unknown) { this.update({ error: error instanceof Error ? error.message : "Something went wrong. Please try again." }) }
+
+  setBoardVisible(visible: boolean) {
+    this.visibleBoard = visible
+    this.live?.select(visible && this.active && this.state.online && !this.stopped ? this.watchableHousehold : null)
+  }
 
   async start() {
     try {
@@ -84,17 +94,19 @@ export class BoardController {
   setConnectivity(online: boolean) {
     const reconnected = !this.state.online && online
     this.update({ online })
-    if (!online) clearTimeout(this.retryTimer)
+    if (!online) { clearTimeout(this.retryTimer); this.live?.select(null) }
     if (reconnected && !this.state.loading) { void this.refresh(); this.wake() }
   }
 
   setActive(active: boolean) {
     this.active = active
-    if (!active) clearTimeout(this.retryTimer)
+    if (!active) { clearTimeout(this.retryTimer); this.live?.select(null) }
     else if (this.state.online) { void this.refresh(); this.wake() }
   }
 
   async selectHousehold(householdId: string) {
+    this.watchableHousehold = null
+    this.live?.select(null)
     this.selected = householdId
     this.refreshRevision++
     await this.store.saveSetting(this.accountId, "selected-household", householdId)
@@ -102,11 +114,11 @@ export class BoardController {
     await this.refresh()
   }
 
-  async refresh() {
+  async refresh(quiet = false) {
     if (this.stopped || !this.state.online || !this.active) return
     const revision = ++this.refreshRevision
     const mutationAtStart = this.mutationRevision
-    this.update({ refreshing: true })
+    if (!quiet) this.update({ refreshing: true })
     try {
       let response: BootstrapResult
       try { response = await this.api.bootstrap(this.selected) }
@@ -127,9 +139,15 @@ export class BoardController {
         await this.store.cacheBoard(this.accountId, response.board)
       }
       await this.readLocal()
+      if (this.stopped || revision !== this.refreshRevision) return
+      this.watchableHousehold = response.boardStatusEvents === true ? this.selected ?? null : null
+      this.setBoardVisible(this.visibleBoard)
       this.update({ error: null })
     } catch (error) {
       if (this.stopped || revision !== this.refreshRevision) return
+      if (error instanceof TransportError && [401, 403, 410, 423].includes(error.status)) {
+        this.watchableHousehold = null; this.live?.select(null)
+      }
       if (error instanceof TransportError && error.status === 423 && error.code === "kiosk_access_changed") {
         try {
           await this.store.invalidateKioskAccess(this.accountId, this.selected)
@@ -218,6 +236,7 @@ export class BoardController {
 
   stop() {
     this.stopped = true
+    this.live?.select(null)
     this.engine.stop()
     clearTimeout(this.retryTimer)
     this.listeners.clear()

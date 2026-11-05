@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports -- Runs the mobile storage layer against real SQLite in Node. */
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
-const { DatabaseSync } = require('node:sqlite')
+const { SqliteAdapter } = require('./helpers/mobile-sqlite.cjs')
 const { buildSync } = require('esbuild')
 const Module = require('node:module')
 const fs = require('node:fs')
@@ -18,33 +18,27 @@ function load(files) {
   loadedModule._compile(outputFiles[0].text, filename)
   return loadedModule.exports
 }
-const { LocalStore, SyncEngine, TransportError, BoardController, RunsController, nextSyncDelay, estimateClockOffset, compareCompletionVersions,
+const { LocalStore, SyncEngine, TransportError, BoardController, RunsController, nextSyncDelay, estimateClockOffset, compareCompletionVersions, readBoardHints,
   notificationCatalog, defaultNotificationPreferences, shouldPushNotification, inQuietHours } = load([
   'mobile/src/storage/local-store.ts', 'mobile/src/storage/sync-engine.ts', 'mobile/src/services/board-controller.ts',
   'shared/mobile/sync-policy.ts', 'shared/mobile/notification-catalog.ts',
   'mobile/src/services/runs-controller.ts',
+  'mobile/src/services/board-live.ts',
 ])
 
-class SqliteAdapter {
-  constructor(filename) { this.database = new DatabaseSync(filename); this.tail = Promise.resolve(); this.failOnBoardWrite = false }
-  async execAsync(sql) { this.database.exec(sql) }
-  async runAsync(sql, ...values) {
-    if (this.failOnBoardWrite && sql.includes('INSERT INTO board_snapshots')) throw new Error('Simulated disk write failure')
-    return this.database.prepare(sql).run(...values)
+test('board hints survive split/coalesced HTTP chunks and reject malformed or truncated handshakes', async () => {
+  const receive = async (chunks, hint) => readBoardHints(new ReadableStream({ start(stream) {
+    for (const chunk of chunks) stream.enqueue(new TextEncoder().encode(chunk))
+    stream.close()
+  } }), new AbortController().signal, hint)
+  let hints = 0
+  await receive(['re', 'ady\nch', 'anged\nchanged\n'], () => hints++)
+  assert.equal(hints, 3)
+  for (const malformed of ['changed\n', 'ready', 'household-secret', 'ready\nready\n', 'ready\ncha']) {
+    await assert.rejects(receive([malformed], () => {}), /board signal/i)
   }
-  async getFirstAsync(sql, ...values) { return this.database.prepare(sql).get(...values) ?? null }
-  async getAllAsync(sql, ...values) { return this.database.prepare(sql).all(...values) }
-  async withExclusiveTransactionAsync(work) {
-    const run = this.tail.then(async () => {
-      this.database.exec('BEGIN IMMEDIATE')
-      try { await work(this); this.database.exec('COMMIT') }
-      catch (error) { this.database.exec('ROLLBACK'); throw error }
-    })
-    this.tail = run.catch(() => {})
-    return run
-  }
-  close() { this.database.close() }
-}
+})
+
 function snapshot() {
   return { household: { id: 'h1', name: 'Family', timezone: 'Australia/Sydney', leaderId: 'parent', role: 'manager' },
     members: [], fetchedAt: '2026-11-03T00:00:00Z', tasks: [{ id: 't1', occurrence_id: 'r1', title: 'Pack bag',

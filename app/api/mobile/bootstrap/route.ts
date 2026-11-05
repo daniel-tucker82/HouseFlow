@@ -23,7 +23,8 @@ async function handleGET(request: Request) {
     const selected = householdId ? households.find(h => h.id === householdId) : households[0]
     if (householdId && !selected) return Response.json({ error: "Household access is no longer available" }, { status: 403 })
     const board = selected ? await getHouseholdMemberViewData(selected.id, userId) : null
-    return Response.json({ accountId: userId, households, board: selected && board ? {
+    return Response.json({ accountId: userId, households,
+      ...(process.env.CYNTCH_BOARD_EVENTS_ENABLED === "true" ? { boardStatusEvents: true } : {}), board: selected && board ? {
       household: selected, members: board.members, tasks: board.tasks, fetchedAt: new Date().toISOString(),
     } : null }, { headers: { "Cache-Control": "no-store" } })
   } catch (error) {
