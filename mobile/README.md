@@ -83,6 +83,20 @@ checks, all 23 pinned Maestro flows, workflow validation and mobile lint/types
 passed. Native deletion and provider cleanup results are still outstanding. This
 does not enable production submission or establish store billing/biometric cleanup.
 
+The first isolated deletion replay, `42000900655` (harness `502dae2`, app
+`e22da8a`), passed real native sign-in and household loading, both review
+orientations, ownership selection and both consent switches. It failed before
+the final confirmation opened. Artifact `13403925479` was checked against
+SHA-256 `b13b1c27b7c2bee88b4f37adde66196baffe7236d171ae11e9a7bc5b88db5fb0`.
+The failure screenshot and hierarchy show the button at y=823–871 on an
+874-point screen, behind the bottom navigation; Maestro incorrectly counted it
+as fully visible and tapped there. The flow now centres scrolled targets clear
+of that bar and uses literal question marks for alert assertions. Cancellation
+checks the still-enabled action in view instead of the offscreen page heading.
+Read-only database checks found zero deletion requests and unchanged original
+household/preferences; no provider deletion was attempted. This is a corrected
+test-driver failure, not a completed deletion journey or an automatic retry.
+
 Current verification checkpoint, 2026-11-05: Android authenticated phone/tablet,
 API 24, fold posture/input retention, native permission and system settings have
 passed in the runs detailed below. The API 37 tablet kiosk journey passed in

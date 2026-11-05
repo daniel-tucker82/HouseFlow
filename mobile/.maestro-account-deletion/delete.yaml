@@ -8,6 +8,7 @@ name: Disposable account deletion preserves its receipt and completes device cle
 - runFlow: ../.maestro-auth/verify-household.yaml
 - tapOn: "(?i)^Settings(,.*)?$"
 - scrollUntilVisible:
+    centerElement: true
     element: "Review account deletion"
     direction: DOWN
 - tapOn: "Review account deletion"
@@ -15,12 +16,14 @@ name: Disposable account deletion preserves its receipt and completes device cle
     visible: "Your account and content"
     timeout: 60000
 - scrollUntilVisible:
+    centerElement: true
     element: "Delete my account"
     direction: DOWN
 - assertVisible:
     text: "Delete my account"
     enabled: false
 - scrollUntilVisible:
+    centerElement: true
     element: ".*Delete this household for everyone"
     direction: UP
 - tapOn: ".*Delete this household for everyone"
@@ -28,11 +31,13 @@ name: Disposable account deletion preserves its receipt and completes device cle
 - takeScreenshot: deletion-review-portrait
 - setOrientation: ${LANDSCAPE_ORIENTATION}
 - scrollUntilVisible:
+    centerElement: true
     element: "● Delete this household for everyone"
     direction: DOWN
 - takeScreenshot: deletion-review-landscape
 - setOrientation: ${PORTRAIT_ORIENTATION}
 - scrollUntilVisible:
+    centerElement: true
     element: "I understand the account and household deletion consequences"
     direction: DOWN
 - tapOn: "I understand the account and household deletion consequences"
@@ -40,12 +45,14 @@ name: Disposable account deletion preserves its receipt and completes device cle
     text: "I understand the account and household deletion consequences"
     checked: true
 - scrollUntilVisible:
+    centerElement: true
     element: "Delete my account"
     direction: DOWN
 - assertVisible:
     text: "Delete my account"
     enabled: false
 - scrollUntilVisible:
+    centerElement: true
     element: "I understand the subscription consequences"
     direction: UP
 - tapOn: "I understand the subscription consequences"
@@ -53,15 +60,19 @@ name: Disposable account deletion preserves its receipt and completes device cle
     text: "I understand the subscription consequences"
     checked: true
 - scrollUntilVisible:
+    centerElement: true
     element: "Delete my account"
     direction: DOWN
 - assertVisible:
     text: "Delete my account"
     enabled: true
 - tapOn: "Delete my account"
-- assertVisible: "Delete your Cyntch account?"
-- tapOn: "Keep account"
-- assertVisible: "Delete your account"
+- assertVisible: "^Delete your Cyntch account[?]$"
+- tapOn: "^Keep account$"
+- assertNotVisible: "^Delete your Cyntch account[?]$"
+- assertVisible:
+    text: "Delete my account"
+    enabled: true
 - takeScreenshot: deletion-cancelled-confirmation
 - tapOn: "Delete my account"
 - tapOn: "^Delete account$"
@@ -78,6 +89,7 @@ name: Disposable account deletion preserves its receipt and completes device cle
       notVisible: "^Account deleted$"
     commands:
       - scrollUntilVisible:
+          centerElement: true
           element:
             text: "^Check status$"
             enabled: true
@@ -101,12 +113,13 @@ name: Disposable account deletion preserves its receipt and completes device cle
     commands:
       - tapOn: "Retry device cleanup"
 - scrollUntilVisible:
+    centerElement: true
     element: "Remove saved receipt"
     direction: DOWN
     timeout: 60000
 - takeScreenshot: deletion-cleanup-after-restart
 - tapOn: "Remove saved receipt"
-- assertVisible: "Remove this receipt?"
+- assertVisible: "^Remove this receipt[?]$"
 - tapOn: "^Remove receipt$"
 - runFlow:
     when:
