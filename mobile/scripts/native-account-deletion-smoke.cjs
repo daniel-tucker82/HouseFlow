@@ -31,6 +31,7 @@ function runAccountDeletionSmoke({ maestro, device, output, orientations }) {
     result.driverCleanup = run.driverCleanup
     result.screenshots = inspectScreenshotOrientations(output, {
       'deletion-review-portrait.png': 'portrait', 'deletion-review-landscape.png': 'landscape',
+      'deletion-submit-ready.png': 'portrait',
       'deletion-cancelled-confirmation.png': 'portrait', 'deletion-accepted.png': 'portrait',
       'deletion-receipt-after-restart.png': 'portrait', 'deletion-completed.png': 'portrait',
       'deletion-cleanup-after-restart.png': 'portrait', 'deletion-signed-out-after-restart.png': 'portrait',

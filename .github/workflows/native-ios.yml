@@ -274,7 +274,10 @@ jobs:
             node -e "require('./scripts/native-account-deletion-smoke.cjs').deletionFixture()"
           fi
           meta=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CYNTCH_IOS_SIMULATOR_PRODUCER")
-          jq -e --arg repo "$GITHUB_REPOSITORY" --arg branch "$GITHUB_REF_NAME" '
+          # This verification-only branch is pinned to the mobile producer's
+          # ancestry. Keep the exact same-repository, source-diff and digest
+          # checks below; only its harness differs from the compiled app.
+          jq -e --arg repo "$GITHUB_REPOSITORY" --arg branch 'codex/native-mobile-apps' '
             .event == "workflow_dispatch" and .head_branch == $branch and
             .head_repository.full_name == $repo and .path == ".github/workflows/native-ios.yml"' <<<"$meta" >/dev/null
           sha=$(jq -r '.head_sha' <<<"$meta")
