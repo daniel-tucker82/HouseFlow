@@ -22,7 +22,8 @@ function runNotificationSmoke({ device, maestro, output }) {
   }
   try {
     const ocr=path.join(process.env.RUNNER_TEMP,'cyntch-notification-ocr-'+process.pid)
-    execFileSync('xcrun',['--sdk','macosx','swiftc','../.github/scripts/ios-device-alert-text.swift','-o',ocr],{timeout:90_000})
+    const arch=process.arch==='arm64'?'arm64':'x86_64'
+    execFileSync('xcrun',['--sdk','macosx','swiftc','-target',arch+'-apple-macosx15.0','../.github/scripts/ios-device-alert-text.swift','-o',ocr],{timeout:90_000})
     flow('request'); result.permission=true; save()
     const title='Family update '+randomInt(10000,100000), body='Your household test update is ready'
     const capture = name => {
@@ -33,20 +34,22 @@ function runNotificationSmoke({ device, maestro, output }) {
     const before=capture('before-delivery')
     const payload=path.join(output,'simulated.apns')
     fs.writeFileSync(payload,JSON.stringify({aps:{alert:{title,body},sound:'default'}}))
-    execFileSync('xcrun',['simctl','push',device,'com.cyntch.app',payload],{timeout:30_000})
+    execFileSync(process.execPath,[path.resolve('../.github/scripts/ios-device-record-alert.cjs'),device,output,payload],{timeout:80000})
     result.injected=true; save()
-    const shots=[],start=Date.now()
-    for(let n=1;n<=5 && Date.now()-start<8000;n++){
-      shots.push(capture('banner-'+n))
-      if(n<5) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,350)
-    }
-    result.bannerFrames=JSON.parse(execFileSync(ocr,[title,before,...shots],{encoding:'utf8',timeout:90_000}))
-    result.banner=result.bannerFrames.length>0; save()
-    flow('center',['-e','ALERT_TITLE='+title,'-e','ALERT_BODY='+body])
-    result.notificationCenter=true
+    // The recording is closed before opening the pane. The two independent
+    // observations should survive a failure in either the UI flow or OCR.
+    try {
+      flow('center',['-e','ALERT_TITLE='+title,'-e','ALERT_BODY='+body])
+      result.notificationCenter=true
+    } catch(error) { result.centerError=error.message }
+    save()
+    try {
+      result.bannerFrames=JSON.parse(execFileSync(ocr,[title,before,path.join(output,'delivery.mp4'),output],{encoding:'utf8',timeout:180000}))
+      result.banner=result.bannerFrames.length>0
+    } catch(error) { result.bannerError=error.message }
     result.screens=inspectScreenshotOrientations(output,{'ios-notifications-system-prompt.png':'portrait',
       'ios-notifications-granted.png':'portrait','ios-notification-center.png':'portrait'},{includeStartup:false})
-    if (!result.banner || !result.screens.passed) throw new Error('Notification banner or system presentation captures are incomplete.')
+    if (!result.banner || !result.notificationCenter || !result.screens.passed) throw new Error('Notification banner or system presentation captures are incomplete.')
     result.passed=true
   } catch(error) { result.error=error.message }
   finally { save() }

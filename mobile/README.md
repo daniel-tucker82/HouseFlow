@@ -103,6 +103,15 @@ to rerun the phone and tablet sign-in and text-size checks on just that runtime.
 The runner checks the producer repository, branch, application source, archive
 digest, architecture, signature and embedded test backend before using the app.
 
+[Current iPhone simulator run 41955389110](https://github.com/daniel-tucker82/HouseFlow/actions/runs/41955389110)
+passed email-code sign-in, both board orientations and restart. It recorded the
+iOS authorization prompt, the granted state and the injected title and body in
+Notification Center. SpringBoard reported banner alerts enabled. None of the
+five Home Screen screenshots taken after the injection command returned showed
+a banner. The harness now starts a screen recording before injection and
+searches its upper portion for the unique title four times per second, before
+opening Notification Center. A matching frame is required for a banner pass.
+
 In [the current iPhone notification run](https://github.com/daniel-tucker82/HouseFlow/actions/runs/41952474966),
 the failure capture shows the signed-in household and its two tasks. The matching
 accessibility snapshot labels the older build's header “Choose household”; the
@@ -1335,8 +1344,10 @@ server-to-client payload validation, access changes during navigation, local
 settings enforcement and retried cleanup across sessions. Root/mobile lint and
 typecheck, the production Next.js build and Android/iOS JavaScript exports passed.
 These checks do not establish remote FCM/APNs reception or native iOS behavior.
-The Android notification icon still uses a placeholder silhouette and needs
-a dedicated monochrome asset before release.
+Android small notifications now use Cyntch’s white house and check mark on
+transparency. Expo generated all five densities (24–96 px) and Android 37’s
+resource linker resolved the Expo and FCM icon references in a resource test
+package. A notification on a device running the updated app remains to be checked.
 
 Native kiosk backend protection was verified on 2026-11-04 in isolated PostgreSQL
 schemas. Migration 0028 adds independent device/session locks, replay-safe
