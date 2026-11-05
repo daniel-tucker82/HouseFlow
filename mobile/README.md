@@ -144,6 +144,15 @@ the final version. Four local control tests cover interrupted execution, a proce
 that did not stop, owned-emulator restrictions and network restoration. Native
 execution and server receipt verification are still required.
 
+The first replay `41966062640` reached the offline pending-change banner but
+failed its next checkbox visibility assertion: completing the task sorted it
+below the phone viewport. Artifact `13386909443`, SHA-256
+`f196a53fce1755f31e891d18dab45fc5a2085e8bb803320029f5635d6a166b36`,
+was verified and the failure capture inspected. The test now scrolls to the
+same checkbox after completion and reopening, preserving its checked-state
+assertions. The isolated server still had no receipts; no fixture was reset.
+This attempt does not establish force-stop recovery or successful synchronization.
+
 Android run `41867082612` (`93777e1`) passed the optimized API 36 phone/tablet
 matrix at 1x/1.6x text, including software-keyboard rotation, retained input,
 keyboard dismissal and app Back handling. Both devices also passed real native

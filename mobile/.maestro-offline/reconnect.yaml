@@ -12,6 +12,10 @@ appId: com.cyntch.app
 - tapOn:
     text: "^Android offline verification,.*"
     checked: true
+# Reopening moves the task back among the ready tasks, above completed ones.
+- scrollUntilVisible:
+    element: "^Android offline verification,.*"
+    direction: UP
 - assertVisible:
     text: "^Android offline verification,.*"
     checked: false

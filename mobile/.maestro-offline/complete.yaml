@@ -6,6 +6,10 @@ appId: com.cyntch.app
 - tapOn:
     text: "^Android offline verification,.*"
     checked: false
+# Completed tasks sort after ready tasks and can move outside the viewport.
+- scrollUntilVisible:
+    element: "^Android offline verification,.*"
+    direction: DOWN
 - assertVisible:
     text: "^Android offline verification,.*"
     checked: true
