@@ -27,6 +27,41 @@ UI verification on another device or live APNs/FCM delivery. Physical devices,
 provider delivery, store billing, household pilot use and store release still
 require their own evidence.
 
+Background notification verification, 2026-11-05: a real PostgreSQL regression
+showed that slow event expansion ignored the worker's requested deadline. The
+worker now shares one monotonic budget across expansion, delivery claims,
+provider I/O and acknowledgement processing. Its database phases reuse the
+scheduler's bounded transactions: stalled SQL is cancelled, unfinished work rolls
+back, and late pool acquisition cannot start abandoned work. A slow claim cannot
+start a send without enough time remaining for the provider request. Existing
+durable leases allow later retries; already recorded tickets remain receipt-only.
+An unacknowledged send can still repeat, with the original delivery/collapse IDs.
+This work remains outside task-save requests.
+
+All 36 focused outbox/provider/route/deadline checks passed, including real SQL
+stalls during expansion, claiming, send acknowledgement and receipt processing,
+rollback, retry, stale leases and connection recovery. Root/mobile lint and type
+checks passed. The root CommonJS lint override now also covers the existing
+`.github/scripts/*.cjs` helpers, whose `require` imports are intentional.
+
+The first packaged HTTP check then reproduced a separate failure: the dedicated
+notification cron endpoint returned HTTP 500 for missing Clerk configuration
+before reaching its own secret check. Only `/api/internal/notifications` now
+joins the exact middleware exemptions for self-authenticated workers. Its cron
+secret remains required; native user notification routes and similarly prefixed
+paths still pass through Clerk. All 15 recovery/route checks passed, including
+the exact-path regression. No provider credentials or production rollout changed.
+
+The corrected production build `f1aa72c` passed. Its actual HTTP endpoint was
+tested against an owned empty schema in local `cyntch_mobile_test`, with provider
+credentials absent and a deliberately invalid sign-in cookie. Missing/incorrect
+cron secrets returned 401; the correct secret returned 200. An exclusive database
+lock caused an uncached 503 after 2,025 ms; releasing it allowed the next request
+to return 200. No notification event or provider request was involved. Evidence:
+`C:/Users/danie/.codex/tmp/cyntch-native-push-http-f1aa72c.json`. This verifies
+bounded server execution and recovery, not push delivery. The existing native
+test backend and household fixture were untouched.
+
 Current verification checkpoint, 2026-11-05: Android authenticated phone/tablet,
 API 24, fold posture/input retention, native permission and system settings have
 passed in the runs detailed below. The API 37 tablet kiosk journey passed in
