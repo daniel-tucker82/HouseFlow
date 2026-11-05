@@ -253,6 +253,15 @@ The pinned parser passed. Continue with the same temporary member, never create
 another to compensate for this interrupted journey. The simulator was removed
 by CI, so the unconfirmed native alert no longer exists.
 
+Follow-up `42040253385` stopped before app download or device creation: the reuse
+comparison still included the newly changed authentication unit-test file.
+The job log reproduced locally to exactly `native-auth-smoke.test.cjs`; artifact
+`13420731619` contains inventory/TLS diagnostics only and matches SHA-256
+`7fdb640bdfe840eeb4576120e78190c7462b583bfc403feb6823715632236310`.
+Both reuse workflows now exclude this specific test file, alongside the already
+excluded authentication runner. Application inputs, ancestry and artifact checks
+remain enforced. No native interaction or fixture mutation occurred in this run.
+
 Focused household, account-deletion and offline journeys now perform real native
 email-code sign-in and require its four rendered captures, then proceed directly
 to their own checks. They do not repeat the already verified household chooser,

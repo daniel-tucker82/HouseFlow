@@ -298,6 +298,7 @@ jobs:
             ':!mobile/scripts/native-notification-preferences-smoke.cjs' ':!mobile/scripts/native-household-smoke.cjs' ':!mobile/scripts/native-household-smoke.test.cjs' ':!mobile/scripts/native-household-deletion-smoke.cjs' ':!mobile/scripts/native-household-deletion-smoke.test.cjs' \
             ':!mobile/scripts/native-account-deletion-smoke.cjs' ':!mobile/scripts/native-account-deletion-smoke.test.cjs' \
             ':!mobile/scripts/android-emulator-smoke.cjs' \
+            ':!mobile/scripts/native-auth-smoke.test.cjs' \
             ':!lib/native-notification-outbox.ts' ':!lib/native-notification-worker.ts' ':!middleware.ts' ':!eslint.config.mjs'
           printf 'CYNTCH_IOS_APP_SHA=%s\n' "$sha" >> "$GITHUB_ENV"
       - name: Download the selected compiled simulator app
