@@ -27,6 +27,11 @@ on:
         description: Verify household controls using an unchanged APK and the isolated parent fixture
         type: string
         default: ''
+      household_section:
+        description: Focus a household replay on unverified invitations and deletion review
+        type: choice
+        options: [all, invitations-and-review]
+        default: all
       verify_offline_phone:
         description: Build a fresh APK and verify offline completion on the isolated phone fixture
         type: boolean
@@ -211,6 +216,7 @@ jobs:
       CYNTCH_ANDROID_OFFLINE: ${{ (inputs.offline_phone_from_run || inputs.verify_offline_phone) && 'true' || 'false' }}
       CYNTCH_NATIVE_HOUSEHOLD_CHECK: ${{ (inputs.verify_household_phone || inputs.verify_household_deletion || inputs.household_phone_from_run) && 'true' || 'false' }}
       CYNTCH_NATIVE_HOUSEHOLD_DELETE_CHECK: ${{ inputs.verify_household_deletion && 'true' || 'false' }}
+      CYNTCH_NATIVE_HOUSEHOLD_SECTION: ${{ inputs.household_section || 'all' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

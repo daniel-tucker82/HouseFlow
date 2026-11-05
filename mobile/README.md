@@ -162,6 +162,20 @@ signed-out text-size checks, while retaining native authentication. The temporar
 membership was removed through the real API; the original household, tasks,
 members and notification preferences matched their saved hash again.
 
+Android replay `42027492013` passed the complete member journey, including the
+selected board member and removal after restart. All five member captures are
+present. Artifact `13414349326` was verified against
+`5956f96e823eda81936915cef54cfbdbec0034e9a3c6f132817eb819d382a5a9`.
+The invitation journey stopped before creating a link because its selector
+treated the expiry field's literal parentheses as regular-expression groups.
+The screenshot and hierarchy confirm the field exists. The selector now escapes
+those characters. The explicit `household_section=invitations-and-review` replay
+requires only the six outstanding captures and cannot submit household deletion;
+it does not repeat or claim member verification. The original household and
+notification preferences match their saved snapshot, with no invitations or
+deletion requests. iOS compile `42022301424` passed; its compatible simulator app
+is ready for the ordinary iPhone journey after the Android replay.
+
 Invitation confirmation now captures its screen generation. An alert opened
 before leaving, locking or disconnecting cannot revoke a link after returning,
 even after the list reloads. All six native-client checks, mobile lint and types

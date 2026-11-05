@@ -1,0 +1,5 @@
+appId: com.cyntch.app
+name: Invitation management and household deletion review only
+---
+- runFlow: invitations.yaml
+- runFlow: deletion-review.yaml

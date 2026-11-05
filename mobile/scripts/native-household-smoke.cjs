@@ -13,8 +13,16 @@ function householdFixture(env = process.env) {
   return fixture
 }
 
+function householdSection(env = process.env) {
+  householdFixture(env)
+  const section = env.CYNTCH_NATIVE_HOUSEHOLD_SECTION || 'all'
+  if (!['all', 'invitations-and-review'].includes(section) ||
+    (section !== 'all' && env.CYNTCH_NATIVE_HOUSEHOLD_DELETE_CHECK === 'true')) throw new Error('Choose one explicit household verification section.')
+  return section
+}
+
 function runHouseholdSmoke({ maestro, device, output, orientations }) {
-  householdFixture()
+  const section = householdSection()
   if (process.env.CYNTCH_NATIVE_HOUSEHOLD_DELETE_CHECK === 'true') {
     return require('./native-household-deletion-smoke.cjs').runHouseholdDeletionSmoke({ maestro, device, output, orientations })
   }
@@ -22,22 +30,26 @@ function runHouseholdSmoke({ maestro, device, output, orientations }) {
   fs.mkdirSync(output, { recursive: true })
   const result = { source: process.env.CYNTCH_ANDROID_APP_SHA || process.env.CYNTCH_IOS_APP_SHA || process.env.GITHUB_SHA,
     verificationSource: process.env.GITHUB_SHA, scope: 'Dedicated no-email member: add, cancelled rename, saved rename/colour, rotation, restart, board and removal. New invitation: custom limits, copy, rotation, restart, cancelled/confirmed revocation. Household deletion: consent, orientation and cancellation only; no submission.', passed: false }
+  result.sections = section === 'all' ? ['members', 'invitations', 'deletion-review'] : ['invitations', 'deletion-review']
+  if (section !== 'all') result.scope = 'Invitation limits, copy, rotation, restart and revocation; household deletion review/cancellation only. No member editing or deletion submission.'
   const log = fs.openSync(path.join(output, 'maestro.log'), 'w')
   try {
     const execute = process.platform === 'darwin' ? runIOSUI : spawnSync
     const run = execute(maestro, ['--device', device, 'test', '--format', 'junit', '--output', path.join(output, 'report.xml'),
       '-e', `PORTRAIT_ORIENTATION=${orientations.portrait}`, '-e', `LANDSCAPE_ORIENTATION=${orientations.landscape}`,
-      '--test-output-dir', output, '--debug-output', output, path.resolve('.maestro-household/members.yaml')],
+      '--test-output-dir', output, '--debug-output', output, path.resolve('.maestro-household', section === 'all' ? 'members.yaml' : 'invitations-review.yaml')],
     { stdio: ['ignore', log, log], timeout: 900_000, env: process.env })
     result.exitCode = run.status; result.driverCleanup = run.driverCleanup
-    result.screenshots = inspectScreenshotOrientations(output, {
+    const captures = {
       'member-colour-portrait.png': 'portrait', 'member-colour-landscape.png': 'landscape',
       'member-colour-after-restart.png': 'portrait', 'member-colour-on-board.png': 'portrait', 'member-removed-after-restart.png': 'portrait',
       'invitation-created-portrait.png': 'portrait', 'invitation-created-landscape.png': 'landscape', 'invitation-after-restart.png': 'portrait', 'invitation-revoked.png': 'portrait',
       'household-deletion-review-portrait.png': 'portrait', 'household-deletion-review-landscape.png': 'landscape',
-    }, { includeStartup: false })
+    }
+    if (section !== 'all') for (const name of Object.keys(captures)) if (name.startsWith('member-')) delete captures[name]
+    result.screenshots = inspectScreenshotOrientations(output, captures, { includeStartup: false })
     if (run.error || run.status !== 0) throw new Error(`Native household flow failed (${run.error?.code ?? run.status}).`)
-    if (!result.screenshots.passed) throw new Error('Member verification lacks required orientation/restart captures.')
+    if (!result.screenshots.passed) throw new Error('Household verification lacks required orientation/restart captures.')
     result.passed = true
   } catch (error) { result.error = error.message }
   finally {
@@ -47,4 +59,4 @@ function runHouseholdSmoke({ maestro, device, output, orientations }) {
   }
   return result
 }
-module.exports = { householdFixture, runHouseholdSmoke }
+module.exports = { householdFixture, householdSection, runHouseholdSmoke }

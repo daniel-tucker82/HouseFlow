@@ -17,7 +17,7 @@ name: Invitation limits, copy, persistence and revocation
 - inputText: "3"
 - hideKeyboard
 - tapOn:
-    id: "Expires after (days)"
+    id: '^Expires after \(days\)$'
 - eraseText
 - inputText: "7"
 - hideKeyboard
