@@ -9,6 +9,7 @@ const { runNotificationSmoke } = require('./ios-notification-smoke.cjs')
 const { runKioskSmoke } = require('./native-kiosk-smoke.cjs')
 const { runNotificationPreferencesSmoke } = require('./native-notification-preferences-smoke.cjs')
 const { runIOSUI, canRetryIOSBootstrap } = require('../../.github/scripts/ios-device-process.cjs')
+const { collectStartupDiagnostics } = require('../../.github/scripts/ios-device-startup-diagnostics.cjs')
 
 function hasFlowEvidence(folder) {
   return fs.readdirSync(folder, { withFileTypes: true }).some(entry => entry.isDirectory()
@@ -25,7 +26,8 @@ const fixture = authFixture()
 const requestedFamily = process.env.CYNTCH_IOS_TEST_FAMILY
 const replay = process.env.CYNTCH_IOS_REPLAY_SCOPE
 const notificationsOnly = replay === 'notifications'
-if (replay && (!['notifications','current-devices','minimum-devices'].includes(replay) || !fixture || !/^[a-f0-9]{40}$/.test(process.env.CYNTCH_IOS_APP_SHA ?? ''))) throw new Error('Replaying a simulator check requires a verified app and sign-in fixture.')
+if (replay && (!['notifications','current-devices','minimum-devices','phones'].includes(replay) || !fixture || !/^[a-f0-9]{40}$/.test(process.env.CYNTCH_IOS_APP_SHA ?? ''))) throw new Error('Replaying a simulator check requires a verified app and sign-in fixture.')
+if (replay === 'phones' && requestedFamily !== 'iphone') throw new Error('Phone replay cannot repeat a tablet job.')
 if (notificationsOnly && (requestedFamily !== 'iphone' || process.env.CYNTCH_IOS_TEST_RUNTIME)) throw new Error('The notification check requires a current iPhone.')
 if (requestedFamily && !['iphone', 'ipad'].includes(requestedFamily)) throw new Error('Unknown simulator family.')
 if (!appPath || !maestro || !output || !fs.existsSync(path.join(appPath, 'main.jsbundle'))) {
@@ -208,6 +210,10 @@ for (const [index, template] of devices.entries()) {
   } finally {
     if (ownedDevice && /^[0-9a-f-]{36}$/i.test(ownedDevice)) {
       try { simctl('io', ownedDevice, 'screenshot', path.join(folder, 'last-screen.png')) } catch { /* Device may not have booted. */ }
+      if (!result.passed && ['boot', 'install', 'launch'].includes(result.stage)) {
+        try { result.startupDiagnostics = collectStartupDiagnostics(ownedDevice, path.join(folder, 'startup-diagnostics')) }
+        catch (error) { result.startupDiagnosticsError = error.message }
+      }
       try {
         const logs = command('xcrun', ['simctl', 'spawn', ownedDevice, 'log', 'show', '--style', 'compact', '--last', '15m', '--predicate', 'process == "Cyntch"'], 30_000)
         fs.writeFileSync(path.join(folder, 'application.log'), logs)

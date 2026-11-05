@@ -61,6 +61,21 @@ Physical-device testing, live push-provider delivery, store billing, pilot use
 and store release remain separate requirements. Older checkpoints below describe
 their source at the time and are superseded where newer evidence is recorded.
 
+The fresh `e22da8a` iOS build in `41976767048` compiled successfully. Its iOS 17
+phone then timed out reading the installed app container, and its current phone
+timed out during CoreSimulator launch. Both failed before any Maestro journey;
+their last screenshots show the Home Screen. Current-iPhone artifact `13393362121`
+was verified against SHA-256
+`848c798bfea3cfb2df804b6f3977c67a799e6fb5528cafa3cb32d53bfffae2b6`,
+and iOS 17 phone `13393721892` against
+`159791c7e62192917a2fc9e07ac8d38873af35acfbc92241ef5563e007ee1b74`.
+These failures do not establish app behavior. Setup failures now retain bounded,
+read-only memory/load/process and simulator-service diagnostics before cleanup.
+The original setup deadlines, failure status and UI assertions are retained.
+The `phones` replay scope selects only current and iOS 17 iPhones and reuses the
+verified app with the existing source, digest, signature and architecture checks.
+It does not compile again or repeat the tablet jobs. Native replay is still needed.
+
 The next fresh authenticated phone builds also run
 `.maestro-notification-preferences/settings.yaml`. It selects Alex's completions
 while retaining only the parent's startable-task alerts, checks both orientations,

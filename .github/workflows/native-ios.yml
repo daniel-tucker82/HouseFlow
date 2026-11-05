@@ -21,7 +21,7 @@ on:
       replay_scope:
         description: Which checks to run when reusing a compiled simulator app
         type: choice
-        options: [notifications, current-devices, minimum-devices]
+        options: [notifications, current-devices, minimum-devices, phones]
         default: notifications
       verify_device_archive:
         description: Build and inspect a device SDK archive without distribution signing or submission
@@ -224,8 +224,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runtime: ${{ fromJSON(inputs.simulator_from_run && (inputs.replay_scope == 'minimum-devices' && '["17.0"]' || '["current"]') || '["current","17.0"]') }}
-        family: ${{ fromJSON(inputs.simulator_from_run && inputs.replay_scope == 'notifications' && '["iphone"]' || '["iphone","ipad"]') }}
+        runtime: ${{ fromJSON(inputs.simulator_from_run && inputs.replay_scope != 'phones' && (inputs.replay_scope == 'minimum-devices' && '["17.0"]' || '["current"]') || '["current","17.0"]') }}
+        family: ${{ fromJSON(inputs.simulator_from_run && (inputs.replay_scope == 'notifications' || inputs.replay_scope == 'phones') && '["iphone"]' || '["iphone","ipad"]') }}
     defaults:
       run:
         working-directory: mobile
