@@ -78,6 +78,20 @@ The existing 60-second startup wait now targets that actual content, preserving
 all required controls, rotations and captures. Native rerun is still required;
 neither this banner evidence nor previous pane evidence is live APNs proof.
 
+The same run's current iPad passed all signed-out and keyboard journeys at both
+text sizes, then failed authenticated sign-in because the alternative-method
+screen contained only Google. Artifact `13385778891`, SHA-256
+`971a4c675e02ca5649f3d5cb3b0e0fb8ea04a936abdd703cdd4bf5f969c01b29`,
+was downloaded and verified. Its system accessibility log confirms the exact
+reserved test address and an initial password challenge, so an already-selected
+email-code challenge does not explain this failure. A fresh isolated provider
+email-code sign-in and authenticated backend preflight passed, with the temporary
+session revoked afterward. The native failure remains unresolved. The next
+already-planned iOS run captures both challenge and alternative-method screens;
+it still requires actual email-code verification and the authenticated household,
+rotation and restart assertions. No provider configuration was changed and no
+authentication assertion was skipped.
+
 Android run `41867082612` (`93777e1`) passed the optimized API 36 phone/tablet
 matrix at 1x/1.6x text, including software-keyboard rotation, retained input,
 keyboard dismissal and app Back handling. Both devices also passed real native

@@ -39,7 +39,11 @@ name: Native sign-in opens the household and preserves the session
 - extendedWaitUntil:
     visible: "Use another method"
     timeout: 60000
+# Preserve the provider's initial challenge as well as its alternative methods.
+# A failed email choice must not be misdiagnosed from the final screen alone.
+- takeScreenshot: native-sign-in-challenge
 - tapOn: "Use another method"
+- takeScreenshot: native-sign-in-methods
 - tapOn: ".*Email.*code.*"
 - extendedWaitUntil:
     visible: "Check your email"
