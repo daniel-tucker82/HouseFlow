@@ -28,4 +28,12 @@ function runIOSUI(command, args, options) {
   }
   return result
 }
-module.exports = { runIOSUI }
+// Retry only a driver that never reached a flow. Assertion failures, partial
+// journeys, generic timeouts and incomplete process cleanup remain failures.
+function canRetryIOSBootstrap(result, log, hasFlowEvidence) {
+  return result.status === 1 && !result.error && Boolean(result.driverCleanup)
+    && !result.driverCleanup.error && !hasFlowEvidence
+    && log.includes('IOSDriverTimeoutException: iOS driver not ready in time')
+    && !/Flow:|Assertion is false|Assertion failed/.test(log)
+}
+module.exports = { runIOSUI, canRetryIOSBootstrap }

@@ -197,6 +197,13 @@ the enable tap, with filled PINs, enabled button and no server activation row.
 The root cause remains unresolved; the next check captures the layout immediately
 before and after that tap, without retrying or bypassing the activation assertion.
 
+The signed-out iOS harness now permits one bootstrap retry only for the exact
+driver-startup exception, after owned process-group cleanup and only when there
+is no flow report, command record or screenshot. Both attempts remain recorded.
+Assertion failures, partial journeys, generic timeouts and cleanup failures are
+never retried. Local classification checks pass; POSIX process checks and actual
+macOS recovery still require the next native run.
+
 Android run `41867082612` (`93777e1`) passed the optimized API 36 phone/tablet
 matrix at 1x/1.6x text, including software-keyboard rotation, retained input,
 keyboard dismissal and app Back handling. Both devices also passed real native

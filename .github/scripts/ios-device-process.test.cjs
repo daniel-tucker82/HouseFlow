@@ -5,7 +5,21 @@ const os = require('node:os')
 const path = require('node:path')
 const { spawn } = require('node:child_process')
 const vm = require('node:vm')
-const { runIOSUI } = require('./ios-device-process.cjs')
+const { runIOSUI, canRetryIOSBootstrap } = require('./ios-device-process.cjs')
+
+test('only a cleaned, unstarted driver timeout permits a bootstrap retry', () => {
+  const log = 'xcuitest.installer.LocalXCTestInstaller$IOSDriverTimeoutException: iOS driver not ready in time'
+  const result = { status: 1, driverCleanup: { signalled: true } }
+  assert.equal(canRetryIOSBootstrap(result, log, false), true)
+  assert.equal(canRetryIOSBootstrap(result, log, true), false, 'partial journey evidence blocks retry')
+  assert.equal(canRetryIOSBootstrap(result, log + '\nFlow: Native sign-in', false), false)
+  assert.equal(canRetryIOSBootstrap(result, 'Assertion failed', false), false)
+  assert.equal(canRetryIOSBootstrap(result, 'Connection refused', false), false)
+  assert.equal(canRetryIOSBootstrap({ ...result, status: 0 }, log, false), false)
+  assert.equal(canRetryIOSBootstrap({ ...result, error: { code: 'ETIMEDOUT' } }, log, false), false)
+  assert.equal(canRetryIOSBootstrap({ status: 1 }, log, false), false)
+  assert.equal(canRetryIOSBootstrap({ ...result, driverCleanup: { error: 'EPERM' } }, log, false), false)
+})
 
 test('cleanup targets only the failed attempt group and preserves failure', () => {
   const result = { pid: 45123, status: 1 }, calls = []

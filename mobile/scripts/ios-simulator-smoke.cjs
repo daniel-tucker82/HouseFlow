@@ -7,7 +7,13 @@ const { inspectScreenshotOrientations } = require('./device-screenshot-evidence.
 const { authFixture, runAuthenticatedSmoke } = require('./native-auth-smoke.cjs')
 const { runNotificationSmoke } = require('./ios-notification-smoke.cjs')
 const { runKioskSmoke } = require('./native-kiosk-smoke.cjs')
-const { runIOSUI } = require('../../.github/scripts/ios-device-process.cjs')
+const { runIOSUI, canRetryIOSBootstrap } = require('../../.github/scripts/ios-device-process.cjs')
+
+function hasFlowEvidence(folder) {
+  return fs.readdirSync(folder, { withFileTypes: true }).some(entry => entry.isDirectory()
+    ? hasFlowEvidence(path.join(folder, entry.name))
+    : entry.name === 'commands.json' || entry.name === 'report.xml' || entry.name.endsWith('.png'))
+}
 
 if (process.platform !== 'darwin' || process.env.GITHUB_ACTIONS !== 'true') {
   throw new Error('Run this verification on the macOS GitHub Actions host.')
@@ -130,15 +136,26 @@ for (const [index, template] of devices.entries()) {
           throw new Error('The requested Dynamic Type size was not applied.')
         }
         stage(`test-flow:${contentSize}`)
-        const log = fs.openSync(path.join(caseFolder, 'maestro.log'), 'w')
         let run
-        try {
-          run = runIOSUI(maestro, [
-            '--device', ownedDevice, 'test', '-e', `IOS_FAMILY=${label}`, '--format', 'junit', '--output', path.join(caseFolder, 'report.xml'),
-            '--test-output-dir', caseFolder, '--debug-output', caseFolder, path.resolve('.maestro'),
-          ], { stdio: ['ignore', log, log], timeout: 540_000, env: process.env })
-        } finally { fs.closeSync(log) }
-        console.log(fs.readFileSync(path.join(caseFolder, 'maestro.log'), 'utf8'))
+        textResult.attempts = []
+        for (let attempt = 1; attempt <= 2; attempt++) {
+          const attemptFolder = attempt === 1 ? caseFolder : path.join(caseFolder, 'bootstrap-retry')
+          fs.mkdirSync(attemptFolder, { recursive: true })
+          const log = fs.openSync(path.join(attemptFolder, 'maestro.log'), 'w')
+          try {
+            run = runIOSUI(maestro, [
+              '--device', ownedDevice, 'test', '-e', `IOS_FAMILY=${label}`, '--format', 'junit', '--output', path.join(attemptFolder, 'report.xml'),
+              '--test-output-dir', attemptFolder, '--debug-output', attemptFolder, path.resolve('.maestro'),
+            ], { stdio: ['ignore', log, log], timeout: 540_000, env: process.env })
+          } finally { fs.closeSync(log) }
+          const driverOutput = fs.readFileSync(path.join(attemptFolder, 'maestro.log'), 'utf8')
+          console.log(driverOutput)
+          const retryBootstrap = attempt === 1 && canRetryIOSBootstrap(run, driverOutput, hasFlowEvidence(attemptFolder))
+          textResult.attempts.push({ attempt, exitCode: run.status, error: run.error?.code, driverCleanup: run.driverCleanup, retryBootstrap })
+          save()
+          if (!retryBootstrap) break
+          console.log('Retrying the unstarted iOS driver once after cleaning its owned process group; first-attempt evidence is retained.')
+        }
         textResult.exitCode = run.status
         textResult.driverCleanup = run.driverCleanup
         textResult.orientationEvidence = inspectScreenshotOrientations(caseFolder, {
