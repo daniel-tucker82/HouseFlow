@@ -35,6 +35,7 @@ const report = {
   source: process.env.CYNTCH_ANDROID_APP_SHA || process.env.GITHUB_SHA,
   verificationSource: process.env.GITHUB_SHA,
   configuration: 'Release, minified, x86_64, development signing only',
+  scope: householdOnly ? 'Authenticated household journey only' : offlineOnly ? 'Authenticated offline journey only' : 'Full device verification',
   apkSha256: createHash('sha256').update(fs.readFileSync(apk)).digest('hex'),
   serial,
   runs: [],
@@ -64,7 +65,7 @@ try {
     throw new Error('Cyntch installation was not acknowledged on the owned emulator.')
   }
   adb('logcat', '-c')
-  for (const fontScale of (offlineOnly ? [] : [1, 1.6])) {
+  for (const fontScale of (offlineOnly || householdOnly ? [] : [1, 1.6])) {
     const folder = path.join(output, fontScale === 1 ? 'default-text' : 'large-text')
     fs.mkdirSync(folder, { recursive: true })
     const result = { fontScale, passed: false }

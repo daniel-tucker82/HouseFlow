@@ -140,6 +140,18 @@ now selects all text explicitly and verifies the exact replacement before saving
 It reuses the existing APK; colour, invitation and deletion-review captures remain
 outstanding until the corrected journey passes.
 
+Replay `42025776884` reused that APK and verified exact rename, violet selection,
+portrait/landscape and restart persistence. Its later screen-wide horizontal
+scroll hit the task search field, opening the keyboard and hiding the tabs.
+Artifact `13413323995` was verified against
+`2fda3b080049024fc31d2bd6c02117eafb64ae817a2b0bae9409c06df85cfc1d`.
+The board capture does not establish the intended member selection. The next
+flow starts its swipe inside the member strip and requires the selected member
+and visible Household tab. Explicit household journeys now omit unrelated
+signed-out text-size checks, while retaining native authentication. The temporary
+membership was removed through the real API; the original household, tasks,
+members and notification preferences matched their saved hash again.
+
 Invitation confirmation now captures its screen generation. An alert opened
 before leaving, locking or disconnecting cannot revoke a link after returning,
 even after the list reloads. All six native-client checks, mobile lint and types

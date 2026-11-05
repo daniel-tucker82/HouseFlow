@@ -114,10 +114,17 @@ name: A parent can rename a no-email member and choose a persistent colour
     selected: true
 - takeScreenshot: member-colour-after-restart
 - tapOn: "(?i)^Today(,.*)?$"
-- scrollUntilVisible:
-    element: "Native member renamed"
-    direction: RIGHT
-    centerElement: true
+# A screen-wide horizontal scroll can hit the task search field. Start inside
+# the member strip, then verify the actual member selection before capturing it.
+- swipe:
+    from:
+      text: "^Alex$"
+    direction: LEFT
+- tapOn: "^Native member renamed$"
+- assertVisible:
+    text: "^Native member renamed$"
+    selected: true
+- assertVisible: "(?i)^Household(,.*)?$"
 - takeScreenshot: member-colour-on-board
 - tapOn: "(?i)^Household(,.*)?$"
 - scrollUntilVisible:

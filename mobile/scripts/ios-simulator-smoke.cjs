@@ -81,7 +81,7 @@ const devices = requestedRuntime ? ['iPhone 15', 'iPad (10th generation)'].map(n
   available.find(device => device.name === 'iPad (A16)') ?? available.find(device => device.name.startsWith('iPad')),
 ]
 const report = { source: process.env.CYNTCH_IOS_APP_SHA || process.env.GITHUB_SHA, verificationSource: process.env.GITHUB_SHA,
-  scope: deletionOnly ? 'Disposable development account deletion and device recovery' : notificationsOnly ? 'Authenticated notification permission and Notification Center' : 'Device text sizes and optional household verification',
+  scope: deletionOnly ? 'Disposable development account deletion and device recovery' : householdOnly ? 'Authenticated household journey only' : notificationsOnly ? 'Authenticated notification permission and Notification Center' : 'Device text sizes and optional household verification',
   configuration: 'Release with local simulator signing', runtime: runtime.name,
   hostArchitecture: process.arch, runtimeVersion: runtime.version, requestedRuntime: requestedRuntime ?? 'latest installed', devices: [], passed: false }
 const save = () => fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify(report, null, 2))
@@ -138,7 +138,7 @@ for (const [index, template] of devices.entries()) {
     // Do not block the first UI action on a screenshot of a cold simulator.
     // The journeys require their own rendered evidence; finally also records
     // the visible screen if a journey fails before reaching an assertion.
-    for (const contentSize of (notificationsOnly || deletionOnly ? [] : ['large', 'accessibility-extra-large'])) {
+    for (const contentSize of (notificationsOnly || deletionOnly || householdOnly ? [] : ['large', 'accessibility-extra-large'])) {
       const caseFolder = path.join(folder, contentSize === 'large' ? 'default-text' : 'large-text')
       fs.mkdirSync(caseFolder, { recursive: true })
       const textResult = { contentSize, passed: false }
