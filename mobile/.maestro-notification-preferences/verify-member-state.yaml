@@ -8,10 +8,19 @@ appId: com.cyntch.app
 - runFlow:
     when:
       platform: Android
+      true: ${CHECKED === 'true'}
     commands:
       - assertVisible:
           text: ${MEMBER_LABEL}
-          checked: ${CHECKED === 'true'}
+          checked: true
+- runFlow:
+    when:
+      platform: Android
+      true: ${CHECKED === 'false'}
+    commands:
+      - assertVisible:
+          text: ${MEMBER_LABEL}
+          checked: false
 - runFlow:
     when:
       platform: iOS

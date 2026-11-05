@@ -134,6 +134,22 @@ each opposite state, and retained both Android boolean cases. No app code,
 member-selection action, native-switch assertion or required capture changed;
 the corrected flow still needs native execution.
 
+Replay `41986576367` again passed real sign-in and the permission/banner/center
+journey, but stopped before executing the preference flow: my shared helper used
+an expression where Maestro requires a literal boolean (`Incorrect Format:
+checked`). Artifact `13397001917` was verified against SHA-256
+`ac152c254cec26eba8d76d721e525a42966c6ab12840bc7a5183717a7cfb2ea2`.
+Android now selects between two conditional assertions with literal `true` and
+`false`; iOS still requires the exact accessibility value. No assertion is skipped
+for a supported platform and no app code changed.
+
+Both workflows now parse every flow and referenced subflow with the actual
+digest-verified Maestro 2.12.1 libraries before creating a device. The standalone
+`CheckMaestroFlows.java` uses the runner's command parser and confines references
+to the mobile workspace. It reproduced the old nested-selector failure locally
+and passed all 21 corrected flows. YAML parsing alone had missed the type error.
+Native execution of the corrected member-state assertions remains outstanding.
+
 The next fresh authenticated phone builds also run
 `.maestro-notification-preferences/settings.yaml`. It selects Alex's completions
 while retaining only the parent's startable-task alerts, checks both orientations,
