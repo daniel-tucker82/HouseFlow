@@ -43,6 +43,15 @@ name: A parent can rename a no-email member and choose a persistent colour
 - tapOn: "Cancel name change"
 - assertVisible: "Rename Native member check"
 - assertNotVisible: "Rename Cancelled name"
+# Cancelling collapses the input and moves Rename above the current scroll
+# position on iPhone. Re-centre the actual control before trying to reopen it.
+- scrollUntilVisible:
+    element: "Rename Native member check"
+    direction: UP
+    centerElement: true
+- waitForAnimationToEnd:
+    timeout: 5000
+- takeScreenshot: member-rename-after-cancel-ready
 - tapOn: "Rename Native member check"
 - runFlow: clear-member-name.yaml
 - inputText: "Native member renamed"
