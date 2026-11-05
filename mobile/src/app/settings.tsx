@@ -26,7 +26,7 @@ export default function SettingsScreen() {
   const savedCount = savedChanges.length + history.pending
   const needsAttention = savedChanges.filter(change => change.state === "rejected").length
   function report(error: unknown) { Alert.alert("Unable to update", error instanceof Error ? error.message : "Please try again.") }
-  return <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1, backgroundColor: colors.background }}><ScrollView contentContainerStyle={styles.content}>
+  return <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1, backgroundColor: colors.background }}><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
     <Copy tone="title">Settings</Copy>
     <AccountCleanupNotice />
     <Card><View style={styles.row}><UserButton /><View style={{ flex: 1 }}><Copy tone="heading">Your account</Copy><Copy tone="muted">Manage your profile and sign-in details.</Copy></View></View></Card>

@@ -194,8 +194,17 @@ XCTest bootstrap failed before UI execution; its later large-text and authentica
 journeys passed. Current iPad's initial Dynamic Type command timed out, then its
 large-text/authenticated journeys passed. Its kiosk setup failed to activate after
 the enable tap, with filled PINs, enabled button and no server activation row.
-The root cause remains unresolved; the next check captures the layout immediately
-before and after that tap, without retrying or bypassing the activation assertion.
+Further inspection found UIKit ending the PIN input session at `04:35:07.965`
+and hiding its keyboard immediately after the enable tap at `04:35:07.799`.
+Settings' outer ScrollView still used the default keyboard capture policy;
+the nested modal's `handled` setting could not prevent ancestor capture. Running
+the installed React Native 0.88.1 capture handler with a button target and visible
+keyboard confirmed default capture versus pass-through with `handled`.
+Settings now uses `keyboardShouldPersistTaps="handled"`, consistent with
+[React Native's documented behavior](https://reactnative.dev/docs/scrollview#keyboardshouldpersisttaps).
+Native verification of this fix is still pending. The already-running `560cabf`
+iOS build predates it and retains the new pre/post-tap captures; do not attribute
+a result from that binary to this product fix or bypass the activation assertion.
 
 The signed-out iOS harness now permits one bootstrap retry only for the exact
 driver-startup exception, after owned process-group cleanup and only when there
