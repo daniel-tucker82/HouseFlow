@@ -12,80 +12,29 @@ name: A parent can rename a no-email member and choose a persistent colour
 - assertNotVisible: "Rename Taylor Test"
 - runFlow:
     when:
-      true: ${RESUME_MEMBER_CHECK !== 'true'}
-    file: member-create.yaml
+      true: ${RESUME_MEMBER_COLOUR !== 'true'}
+    file: member-rename-colour.yaml
+# Saving the colour collapses the palette, moving the opener above the viewport.
+# A fresh resume starts at the top instead, so its first search goes down.
 - runFlow:
     when:
-      true: ${RESUME_MEMBER_CHECK === 'true'}
+      true: ${RESUME_MEMBER_COLOUR === 'true'}
     commands:
       - scrollUntilVisible:
-          element: "Rename Native member check"
+          element: "Change colour for Native member renamed"
           direction: DOWN
           centerElement: true
-          timeout: 60000
-- tapOn: "Rename Native member check"
-- runFlow: clear-member-name.yaml
-- inputText: "Cancelled name"
-- copyTextFrom:
-    id: "Name for Native member check"
-- assertTrue: ${maestro.copiedText === 'Cancelled name'}
 - runFlow:
-    file: dismiss-field-keyboard.yaml
-    env:
-      FIELD_LABEL_PATTERN: "^Name for Native member check$"
-- scrollUntilVisible:
-    element: "Cancel name change"
-    direction: DOWN
-    centerElement: true
+    when:
+      true: ${RESUME_MEMBER_COLOUR !== 'true'}
+    commands:
+      - scrollUntilVisible:
+          element: "Change colour for Native member renamed"
+          direction: UP
+          centerElement: true
 - waitForAnimationToEnd:
     timeout: 5000
-- takeScreenshot: member-cancel-name-ready
-- tapOn: "Cancel name change"
-- assertVisible: "Rename Native member check"
-- assertNotVisible: "Rename Cancelled name"
-# Cancelling collapses the input and moves Rename above the current scroll
-# position on iPhone. Re-centre the actual control before trying to reopen it.
-- scrollUntilVisible:
-    element: "Rename Native member check"
-    direction: UP
-    centerElement: true
-- waitForAnimationToEnd:
-    timeout: 5000
-- takeScreenshot: member-rename-after-cancel-ready
-- tapOn: "Rename Native member check"
-- runFlow: clear-member-name.yaml
-- inputText: "Native member renamed"
-- copyTextFrom:
-    id: "Name for Native member check"
-- assertTrue: ${maestro.copiedText === 'Native member renamed'}
-- runFlow:
-    file: dismiss-field-keyboard.yaml
-    env:
-      FIELD_LABEL_PATTERN: "^Name for Native member check$"
-- scrollUntilVisible:
-    element: "Save name"
-    direction: DOWN
-    centerElement: true
-- waitForAnimationToEnd:
-    timeout: 5000
-- takeScreenshot: member-save-name-ready
-- tapOn: "Save name"
-- extendedWaitUntil:
-    visible: "Rename Native member renamed"
-    timeout: 60000
-- scrollUntilVisible:
-    element: "Change colour for Native member renamed"
-    direction: DOWN
-    centerElement: true
-- tapOn: "Change colour for Native member renamed"
-- scrollUntilVisible:
-    element: "Native member renamed: Violet colour"
-    direction: DOWN
-    centerElement: true
-- tapOn: "Native member renamed: Violet colour"
-- extendedWaitUntil:
-    visible: "Change colour for Native member renamed"
-    timeout: 60000
+- takeScreenshot: member-colour-reopen-ready
 - tapOn: "Change colour for Native member renamed"
 - scrollUntilVisible:
     element: "Native member renamed: Violet colour"
@@ -96,6 +45,12 @@ name: A parent can rename a no-email member and choose a persistent colour
     selected: true
 - takeScreenshot: member-colour-portrait
 - setOrientation: ${LANDSCAPE_ORIENTATION}
+- waitForAnimationToEnd:
+    timeout: 5000
+- scrollUntilVisible:
+    element: "Colour for Native member renamed"
+    direction: UP
+    centerElement: true
 - scrollUntilVisible:
     element: "Native member renamed: Violet colour"
     direction: DOWN

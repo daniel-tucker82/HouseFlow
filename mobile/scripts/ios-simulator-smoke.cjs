@@ -36,8 +36,9 @@ if (householdOnly) {
   householdFixture()
   if (deletionOnly || offlineOnly || requestedFamily !== 'iphone' || process.env.CYNTCH_IOS_TEST_RUNTIME) throw new Error('Member editing requires its own current iPhone check.')
 }
-if (replay && (!['notifications','current-devices','minimum-devices','phones','account-deletion','offline','household-resume-member'].includes(replay) || !fixture || !/^[a-f0-9]{40}$/.test(process.env.CYNTCH_IOS_APP_SHA ?? ''))) throw new Error('Replaying a simulator check requires a verified app and sign-in fixture.')
+if (replay && (!['notifications','current-devices','minimum-devices','phones','account-deletion','offline','household-resume-member','household-resume-colour'].includes(replay) || !fixture || !/^[a-f0-9]{40}$/.test(process.env.CYNTCH_IOS_APP_SHA ?? ''))) throw new Error('Replaying a simulator check requires a verified app and sign-in fixture.')
 if (replay === 'household-resume-member' && (!householdOnly || process.env.CYNTCH_NATIVE_HOUSEHOLD_RESUME_MEMBER !== 'true')) throw new Error('Select the household member resume explicitly.')
+if (replay === 'household-resume-colour' && (!householdOnly || process.env.CYNTCH_NATIVE_HOUSEHOLD_RESUME_COLOUR !== 'true')) throw new Error('Select the saved-colour resume explicitly.')
 if (offlineOnly && (requestedFamily !== 'iphone' || process.env.CYNTCH_IOS_TEST_RUNTIME || fixture?.email !== 'cyntch-native-20261103+clerk_test@example.com')) throw new Error('Offline verification requires its own current isolated iPhone check.')
 if (replay === 'phones' && requestedFamily !== 'iphone') throw new Error('Phone replay cannot repeat a tablet job.')
 if (notificationsOnly && (requestedFamily !== 'iphone' || process.env.CYNTCH_IOS_TEST_RUNTIME)) throw new Error('The notification check requires a current iPhone.')

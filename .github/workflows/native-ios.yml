@@ -25,7 +25,7 @@ on:
       replay_scope:
         description: Which checks to run when reusing a compiled simulator app
         type: choice
-        options: [notifications, current-devices, minimum-devices, phones, account-deletion, offline, household-resume-member]
+        options: [notifications, current-devices, minimum-devices, phones, account-deletion, offline, household-resume-member, household-resume-colour]
         default: notifications
       verify_device_archive:
         description: Build and inspect a device SDK archive without distribution signing or submission
@@ -259,6 +259,7 @@ jobs:
       CYNTCH_NATIVE_HOUSEHOLD_CHECK: ${{ (inputs.verify_household_phone || inputs.verify_household_deletion) && 'true' || 'false' }}
       CYNTCH_NATIVE_HOUSEHOLD_DELETE_CHECK: ${{ inputs.verify_household_deletion && 'true' || 'false' }}
       CYNTCH_NATIVE_HOUSEHOLD_RESUME_MEMBER: ${{ inputs.replay_scope == 'household-resume-member' && inputs.verify_household_phone && 'true' || 'false' }}
+      CYNTCH_NATIVE_HOUSEHOLD_RESUME_COLOUR: ${{ inputs.replay_scope == 'household-resume-colour' && inputs.verify_household_phone && 'true' || 'false' }}
       MAESTRO_DRIVER_STARTUP_TIMEOUT: ${{ matrix.runtime == '17.0' && '360000' || '240000' }}
       EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ZW1lcmdpbmctdG9hZC05OC5jbGVyay5hY2NvdW50cy5kZXYk
       EXPO_PUBLIC_API_URL: ${{ inputs.fixture_url || 'https://cyntch-simulator.invalid' }}

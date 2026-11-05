@@ -20,6 +20,9 @@ function householdSection(env = process.env) {
     (section !== 'all' && env.CYNTCH_NATIVE_HOUSEHOLD_DELETE_CHECK === 'true')) throw new Error('Choose one explicit household verification section.')
   if (env.CYNTCH_NATIVE_HOUSEHOLD_RESUME_MEMBER === 'true' && (section !== 'all' ||
     env.CYNTCH_NATIVE_HOUSEHOLD_DELETE_CHECK === 'true' || env.CYNTCH_IOS_REPLAY_SCOPE !== 'household-resume-member')) throw new Error('Member resume requires its separate non-destructive iPhone replay.')
+  if (env.CYNTCH_NATIVE_HOUSEHOLD_RESUME_COLOUR === 'true' && (section !== 'all' ||
+    env.CYNTCH_NATIVE_HOUSEHOLD_RESUME_MEMBER === 'true' || env.CYNTCH_NATIVE_HOUSEHOLD_DELETE_CHECK === 'true' ||
+    env.CYNTCH_IOS_REPLAY_SCOPE !== 'household-resume-colour')) throw new Error('Saved-colour resume requires its separate non-destructive iPhone replay.')
   return section
 }
 
@@ -36,7 +39,12 @@ function runHouseholdSmoke({ maestro, device, output, orientations }) {
   if (section !== 'all') result.scope = 'Invitation limits, copy, rotation, restart and revocation; household deletion review/cancellation only. No member editing or deletion submission.'
   const resumeCode = section.startsWith('resume-invitation:') ? section.split(':')[1] : ''
   const resumeMember = process.env.CYNTCH_NATIVE_HOUSEHOLD_RESUME_MEMBER === 'true'
+  const resumeColour = process.env.CYNTCH_NATIVE_HOUSEHOLD_RESUME_COLOUR === 'true'
   if (resumeMember) { result.resumedMemberCheck = true; result.scope = result.scope.replace('add, ', 'resume an inspected existing test member, ') }
+  if (resumeColour) {
+    result.resumedMemberCheck = true; result.resumedMemberColour = true
+    result.scope = 'Resume an inspected saved member name and colour: selected colour, rotation, restart, board and removal. New invitation: limits, copy, rotation, restart and revocation. Household deletion: review/cancellation only. No repeated member creation, rename or colour save; no household deletion submission.'
+  }
   if (resumeCode) {
     result.resumedInvitationCode = resumeCode
     result.scope = 'Resume one invitation from inspected failed-run evidence: copy, rotation, restart and revocation; household deletion review/cancellation. No new invitation, member editing or deletion submission.'
@@ -47,6 +55,7 @@ function runHouseholdSmoke({ maestro, device, output, orientations }) {
     const run = execute(maestro, ['--device', device, 'test', '--format', 'junit', '--output', path.join(output, 'report.xml'),
       '-e', `PORTRAIT_ORIENTATION=${orientations.portrait}`, '-e', `LANDSCAPE_ORIENTATION=${orientations.landscape}`, '-e', `RESUME_INVITE_CODE=${resumeCode}`,
       '-e', `RESUME_MEMBER_CHECK=${resumeMember ? 'true' : 'false'}`,
+      '-e', `RESUME_MEMBER_COLOUR=${resumeColour ? 'true' : 'false'}`,
       '--test-output-dir', output, '--debug-output', output, path.resolve('.maestro-household', section === 'all' ? 'members.yaml' : 'invitations-review.yaml')],
     { stdio: ['ignore', log, log], timeout: 900_000, env: process.env })
     result.exitCode = run.status; result.driverCleanup = run.driverCleanup
