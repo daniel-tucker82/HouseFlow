@@ -16,7 +16,7 @@ function householdFixture(env = process.env) {
 function householdSection(env = process.env) {
   householdFixture(env)
   const section = env.CYNTCH_NATIVE_HOUSEHOLD_SECTION || 'all'
-  if (!['all', 'invitations-and-review'].includes(section) ||
+  if ((!['all', 'invitations-and-review'].includes(section) && !/^resume-invitation:[a-f0-9]{12}$/.test(section)) ||
     (section !== 'all' && env.CYNTCH_NATIVE_HOUSEHOLD_DELETE_CHECK === 'true')) throw new Error('Choose one explicit household verification section.')
   return section
 }
@@ -32,11 +32,16 @@ function runHouseholdSmoke({ maestro, device, output, orientations }) {
     verificationSource: process.env.GITHUB_SHA, scope: 'Dedicated no-email member: add, cancelled rename, saved rename/colour, rotation, restart, board and removal. New invitation: custom limits, copy, rotation, restart, cancelled/confirmed revocation. Household deletion: consent, orientation and cancellation only; no submission.', passed: false }
   result.sections = section === 'all' ? ['members', 'invitations', 'deletion-review'] : ['invitations', 'deletion-review']
   if (section !== 'all') result.scope = 'Invitation limits, copy, rotation, restart and revocation; household deletion review/cancellation only. No member editing or deletion submission.'
+  const resumeCode = section.startsWith('resume-invitation:') ? section.split(':')[1] : ''
+  if (resumeCode) {
+    result.resumedInvitationCode = resumeCode
+    result.scope = 'Resume one invitation from inspected failed-run evidence: copy, rotation, restart and revocation; household deletion review/cancellation. No new invitation, member editing or deletion submission.'
+  }
   const log = fs.openSync(path.join(output, 'maestro.log'), 'w')
   try {
     const execute = process.platform === 'darwin' ? runIOSUI : spawnSync
     const run = execute(maestro, ['--device', device, 'test', '--format', 'junit', '--output', path.join(output, 'report.xml'),
-      '-e', `PORTRAIT_ORIENTATION=${orientations.portrait}`, '-e', `LANDSCAPE_ORIENTATION=${orientations.landscape}`,
+      '-e', `PORTRAIT_ORIENTATION=${orientations.portrait}`, '-e', `LANDSCAPE_ORIENTATION=${orientations.landscape}`, '-e', `RESUME_INVITE_CODE=${resumeCode}`,
       '--test-output-dir', output, '--debug-output', output, path.resolve('.maestro-household', section === 'all' ? 'members.yaml' : 'invitations-review.yaml')],
     { stdio: ['ignore', log, log], timeout: 900_000, env: process.env })
     result.exitCode = run.status; result.driverCleanup = run.driverCleanup

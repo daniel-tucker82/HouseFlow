@@ -1,50 +1,21 @@
 appId: com.cyntch.app
 name: Invitation limits, copy, persistence and revocation
 ---
-# Runs only with the guarded ordinary fixture. Capture the newly created code;
-# never revoke any pre-existing invitation or automatically retry creation.
+# A resume code must identify the invitation saved by an inspected failed run.
+# The default journey creates its own link; creation is never retried in a flow.
 - launchApp
 - setOrientation: ${PORTRAIT_ORIENTATION}
 - tapOn: "(?i)^Household(,.*)?$"
+- evalScript: ${output.inviteCode = (typeof RESUME_INVITE_CODE === 'string' && RESUME_INVITE_CODE) || ''}
+- runFlow:
+    when:
+      true: ${output.inviteCode.length === 0}
+    file: invitation-create.yaml
+- assertTrue: ${output.inviteCode.length === 12 && /^[a-f0-9]+$/.test(output.inviteCode)}
 - scrollUntilVisible:
-    element: "Maximum uses"
+    element: "${'Invitation code: ' + output.inviteCode}"
     direction: DOWN
     centerElement: true
-    timeout: 60000
-- tapOn:
-    id: "Maximum uses"
-- eraseText
-- inputText: "3"
-- hideKeyboard
-- tapOn:
-    id: '^Expires after \(days\)$'
-- eraseText
-- inputText: "7"
-- hideKeyboard
-- scrollUntilVisible:
-    element: "^Create invitation$"
-    direction: DOWN
-    centerElement: true
-- extendedWaitUntil:
-    visible:
-      text: "^Create invitation$"
-      enabled: true
-    timeout: 60000
-- tapOn: "^Create invitation$"
-- extendedWaitUntil:
-    visible: "Invitation created."
-    timeout: 60000
-- scrollUntilVisible:
-    element:
-      text: "^Invitation code: .*"
-      index: 0
-    direction: DOWN
-    centerElement: true
-- copyTextFrom:
-    text: "^Invitation code: .*"
-    index: 0
-- evalScript: ${output.inviteCode = maestro.copiedText.replace('Invitation code\u003a ', '').trim()}
-- assertTrue: ${/^[a-f0-9]{12}$/.test(output.inviteCode)}
 - assertVisible: "3 uses.*|0 of 3 uses.*"
 - takeScreenshot: invitation-created-portrait
 - scrollUntilVisible:

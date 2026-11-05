@@ -189,6 +189,20 @@ acknowledged sync and reopening. Network guards and restoration decisions passed
 three local checks. Actual iPhone execution and server receipt inspection remain
 outstanding; no offline completion result is claimed from this preparation.
 
+Invitation replay `42029794743` created exactly one native link with three uses
+and seven days of validity. Artifact `13415702378` was verified against
+`61fc36a5d4ba8b456e87278072cd0c320d7f1cb8419e877529b4990ebddcb68e`.
+The screenshot and database agree; the next assertion failed because Maestro
+truncated a JavaScript expression at the regex quantifier's closing brace.
+The assertion now checks length separately. An explicit
+`household_section=resume-invitation:<code>` continues only the inspected link,
+without creating another one or repeating member checks. This is restricted to
+the ordinary isolated account and cannot be combined with deletion submission.
+Creation evidence is `cyntch-native-invitation-created-42029794743.json` under
+`C:/Users/danie/.codex/tmp/`. Copy, restart, revocation and household deletion
+review remain unverified. The iOS reuse comparison now excludes the inspected
+Android-only test harness change; application runtime inputs are unchanged.
+
 Invitation confirmation now captures its screen generation. An alert opened
 before leaving, locking or disconnecting cannot revoke a link after returning,
 even after the list reloads. All six native-client checks, mobile lint and types

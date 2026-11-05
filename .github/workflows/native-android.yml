@@ -28,9 +28,8 @@ on:
         type: string
         default: ''
       household_section:
-        description: Focus a household replay on unverified invitations and deletion review
-        type: choice
-        options: [all, invitations-and-review]
+        description: all, invitations-and-review, or resume-invitation followed by a colon and an inspected failed-run code
+        type: string
         default: all
       verify_offline_phone:
         description: Build a fresh APK and verify offline completion on the isolated phone fixture

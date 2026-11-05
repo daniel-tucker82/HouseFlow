@@ -1,0 +1,40 @@
+appId: com.cyntch.app
+---
+- scrollUntilVisible:
+    element: "Maximum uses"
+    direction: DOWN
+    centerElement: true
+    timeout: 60000
+- tapOn:
+    id: "Maximum uses"
+- eraseText
+- inputText: "3"
+- hideKeyboard
+- tapOn:
+    id: '^Expires after \(days\)$'
+- eraseText
+- inputText: "7"
+- hideKeyboard
+- scrollUntilVisible:
+    element: "^Create invitation$"
+    direction: DOWN
+    centerElement: true
+- extendedWaitUntil:
+    visible:
+      text: "^Create invitation$"
+      enabled: true
+    timeout: 60000
+- tapOn: "^Create invitation$"
+- extendedWaitUntil:
+    visible: "Invitation created."
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "^Invitation code: .*"
+      index: 0
+    direction: DOWN
+    centerElement: true
+- copyTextFrom:
+    text: "^Invitation code: .*"
+    index: 0
+- evalScript: ${output.inviteCode = maestro.copiedText.trim().split(' ').pop()}

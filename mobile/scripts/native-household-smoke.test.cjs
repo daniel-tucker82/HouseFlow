@@ -19,6 +19,9 @@ test('partial household replay excludes destructive submission and rejects unkno
     EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: 'pk_test_ZW1lcmdpbmctdG9hZC05OC5jbGVyay5hY2NvdW50cy5kZXYk' }
   assert.equal(householdSection(env), 'all')
   assert.equal(householdSection({ ...env, CYNTCH_NATIVE_HOUSEHOLD_SECTION: 'invitations-and-review' }), 'invitations-and-review')
+  assert.equal(householdSection({ ...env, CYNTCH_NATIVE_HOUSEHOLD_SECTION: 'resume-invitation:012345abcdef' }), 'resume-invitation:012345abcdef')
+  for (const section of ['resume-invitation:', 'resume-invitation:not-a-code', 'resume-invitation:012345abcdef0']) assert.throws(() => householdSection({ ...env, CYNTCH_NATIVE_HOUSEHOLD_SECTION: section }))
+  assert.throws(() => householdSection({ ...env, CYNTCH_NATIVE_HOUSEHOLD_SECTION: 'resume-invitation:012345abcdef', CYNTCH_NATIVE_HOUSEHOLD_DELETE_CHECK: 'true' }))
   assert.throws(() => householdSection({ ...env, CYNTCH_NATIVE_HOUSEHOLD_SECTION: 'invitations-and-review', CYNTCH_NATIVE_HOUSEHOLD_DELETE_CHECK: 'true' }))
   assert.throws(() => householdSection({ ...env, CYNTCH_NATIVE_HOUSEHOLD_SECTION: 'unknown' }))
   assert.throws(() => householdSection({ ...env, CYNTCH_NATIVE_HOUSEHOLD_CHECK: '' }))
