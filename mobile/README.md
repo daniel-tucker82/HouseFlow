@@ -34,8 +34,10 @@ The next fresh authenticated phone builds also run
 `.maestro-notification-preferences/settings.yaml`. It selects Alex's completions
 while retaining only the parent's startable-task alerts, checks both orientations,
 enables recurrence creation, both routine-completion reasons and both member-add
-events, and verifies every choice after an app restart. Settings must then show
-that all saved changes have synced. Six named captures and actual control states
+events, and verifies every choice after an app restart. It then turns off one
+category and verifies that change after another restart, preserving a different
+enabled category. Settings must show that all saved changes have synced.
+Eight named captures and actual control states
 are required. Only the disposable device's preferences change; this is not an
 offline-persistence, cross-device isolation or provider-delivery test. Local
 lint/types, YAML/JavaScript parsing and eight fixture/screenshot checks pass;

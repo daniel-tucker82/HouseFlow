@@ -26,6 +26,7 @@ function runNotificationPreferencesSmoke({ maestro, device, output, orientations
       'notification-member-choices-portrait.png': 'portrait', 'notification-member-choices-landscape.png': 'landscape',
       'notification-household-events-portrait.png': 'portrait', 'notification-member-choices-after-restart.png': 'portrait',
       'notification-household-events-after-restart.png': 'portrait', 'notification-choices-synced.png': 'portrait',
+      'notification-category-disabled.png': 'portrait', 'notification-disabled-choice-after-restart.png': 'portrait',
     }, { includeStartup: false })
     if (run.error || run.status !== 0) throw new Error(`Notification preferences flow failed (${run.error?.code ?? run.status}).`)
     if (!result.screenshots.passed) throw new Error('Notification choices lack the required orientation/restart captures.')

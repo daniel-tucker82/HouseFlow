@@ -88,6 +88,34 @@ name: Per-event and family-member notification choices survive restart
     id: notification-category-member_added
     checked: true
 - takeScreenshot: notification-household-events-after-restart
+# Turning one category back off must also persist without disabling another.
+- scrollUntilVisible:
+    element:
+      id: notification-category-routine_superseded
+    direction: UP
+- tapOn:
+    id: notification-category-routine_superseded
+- assertVisible:
+    id: notification-category-routine_superseded
+    checked: false
+- takeScreenshot: notification-category-disabled
+- stopApp
+- runFlow: open.yaml
+- scrollUntilVisible:
+    element:
+      id: notification-category-routine_superseded
+    direction: DOWN
+- assertVisible:
+    id: notification-category-routine_superseded
+    checked: false
+- scrollUntilVisible:
+    element:
+      id: notification-category-member_added
+    direction: DOWN
+- assertVisible:
+    id: notification-category-member_added
+    checked: true
+- takeScreenshot: notification-disabled-choice-after-restart
 - scrollUntilVisible:
     element: "Close notifications"
     direction: UP
