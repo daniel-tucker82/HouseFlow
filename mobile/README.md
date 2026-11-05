@@ -99,14 +99,40 @@ artifact-validation steps passed. Its current iPhone passed both text sizes and
 real sign-in, household/task loading, rotation and session restart, each on one
 attempt. Artifact `13394458680` was verified against SHA-256
 `d27b0bc071ce4b085bc85c37f58d7c18d8973b42ad2ef7a3dcb9758b5563518a`.
-The iOS 17 phone remains pending. No setup or TLS failure occurred on this current
-phone replay; that does not establish the cause of the earlier failures.
+The iOS 17 phone also passed both text sizes and real sign-in, household/task
+loading, rotation and session restart. Its first signed-out attempt failed before
+the flow with `IOSDriverTimeoutException`; the retained, bounded bootstrap-only
+retry passed. Enlarged text and authentication each passed on their first attempt.
+Artifact `13395642824` was verified against SHA-256
+`e1b17062b1561c5d247330898889e79ebeb94dfcc3aa473f3f1cd45abbd21a02`.
+No setup or TLS failure occurred on the current-phone replay; that does not
+establish the cause of the earlier failures.
 
 Inspection found that the newly added `phones` replay scope did not enter the
 notification block. Future phone replays now include it on the current iPhone,
 matching full-build verification. The completed replay provides no notification
 evidence. A separate notification-only replay can reuse this same app without
 recompiling or repeating the text-size and tablet journeys.
+
+Notification-only replay `41983546783` passed real sign-in, the iOS permission
+prompt, banner and Notification Center checks for the injected alert
+`Family update 73082`. Both presentation captures were inspected. This verifies
+simulator OS presentation, not live APNs delivery. The preference journey then
+failed at its first selected-member assertion. Artifact `13395278868`, SHA-256
+`15d6ec05bde64d28b894579818b458c12341a9ce4c0e0b21bf78a74fff771813`,
+retains the screenshot and accessibility tree: Taylor is visually selected and
+has `value`/`text` of `checkbox, checked`, but Maestro's `checked` flag is false.
+React Native 0.88.1 intentionally describes iOS checkbox state through its
+accessibility value. Native switches expose their state separately and passed.
+
+The member assertions now use the named element's exact accessibility value on
+iOS via [Maestro's copyTextFrom](https://docs.maestro.dev/reference/commands-available/copytextfrom),
+preserving Android's checked-state assertions. Pinned Maestro 2.12.1's
+`resolveText` reads the captured `text` attribute first. Local validation against
+the actual failed hierarchy passed eight selected/unselected cases, rejected
+each opposite state, and retained both Android boolean cases. No app code,
+member-selection action, native-switch assertion or required capture changed;
+the corrected flow still needs native execution.
 
 The next fresh authenticated phone builds also run
 `.maestro-notification-preferences/settings.yaml`. It selects Alex's completions
@@ -119,7 +145,7 @@ Eight named captures and actual control states
 are required. Only the disposable device's preferences change; this is not an
 offline-persistence, cross-device isolation or provider-delivery test. Local
 lint/types, YAML/JavaScript parsing and fixture/screenshot checks pass;
-the iOS preference journey has not yet run. Android phone `41973395072` passed
+the iOS preference journey has not yet passed. Android phone `41973395072` passed
 all eight captures, category/member assertions and both restart checks. Its
 artifact `13391342763`, SHA-256
 `a4795bea460bdc99881f7b7dde06cc9e067add7dc6ee70b94b7a84338236131d`,

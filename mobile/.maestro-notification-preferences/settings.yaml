@@ -13,12 +13,16 @@ name: Per-event and family-member notification choices survive restart
     element: "Tasks marked complete: Taylor Test"
     direction: DOWN
     centerElement: true
-- assertVisible:
-    text: "Tasks marked complete: Taylor Test"
-    checked: true
-- assertVisible:
-    text: "Tasks marked complete: Alex"
-    checked: false
+- runFlow:
+    file: verify-member-state.yaml
+    env:
+      MEMBER_LABEL: "Tasks marked complete: Taylor Test"
+      CHECKED: "true"
+- runFlow:
+    file: verify-member-state.yaml
+    env:
+      MEMBER_LABEL: "Tasks marked complete: Alex"
+      CHECKED: "false"
 - tapOn: "Tasks marked complete: Alex"
 - tapOn: "Tasks marked complete: Taylor Test"
 - runFlow: verify-member-choices.yaml

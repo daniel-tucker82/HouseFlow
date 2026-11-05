@@ -7,19 +7,27 @@ appId: com.cyntch.app
     element: "Tasks become startable: Taylor Test"
     direction: DOWN
     centerElement: true
-- assertVisible:
-    text: "Tasks become startable: Taylor Test"
-    checked: true
-- assertVisible:
-    text: "Tasks become startable: Alex"
-    checked: false
+- runFlow:
+    file: verify-member-state.yaml
+    env:
+      MEMBER_LABEL: "Tasks become startable: Taylor Test"
+      CHECKED: "true"
+- runFlow:
+    file: verify-member-state.yaml
+    env:
+      MEMBER_LABEL: "Tasks become startable: Alex"
+      CHECKED: "false"
 - scrollUntilVisible:
     element: "Tasks marked complete: Taylor Test"
     direction: DOWN
     centerElement: true
-- assertVisible:
-    text: "Tasks marked complete: Taylor Test"
-    checked: false
-- assertVisible:
-    text: "Tasks marked complete: Alex"
-    checked: true
+- runFlow:
+    file: verify-member-state.yaml
+    env:
+      MEMBER_LABEL: "Tasks marked complete: Taylor Test"
+      CHECKED: "false"
+- runFlow:
+    file: verify-member-state.yaml
+    env:
+      MEMBER_LABEL: "Tasks marked complete: Alex"
+      CHECKED: "true"

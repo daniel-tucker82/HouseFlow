@@ -1,0 +1,20 @@
+appId: com.cyntch.app
+---
+# RN's iOS checkbox announces its state in accessibilityValue. Maestro 2.12.1
+# exposes that as text, while its checked flag remains false for this role.
+# Native switches still support checked on both platforms.
+- assertTrue: ${CHECKED === 'true' || CHECKED === 'false'}
+- assertVisible: ${MEMBER_LABEL}
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - assertVisible:
+          text: ${MEMBER_LABEL}
+          checked: ${CHECKED === 'true'}
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - copyTextFrom: ${MEMBER_LABEL}
+      - assertTrue: "${maestro.copiedText === (CHECKED === 'true' ? 'checkbox, checked' : 'checkbox, unchecked')}"
