@@ -14,7 +14,7 @@ function deletionFixture(env = process.env) {
   return fixture
 }
 
-async function verifyAccountDeletionBackend(env = process.env, fetcher = fetch, now = Date.now()) {
+async function verifyAccountDeletionBackend(env = process.env, fetcher = fetch, clock = Date.now) {
   const fixture = deletionFixture(env)
   const compactNonce = fixture.email.slice('cyntch-native-delete-'.length).split('+')[0]
   const nonce = compactNonce.replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5')
@@ -23,6 +23,7 @@ async function verifyAccountDeletionBackend(env = process.env, fetcher = fetch, 
   })
   if (!response.ok) throw new Error('The backend has not attested a fresh disposable account deletion fixture.')
   const result = await response.json()
+  const now = clock()
   const checkedAt = Date.parse(result.checkedAt)
   const workerUntil = Date.parse(result.workerUntil)
   if (result.nonce !== nonce || result.email !== fixture.email || result.schema !== 'native_delete_' + compactNonce ||

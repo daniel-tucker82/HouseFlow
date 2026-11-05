@@ -119,6 +119,16 @@ left. Missing, stale, reused or mismatched fixtures stop before submission. Nine
 fixture/authentication guard checks, mobile lint/types and workflow validation
 passed. This does not complete the outstanding device cleanup verification.
 
+A fresh private account fixture is prepared on localhost:3019. Its no-email child
+was created through the real authenticated `createHouseholdMember` endpoint, and
+the sign-in/bootstrap checks passed. A bounded worker and a gateway attestation
+verified the marked development identity, real Stripe test inventory, normal
+child profile, zero prior requests and unchanged original household. The existing
+Stripe CLI session renewed automatically. The gateway rejects submission for the
+previously deleted identity. This fixture has not submitted deletion or been
+routed through the public tunnel. Evidence is
+`C:/Users/danie/.codex/tmp/cyntch-native-deletion-v2-gateway-preflight.json`.
+
 Current builds: Android `42022161954` at `b2487b1` compiles the updated app and
 then runs the ordinary member/invitation/deletion-review journey. iOS
 `42022301424` at `cfba236` is compile-only on `macos-26`; reuse that app for the

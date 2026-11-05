@@ -37,7 +37,12 @@ test('account deletion requires a fresh unused fixture, normal child profile and
     assert.equal(options.redirect, 'error'); assert.equal(options.cache, 'no-store')
     return { ok: true, json: async () => ready }
   }
-  assert.deepEqual(await verifyAccountDeletionBackend(env, fetcher, now), ready)
+  assert.deepEqual(await verifyAccountDeletionBackend(env, fetcher, () => now), ready)
+  let delayedClock = now - 7000
+  assert.deepEqual(await verifyAccountDeletionBackend(env, async () => {
+    delayedClock = now
+    return { ok: true, json: async () => ready }
+  }, () => delayedClock), ready, 'Readiness age uses response time, not the time before a slow provider check')
   for (const override of [
     { nonce: 'old-fixture' }, { email: email.replace('84501a1d', '84501a1e') }, { schema: 'public' },
     { accountId: null }, { householdId: null }, { childProfileId: 'native-delete-child-' + nonce },
@@ -46,7 +51,7 @@ test('account deletion requires a fresh unused fixture, normal child profile and
     { originalHouseholdProtected: false }, { providerInventoryReady: false }, { workerRunning: false },
     { checkedAt: new Date(now - 31000).toISOString() }, { checkedAt: new Date(now + 6000).toISOString() },
     { checkedAt: null }, { workerUntil: null }, { workerUntil: new Date(now + 14 * 60 * 1000).toISOString() },
-  ]) await assert.rejects(verifyAccountDeletionBackend(env, async () => ({ ok: true, json: async () => ({ ...ready, ...override }) }), now))
-  await assert.rejects(verifyAccountDeletionBackend(env, async () => ({ ok: false }), now))
-  await assert.rejects(verifyAccountDeletionBackend(env, async () => { throw new Error('offline') }, now))
+  ]) await assert.rejects(verifyAccountDeletionBackend(env, async () => ({ ok: true, json: async () => ({ ...ready, ...override }) }), () => now))
+  await assert.rejects(verifyAccountDeletionBackend(env, async () => ({ ok: false }), () => now))
+  await assert.rejects(verifyAccountDeletionBackend(env, async () => { throw new Error('offline') }, () => now))
 })
