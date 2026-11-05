@@ -92,6 +92,19 @@ it still requires actual email-code verification and the authenticated household
 rotation and restart assertions. No provider configuration was changed and no
 authentication assertion was skipped.
 
+The iOS 17 iPhone in `41956933362` failed before any UI assertion: Maestro's
+driver startup timed out, and XCTest reported a killed bootstrap followed by
+Busy/preflight launch refusals. The app itself reached its welcome screen.
+Artifact `13386661799` was verified against SHA-256
+`9689f8bd438e203080b5fe3543cae803299faebe563f9dc08f0f72d3998df714`.
+The first Xcode attempt kept running after Maestro exited and overlapped the
+next text-size attempt. Failed signed-out UI processes now have an owned POSIX
+process group, which is terminated before the next journey. The original failure
+remains failed. A real child-process regression runs on the macOS build host;
+local Windows checks cover syntax and signal scoping, but cannot establish
+POSIX termination. This addresses overlapping attempts, not the initial XCTest
+startup failure. Native verification remains required.
+
 Android run `41867082612` (`93777e1`) passed the optimized API 36 phone/tablet
 matrix at 1x/1.6x text, including software-keyboard rotation, retained input,
 keyboard dismissal and app Back handling. Both devices also passed real native

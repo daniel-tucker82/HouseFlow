@@ -7,6 +7,7 @@ const { inspectScreenshotOrientations } = require('./device-screenshot-evidence.
 const { authFixture, runAuthenticatedSmoke } = require('./native-auth-smoke.cjs')
 const { runNotificationSmoke } = require('./ios-notification-smoke.cjs')
 const { runKioskSmoke } = require('./native-kiosk-smoke.cjs')
+const { runIOSUI } = require('../../.github/scripts/ios-device-process.cjs')
 
 if (process.platform !== 'darwin' || process.env.GITHUB_ACTIONS !== 'true') {
   throw new Error('Run this verification on the macOS GitHub Actions host.')
@@ -132,13 +133,14 @@ for (const [index, template] of devices.entries()) {
         const log = fs.openSync(path.join(caseFolder, 'maestro.log'), 'w')
         let run
         try {
-          run = spawnSync(maestro, [
+          run = runIOSUI(maestro, [
             '--device', ownedDevice, 'test', '-e', `IOS_FAMILY=${label}`, '--format', 'junit', '--output', path.join(caseFolder, 'report.xml'),
             '--test-output-dir', caseFolder, '--debug-output', caseFolder, path.resolve('.maestro'),
           ], { stdio: ['ignore', log, log], timeout: 540_000, env: process.env })
         } finally { fs.closeSync(log) }
         console.log(fs.readFileSync(path.join(caseFolder, 'maestro.log'), 'utf8'))
         textResult.exitCode = run.status
+        textResult.driverCleanup = run.driverCleanup
         textResult.orientationEvidence = inspectScreenshotOrientations(caseFolder, {
           'native-keyboard-portrait.png': 'portrait',
           'native-keyboard-landscape.png': 'landscape',

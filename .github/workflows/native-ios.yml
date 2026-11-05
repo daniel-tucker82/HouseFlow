@@ -86,6 +86,7 @@ jobs:
           node --test scripts/device-screenshot-evidence.test.cjs
           node --test scripts/check-build-env.test.cjs
           node --test scripts/native-auth-smoke.test.cjs
+          node --test ../.github/scripts/ios-device-process.test.cjs
           node scripts/native-auth-smoke.cjs
       - name: Verify native account-cache inspection
         run: |
