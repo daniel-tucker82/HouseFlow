@@ -32,10 +32,12 @@ function exactTextPattern(value) {
   return '^' + value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$'
 }
 
-function runAuthenticatedSmoke({ maestro, device, output, orientations, fixture }) {
+function runAuthenticatedSmoke({ maestro, device, output, orientations, fixture, verifySessionJourney = true }) {
   fs.mkdirSync(output, { recursive: true })
   const result = { source: process.env.CYNTCH_IOS_APP_SHA || process.env.CYNTCH_ANDROID_APP_SHA || process.env.GITHUB_SHA, origin: fixture.origin,
-    scope: 'Native email-code sign-in, household/task loading, rotation and session persistence after restart.', passed: false }
+    scope: verifySessionJourney ? 'Native email-code sign-in, household/task loading, rotation and session persistence after restart.'
+      : 'Native email-code sign-in and household/task loading before a separate focused journey; no repeated chooser, rotation or session-persistence check.',
+    verifiesSessionJourney: verifySessionJourney, passed: false }
   try {
     let run
     const ios = process.platform === 'darwin'
@@ -49,6 +51,7 @@ function runAuthenticatedSmoke({ maestro, device, output, orientations, fixture 
           '-e', `TEST_EMAIL=${fixture.email}`, '-e', `TEST_EMAIL_PATTERN=${exactTextPattern(fixture.email)}`,
           '-e', `PORTRAIT_ORIENTATION=${orientations.portrait}`,
           '-e', `LANDSCAPE_ORIENTATION=${orientations.landscape}`, '--test-output-dir', attemptFolder, '--debug-output', attemptFolder,
+          '-e', `VERIFY_SESSION_JOURNEY=${verifySessionJourney ? 'true' : 'false'}`,
           path.resolve('.maestro-auth/household.yaml')], { stdio: ['ignore', log, log],
           timeout: !ios ? 300_000 : process.env.CYNTCH_IOS_TEST_RUNTIME === '17.0' ? 720_000 : 540_000, env: process.env })
       } finally { fs.closeSync(log) }
@@ -66,12 +69,12 @@ function runAuthenticatedSmoke({ maestro, device, output, orientations, fixture 
       'native-sign-in-identifier.png': 'portrait',
       'native-sign-in-challenge.png': 'portrait',
       'native-sign-in-methods.png': 'portrait',
-      'authenticated-board-portrait.png': 'portrait', 'authenticated-household-chooser.png': 'portrait',
-      'authenticated-board-landscape.png': 'landscape',
-      'authenticated-board-after-restart.png': 'portrait',
+      'authenticated-board-portrait.png': 'portrait',
+      ...(verifySessionJourney ? { 'authenticated-household-chooser.png': 'portrait',
+        'authenticated-board-landscape.png': 'landscape', 'authenticated-board-after-restart.png': 'portrait' } : {}),
     }, { includeStartup: false })
     if (run.error || run.status !== 0) throw new Error(`Authenticated native flow failed (${run.error?.code ?? run.status}).`)
-    if (!result.orientationEvidence.passed) throw new Error('Authenticated screenshots do not prove rotation and restart.')
+    if (!result.orientationEvidence.passed) throw new Error('Authenticated screenshots do not prove the selected sign-in scope.')
     result.passed = true
   } catch (error) { result.error = error.message }
   finally {

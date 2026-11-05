@@ -68,19 +68,25 @@ name: Native sign-in opens the household and preserves the session
 - inputText: "424242"
 - runFlow: verify-household.yaml
 - takeScreenshot: authenticated-board-portrait
-- tapOn: "^Choose household: Cyntch emulator family$"
-- assertVisible:
-    text: "^Cyntch emulator family$"
-    selected: true
-- takeScreenshot: authenticated-household-chooser
-- tapOn: "^Choose household: Cyntch emulator family$"
-- setOrientation: ${LANDSCAPE_ORIENTATION}
-- runFlow: verify-household.yaml
-- takeScreenshot: authenticated-board-landscape
-- setOrientation: ${PORTRAIT_ORIENTATION}
-- stopApp
-- launchApp
-- runFlow: verify-household.yaml
-- assertNotVisible: "Sign in or create an account"
-- takeScreenshot: authenticated-board-after-restart
+# Focused journeys use real sign-in, then verify their own rotation/restarts.
+# Full device checks retain every session/chooser capture.
+- runFlow:
+    when:
+      true: ${VERIFY_SESSION_JOURNEY !== 'false'}
+    commands:
+      - tapOn: "^Choose household: Cyntch emulator family$"
+      - assertVisible:
+          text: "^Cyntch emulator family$"
+          selected: true
+      - takeScreenshot: authenticated-household-chooser
+      - tapOn: "^Choose household: Cyntch emulator family$"
+      - setOrientation: ${LANDSCAPE_ORIENTATION}
+      - runFlow: verify-household.yaml
+      - takeScreenshot: authenticated-board-landscape
+      - setOrientation: ${PORTRAIT_ORIENTATION}
+      - stopApp
+      - launchApp
+      - runFlow: verify-household.yaml
+      - assertNotVisible: "Sign in or create an account"
+      - takeScreenshot: authenticated-board-after-restart
 - stopApp

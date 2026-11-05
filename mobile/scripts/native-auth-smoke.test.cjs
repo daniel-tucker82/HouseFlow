@@ -56,19 +56,19 @@ test('authentication evidence requires its named captures without weakening star
   assert.equal(inspectScreenshotOrientations(folder,{'authenticated.png':'landscape'},{includeStartup:false}).passed,false)
 })
 
-function runWithDriver(t, attempts, platform = 'darwin') {
+function runWithDriver(t, attempts, platform = 'darwin', options = {}) {
   const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'cyntch-auth-bootstrap-'))
   t.after(() => {
     assert.equal(path.dirname(path.resolve(folder)), path.resolve(os.tmpdir()))
     assert.ok(path.basename(folder).startsWith('cyntch-auth-bootstrap-'))
     fs.rmSync(folder, { recursive: true, force: true })
   })
-  const calls = []
+  const calls = [], captures = []
   const execute = (_command, args, options) => {
     const spec = attempts[calls.length]
     assert.ok(spec, 'an unexpected extra attempt must fail')
     const output = args[args.indexOf('--test-output-dir') + 1]
-    calls.push({ output, timeout: options.timeout })
+    calls.push({ output, timeout: options.timeout, sessionJourney: args.includes('VERIFY_SESSION_JOURNEY=true') })
     assert.equal(args[args.indexOf('--debug-output') + 1], output)
     assert.equal(args[args.indexOf('--output') + 1], path.join(output, 'report.xml'))
     fs.writeSync(options.stdio[1], spec.log ?? '')
@@ -83,14 +83,26 @@ function runWithDriver(t, attempts, platform = 'darwin') {
     console: { log() {} }, require: name => {
       if (name === 'node:child_process') return { spawnSync: execute }
       if (name.endsWith('/ios-device-process.cjs')) return { runIOSUI: execute, canRetryIOSBootstrap }
-      if (name === './device-screenshot-evidence.cjs') return { inspectScreenshotOrientations: () => ({ passed: true }) }
+      if (name === './device-screenshot-evidence.cjs') return { inspectScreenshotOrientations: (_folder, expected) => { captures.push(...Object.keys(expected)); return { passed: true } } }
       return require(name)
     } }
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, 'native-auth-smoke.cjs'), 'utf8'), sandbox)
   const result = sandbox.module.exports.runAuthenticatedSmoke({ maestro: 'maestro', device: 'owned-test-device', output: folder,
-    orientations: { portrait: 'PORTRAIT', landscape: 'LANDSCAPE_LEFT' }, fixture: { email: configured.CYNTCH_NATIVE_TEST_EMAIL, origin: configured.EXPO_PUBLIC_API_URL } })
-  return { folder, result, calls }
+    orientations: { portrait: 'PORTRAIT', landscape: 'LANDSCAPE_LEFT' }, fixture: { email: configured.CYNTCH_NATIVE_TEST_EMAIL, origin: configured.EXPO_PUBLIC_API_URL }, ...options })
+  return { folder, result, calls, captures }
 }
+
+test('focused journeys require real sign-in evidence without claiming repeated session or rotation checks', t => {
+  const ok = [{ log: 'Flow: sign-in', result: { status: 0 } }]
+  const full = runWithDriver(t, ok)
+  const focused = runWithDriver(t, ok, 'darwin', { verifySessionJourney: false })
+  assert.equal(full.calls[0].sessionJourney, true)
+  assert.equal(focused.calls[0].sessionJourney, false)
+  assert.equal(full.result.verifiesSessionJourney, true)
+  assert.equal(focused.result.verifiesSessionJourney, false)
+  assert.equal(full.captures.length, 7)
+  assert.deepEqual(focused.captures, ['native-sign-in-identifier.png', 'native-sign-in-challenge.png', 'native-sign-in-methods.png', 'authenticated-board-portrait.png'])
+})
 
 const bootstrapLog = 'IOSDriverTimeoutException: iOS driver not ready in time'
 const cleanedFailure = { status: 1, driverCleanup: { signalled: true } }

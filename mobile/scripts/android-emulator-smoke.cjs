@@ -108,7 +108,8 @@ try {
   if (fixture) {
     adb('shell', 'settings', 'put', 'system', 'font_scale', '1')
     if (Number(adb('shell', 'settings', 'get', 'system', 'font_scale').trim()) !== 1) throw new Error('Default text size was not restored for authenticated verification.')
-    report.authentication = runAuthenticatedSmoke({ maestro, device: serial, output: path.join(output, 'authenticated'), orientations: report.orientations, fixture })
+    report.authentication = runAuthenticatedSmoke({ maestro, device: serial, output: path.join(output, 'authenticated'), orientations: report.orientations, fixture,
+      verifySessionJourney: process.env.CYNTCH_NATIVE_HOUSEHOLD_CHECK !== 'true' })
   }
   if (report.authentication && !report.authentication.passed) throw new Error(report.authentication.error)
   if (report.authentication?.passed && report.avd === 'cyntch-tablet') {

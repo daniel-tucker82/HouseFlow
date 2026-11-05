@@ -215,8 +215,8 @@ one invitation, now revoked, with its original limits intact; the original
 household, tasks, members and notification preferences match their saved hash.
 No household deletion request was submitted. Evidence is
 `C:/Users/danie/.codex/tmp/cyntch-native-android-household-evidence-42031478177.json`.
-The matching full iPhone journey `42032868908` is running at `7ed7e61`, reusing
-simulator producer `42022301424`; its result remains outstanding. Run the iPhone
+The matching full iPhone journey `42032868908` used `7ed7e61` and reused
+simulator producer `42022301424`; its failure is described below. Run the iPhone
 offline task mutation only after the private deletion preservation checks finish.
 
 iPhone `42032868908` passed native authentication, rotation and session restart,
@@ -231,6 +231,19 @@ test member rather than creating another; it cannot submit household deletion.
 No iPhone name change, invitation or deletion was submitted in the failed run.
 Keep the original-household deletion attestations blocked until the resumed
 journey removes this temporary membership and the complete saved hash matches.
+
+The guarded resume `42037063750` at `90ef649` reuses that simulator app and the
+same test member. The fresh preflight confirmed that excluding only this known
+temporary membership restores the exact original snapshot. Its result remains
+outstanding; no further household or account deletion has been submitted.
+
+Focused household, account-deletion and offline journeys now perform real native
+email-code sign-in and require its four rendered captures, then proceed directly
+to their own checks. They do not repeat the already verified household chooser,
+sign-in rotation and session restart. Full device verification retains all seven
+authentication captures. The report explicitly distinguishes these scopes; eight
+authentication checks and the pinned Maestro parser passed. This changes only
+verification scripts, so the existing compatible native binaries remain usable.
 
 Invitation confirmation now captures its screen generation. An alert opened
 before leaving, locking or disconnecting cannot revoke a link after returning,

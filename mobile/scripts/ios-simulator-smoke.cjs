@@ -198,7 +198,8 @@ for (const [index, template] of devices.entries()) {
       simctl('ui', ownedDevice, 'content_size', 'large')
       if (simctl('ui', ownedDevice, 'content_size').trim().toLowerCase() !== 'large') throw new Error('Default text size was not restored for authenticated verification.')
       result.authentication = runAuthenticatedSmoke({ maestro, device: ownedDevice, output: path.join(folder, 'authenticated'),
-        orientations: { portrait: 'PORTRAIT', landscape: 'LANDSCAPE_LEFT' }, fixture })
+        orientations: { portrait: 'PORTRAIT', landscape: 'LANDSCAPE_LEFT' }, fixture,
+        verifySessionJourney: !(householdOnly || deletionOnly || offlineOnly) })
     }
     if (result.authentication && !result.authentication.passed) throw new Error(result.authentication.error)
     if (result.authentication?.passed && label === 'ipad' && !requestedRuntime) {
