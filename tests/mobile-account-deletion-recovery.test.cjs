@@ -163,7 +163,7 @@ test('recovery origin configuration only permits HTTPS or explicit local develop
  }
 })
 
-test('only exact self-authenticated status and scheduler endpoints bypass identity middleware',async()=>{
+test('only the public deletion page and exact self-authenticated endpoints bypass identity middleware',async()=>{
  const calls=[],protectedPaths=[]
  const mocks={'@clerk/nextjs/server':{
   createRouteMatcher:patterns=>request=>patterns.some(pattern=>request.nextUrl.pathname.startsWith(pattern.replace('(.*)',''))),
@@ -172,11 +172,11 @@ test('only exact self-authenticated status and scheduler endpoints bypass identi
  const loaded=new Module(__filename,module);loaded.require=name=>mocks[name]??require(name)
  loaded._compile(buildSync({entryPoints:[path.join(root,'middleware.ts')],bundle:true,platform:'node',format:'cjs',write:false,external:Object.keys(mocks)}).outputFiles[0].text,__filename)
  const run=path=>loaded.exports.default({nextUrl:new URL(origin+path)},{})
- for(const path of ['/api/mobile/account-deletion/status','/api/internal/account-deletions','/api/internal/household-deletions','/api/internal/notifications','/api/cron','/api/internal/recurrence']){
+ for(const path of ['/account-deletion','/api/mobile/account-deletion/status','/api/internal/account-deletions','/api/internal/household-deletions','/api/internal/notifications','/api/cron','/api/internal/recurrence']){
   const response=await run(path);assert.ok(response,path+' must reach its own authentication guard');assert.equal(response.headers.get('x-middleware-next'),'1')
  }
  assert.deepEqual(calls,[])
- for(const path of ['/api/mobile/account-deletion','/api/mobile/account-deletion/status/extra','/api/internal/account-deletions/extra','/api/internal/household-deletions/extra','/api/cron/extra',
+ for(const path of ['/account-deletion/extra','/account-deletion-submit','/api/mobile/account-deletion','/api/mobile/account-deletion/status/extra','/api/internal/account-deletions/extra','/api/internal/household-deletions/extra','/api/cron/extra',
   '/api/internal/recurrence/extra','/api/internal/notifications/extra','/api/mobile/notifications','/api/mobile/bootstrap','/app','/leader/settings','/member','/join/example'])await run(path)
- assert.equal(calls.length,13);assert.deepEqual(protectedPaths,['/app','/leader/settings','/member','/join/example'])
+ assert.equal(calls.length,15);assert.deepEqual(protectedPaths,['/app','/leader/settings','/member','/join/example'])
 })

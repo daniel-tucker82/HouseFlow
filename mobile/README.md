@@ -4273,3 +4273,34 @@ display snapshots. No task edits were queued; no unfinished drafts remained.
 Search and network settings were restored, the emulator was stopped, and the
 session's ANR/crash event query was empty. Physical screen-reader use, iOS device
 behavior and the broader release requirements still require verification.
+
+### Public account-deletion request page (local verification, 5 November 2026)
+
+The website now has `/account-deletion`, with a direct email request link,
+copyable support address, ownership/household review guidance, data-removal
+scope and separate Apple/Google subscription-management links. Requesting
+deletion does not require installing the app or signing in. This exact page
+bypasses identity middleware; account APIs and protected app routes retain
+their existing authentication. The page does not submit deletion or collect
+account details itself.
+
+It returns 404 unless `ACCOUNT_DELETION_WEB_REQUESTS_ENABLED=true` and
+`ACCOUNT_DELETION_SUPPORT_EMAIL` contains one valid address. Enable these only
+after confirming a real monitored mailbox and an operational process for
+verifying ownership, confirming household choices and processing requests.
+No support address has been invented or configured in production. The separate
+automatic native submission/processing release gates remain unchanged.
+
+Local HTTP and browser checks passed with a reserved example address: enabled
+returned 200 without sign-in; disabled returned 404 with no request link or
+address and with `noindex`. Phone portrait (390 × 844) and landscape (844 × 390)
+rendered without horizontal overflow. Evidence is under
+`C:/Users/danie/.codex/tmp/cyntch-public-deletion-*`. Fourteen account-recovery
+tests passed, including the exact public-path boundary and unchanged protection
+of account APIs and app routes. Root lint and TypeScript passed. No email was
+sent, no production deployment was made, and the example address is preview-only.
+
+Release still requires the real mailbox/process, deployed public deletion URL,
+actual privacy policy and terms URLs/content, verified store metadata and an
+accessible native privacy-policy link. This page alone does not establish
+store compliance or completed deletion-service operation.
