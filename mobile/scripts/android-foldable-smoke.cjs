@@ -107,6 +107,7 @@ async function main() {
       throw new Error('Expected the owned API 37 foldable with 16 KB memory pages.')
     }
     owned = true
+    report.dataPartitionBeforeInstall = adb(['shell', 'df', '-k', '/data']).trim()
     fs.writeFileSync(path.join(output, 'supported-device-states.txt'), adb(['shell', 'cmd', 'device_state', 'print-states']))
     adb(['install', '-r', apk], 120_000)
     adb(['logcat', '-c'])

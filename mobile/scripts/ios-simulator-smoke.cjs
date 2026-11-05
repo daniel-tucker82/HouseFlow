@@ -91,19 +91,13 @@ for (const [index, template] of devices.entries()) {
       save()
       if (!boot.error && boot.status === 0) break
       if (boot.error?.code !== 'ETIMEDOUT') throw new Error(`Simulator boot failed (${boot.error?.code ?? boot.status}).`)
-      const current = JSON.parse(simctl('list', 'devices', '--json'))
-      const device = Object.values(current.devices).flat().find(item => item.udid === ownedDevice)
-      observation.deviceState = device?.state ?? 'missing'
-      save()
-      if (!device || !['Booted', 'Booting'].includes(device.state)) throw new Error('Simulator stopped during boot observation.')
       if (attempt === 2) throw new Error('Simulator did not finish booting within the ten-minute test setup budget.')
-      // The observer timed out, but the simulator is still live. Continue waiting
-      // on the same owned device; do not reboot it or discard its migration work.
-      console.log(`${template.name} is still ${device.state}; continuing boot observation.`)
+      // Reattach the observer to this UDID. A second inventory lookup during
+      // first-boot migration can time out independently of bootstatus.
+      console.log(`Continuing boot observation on the same ${template.name}.`)
     }
-    stage('open-simulator')
-    command('open', ['-a', 'Simulator', '--args', '-CurrentDeviceUDID', ownedDevice])
-    simctl('ui', ownedDevice, 'appearance', 'light')
+    // simctl and Maestro both target the booted UDID directly. There is no
+    // reason to launch a desktop Simulator window to install or inspect the app.
     stage('install')
     simctl('install', ownedDevice, appPath)
     for (const contentSize of ['large', 'accessibility-extra-large']) {

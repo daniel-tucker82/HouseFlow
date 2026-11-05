@@ -31,16 +31,27 @@ committed device states and actual screenshot dimensions must change and return
 as expected. Reports, screenshots, hierarchy and logs survive failures. It uses
 Android's documented [emulator fold/unfold commands](https://developer.android.com/blog/posts/emulator-control-for-adaptive-app-development).
 Source/YAML/Bash checks, lint/types and simulated runner-control failure checks
-pass; actual Android 17/foldable execution is still required. This is sign-in
-state-retention coverage, not proof of every editor or physical foldable device.
+pass. Run `41873935160` booted the API 37 phone and tablet with 16 KB pages,
+but their data partitions ran out of storage before APK installation. The fold
+host's device catalog did not contain `pixel_fold`. API 24 installed Cyntch
+but a system dialog for Messenger covered it. Device jobs now use separate
+runners with 6 GB guest partitions and verify the same APK. The fold host
+selects SDK CLI 22.0 and checks the actual Pixel Fold profile before booting;
+the API 24 check records and dismisses only the identified Messenger crash
+dialog. App execution and posture checks on API 37 remain unverified.
 
 iOS Intel run `41860511228` (`79abb8f`) compiled the optimized simulator app and
 passed `codesign --verify --deep --strict`, then stopped at the architecture
 check: `lipo -verify_arch` consumed the following executable path as another
 architecture. Both current/minimum-OS checks now put the executable before
 `-verify_arch`. This preserves the architecture and embedded-entitlement checks;
-it does not establish device success. The corrected workflow needs another
-native run. Evidence: `C:/Users/danie/.codex/tmp/cyntch-ios-41860511228-job.log`.
+both checks passed in run `41873930486`. That run timed out during simulator
+setup, before app installation, and Xcode could not download iOS 17.0 (universal).
+Current and minimum runtime jobs now download the same verified simulator app
+on fresh hosts. Tests target the booted simulator directly and do not launch a
+desktop Simulator window. The minimum job checks for an existing 17.0 runtime
+before requesting the exact release for its host; another OS is never accepted.
+Neither runtime has a passing device result from that run.
 
 Cyntch's 16 modal presentations now use the system reduced-motion preference.
 One root provider reads the setting at startup, listens for changes and refreshes

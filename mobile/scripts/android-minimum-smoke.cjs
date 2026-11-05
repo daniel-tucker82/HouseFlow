@@ -82,6 +82,21 @@ async function findNode(predicate, scroll = false) {
     }
     const found = nodes.find(node => node.package === appId && predicate(node) && bounds(node))
     if (found) return found
+    // API 24's bundled Messenger can crash on first boot and cover Cyntch.
+    // Preserve that evidence and dismiss only this precise system dialog, once.
+    const messenger = nodes.some(node => node.package === 'android' &&
+      node['resource-id'] === 'android:id/alertTitle' && node.text === 'Messenger has stopped')
+    if (messenger && !report.messengerDialogDismissed) {
+      const close = nodes.find(node => node.package === 'android' &&
+        node['resource-id'] === 'android:id/aerr_close' && node.text === 'Close app' && bounds(node))
+      if (!close) throw new Error('Messenger crash dialog has no verified close control.')
+      const { left, top, right, bottom } = bounds(close)
+      fs.copyFileSync(path.join(output, 'last-hierarchy.xml'), path.join(output, 'messenger-dialog.xml'))
+      adb('shell', 'input', 'tap', String(Math.floor((left + right) / 2)), String(Math.floor((top + bottom) / 2)))
+      report.messengerDialogDismissed = true
+      await sleep()
+      continue
+    }
     if (scroll && swipes++ < 8) {
       // The auth body occupies the middle of the landscape display. Start
       // inside it, rather than on the fixed top bar or development footer.
@@ -118,6 +133,7 @@ async function main() {
     report.osVersion = adb('shell', 'getprop', 'ro.build.version.release').trim()
     report.displaySize = adb('shell', 'wm', 'size').trim()
     report.displayDensity = adb('shell', 'wm', 'density').trim()
+    report.dataPartitionBeforeInstall = adb('shell', 'df', '-k', '/data').trim()
     stage('install')
     // Installing the optimized APK can exceed a normal shell command's budget
     // on the old emulator. Observe this one install; never relaunch it on timeout.

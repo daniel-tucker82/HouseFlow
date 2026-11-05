@@ -108,83 +108,7 @@ jobs:
           sha256sum "$RUNNER_TEMP/cyntch-android-apk/cyntch-emulator-test-signed.apk" > "$RUNNER_TEMP/cyntch-android-apk/sha256.txt"
           printf 'Source: %s\nRelease x86_64 APK; generated development signing key.\nSigned-out verification, with optional isolated-backend development-test sign-in. Not a store artifact.\n' "$GITHUB_SHA" > "$RUNNER_TEMP/cyntch-android-apk/README.txt"
           echo 'apk_ready=true' >> "$GITHUB_OUTPUT"
-      - name: Stop build daemons before running emulators
-        if: always()
-        working-directory: mobile
-        run: |
-          if [ -f android/gradlew ]; then
-            cd android
-            bash gradlew --stop
-          fi
-      - name: Install pinned device test runner
-        id: maestro
-        run: |
-          set -euo pipefail
-          curl --fail --location --retry 3 \
-            https://github.com/mobile-dev-inc/Maestro/releases/download/cli-2.12.1/maestro.zip \
-            -o "$RUNNER_TEMP/maestro.zip"
-          printf '%s  %s\n' '54dbb0716425626604973cbb374c585ca30272375d9ce15177a1152765ddd9d7' "$RUNNER_TEMP/maestro.zip" | sha256sum -c -
-          unzip -q "$RUNNER_TEMP/maestro.zip" -d "$RUNNER_TEMP/maestro-cli"
-          "$RUNNER_TEMP/maestro-cli/maestro/bin/maestro" --version
-      - name: Enable emulator hardware acceleration
-        id: acceleration
-        run: |
-          set -euo pipefail
-          printf '%s\n' 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-      - name: Verify Android phone startup and native sign-in
-        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
-        timeout-minutes: 15
-        with:
-          api-level: '37.0'
-          target: google_apis_ps16k
-          arch: x86_64
-          profile: pixel_6
-          avd-name: cyntch-phone
-          cores: 2
-          ram-size: 2048M
-          disable-animations: true
-          disable-linux-hw-accel: false
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
-          working-directory: mobile
-          script: node scripts/android-emulator-smoke.cjs "$RUNNER_TEMP/cyntch-android-apk/cyntch-emulator-test-signed.apk" "$RUNNER_TEMP/maestro-cli/maestro/bin/maestro" "$RUNNER_TEMP/cyntch-android-smoke/phone"
-      - name: Verify Android tablet startup and native sign-in
-        # Preserve tablet evidence even when the phone journey fails.
-        if: ${{ !cancelled() && steps.compile.conclusion == 'success' && steps.maestro.conclusion == 'success' && steps.acceleration.conclusion == 'success' }}
-        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
-        timeout-minutes: 15
-        with:
-          api-level: '37.0'
-          target: google_apis_ps16k
-          arch: x86_64
-          profile: pixel_tablet
-          avd-name: cyntch-tablet
-          cores: 2
-          ram-size: 2048M
-          disable-animations: true
-          disable-linux-hw-accel: false
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
-          working-directory: mobile
-          script: node scripts/android-emulator-smoke.cjs "$RUNNER_TEMP/cyntch-android-apk/cyntch-emulator-test-signed.apk" "$RUNNER_TEMP/maestro-cli/maestro/bin/maestro" "$RUNNER_TEMP/cyntch-android-smoke/tablet"
-      - name: Verify minimum Android version startup and native sign-in
-        if: ${{ !cancelled() && steps.compile.conclusion == 'success' && steps.acceleration.conclusion == 'success' }}
-        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
-        timeout-minutes: 10
-        with:
-          api-level: 24
-          target: google_apis
-          arch: x86_64
-          profile: Nexus 5
-          avd-name: cyntch-minimum
-          cores: 2
-          ram-size: 2048M
-          disable-animations: true
-          disable-linux-hw-accel: false
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
-          working-directory: mobile
-          script: node scripts/android-minimum-smoke.cjs "$RUNNER_TEMP/cyntch-android-apk/cyntch-emulator-test-signed.apk" "$RUNNER_TEMP/cyntch-android-smoke/minimum-api-24"
-      - name: Retain APK and device evidence
+      - name: Retain compiled APK and build evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -194,7 +118,6 @@ jobs:
             ${{ runner.temp }}/cyntch-android-build.log
             ${{ runner.temp }}/cyntch-clerk-ui-build.log
             ${{ runner.temp }}/cyntch-android-apk/
-            ${{ runner.temp }}/cyntch-android-smoke/
             mobile/android/app/build/outputs/mapping/release/mapping.txt
             mobile/android/settings.gradle
             mobile/vendor/clerk-android-ui/build/generated/upstream/kotlin/com/clerk/ui/core/scaffold/ClerkThemedAuthScaffold.kt
@@ -205,18 +128,30 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-  foldable:
+  device:
+    name: Test Android (${{ matrix.device }})
     needs: verify
-    # Other device failures must not hide fold/unfold evidence for a built APK.
     if: ${{ always() && !cancelled() && needs.verify.outputs.apk_ready == 'true' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { device: phone, avd: cyntch-phone, api: '37.0', target: google_apis_ps16k, profile: pixel_6 }
+          - { device: tablet, avd: cyntch-tablet, api: '37.0', target: google_apis_ps16k, profile: pixel_tablet }
+          - { device: foldable, avd: cyntch-foldable, api: '37.0', target: google_apis_ps16k, profile: pixel_fold }
+          - { device: minimum-api-24, avd: cyntch-minimum, api: '24', target: google_apis, profile: Nexus 5 }
     defaults:
       run:
         working-directory: mobile
         shell: bash
     env:
       CI: '1'
+      CYNTCH_DEVICE: ${{ matrix.device }}
+      EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ZW1lcmdpbmctdG9hZC05OC5jbGVyay5hY2NvdW50cy5kZXYk
+      EXPO_PUBLIC_API_URL: ${{ inputs.fixture_url || 'https://cyntch-simulator.invalid' }}
+      CYNTCH_NATIVE_TEST_EMAIL: ${{ inputs.fixture_email || '' }}
       MAESTRO_CLI_NO_ANALYTICS: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -241,12 +176,13 @@ jobs:
           [[ "$expected" =~ ^[a-f0-9]{64}$ ]]
           actual=$(sha256sum "$apk" | awk '{print $1}')
           test "$actual" = "$expected"
-          mkdir -p "$RUNNER_TEMP/cyntch-android-foldable"
-          printf '%s\n' "$actual" > "$RUNNER_TEMP/cyntch-android-foldable/apk.sha256"
-          printf 'CYNTCH_FOLDABLE_APK=%s\n' "$apk" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/cyntch-android-$CYNTCH_DEVICE"
+          printf '%s\n' "$actual" > "$RUNNER_TEMP/cyntch-android-$CYNTCH_DEVICE/apk.sha256"
+          printf 'CYNTCH_TEST_APK=%s\n' "$apk" >> "$GITHUB_ENV"
           printf 'JAVA_HOME=%s\n' "$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
           printf '%s/bin\n' "$JAVA_HOME_17_X64" >> "$GITHUB_PATH"
       - name: Install pinned device test runner
+        if: matrix.device != 'minimum-api-24'
         run: |
           set -euo pipefail
           curl --fail --location --retry 3 \
@@ -261,27 +197,43 @@ jobs:
           printf '%s\n' 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Verify entered text survives folding and unfolding
+      - name: Select the SDK tools containing Google's Pixel Fold profile
+        if: matrix.device == 'foldable'
+        run: |
+          set -euo pipefail
+          sdk="$RUNNER_TEMP/cyntch-fold-sdk"
+          mkdir -p "$sdk"
+          cp -R "$ANDROID_HOME/licenses" "$sdk/licenses"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$sdk" --install 'cmdline-tools;22.0'
+          # The pinned emulator action invokes cmdline-tools/latest/bin.
+          ln -s 22.0 "$sdk/cmdline-tools/latest"
+          test -x "$sdk/cmdline-tools/latest/bin/avdmanager"
+          grep -Fxq 'Pkg.Revision=22.0' "$sdk/cmdline-tools/22.0/source.properties"
+          ANDROID_HOME="$sdk" ANDROID_SDK_ROOT="$sdk" "$sdk/cmdline-tools/latest/bin/avdmanager" list device > "$RUNNER_TEMP/cyntch-android-foldable/profiles.txt"
+          grep -F '"pixel_fold"' "$RUNNER_TEMP/cyntch-android-foldable/profiles.txt"
+          printf 'ANDROID_HOME=%s\nANDROID_SDK_ROOT=%s\n' "$sdk" "$sdk" >> "$GITHUB_ENV"
+      - name: Boot device and verify the compiled app
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         timeout-minutes: 18
         with:
-          api-level: '37.0'
-          target: google_apis_ps16k
+          api-level: ${{ matrix.api }}
+          target: ${{ matrix.target }}
           arch: x86_64
-          profile: pixel_fold
-          avd-name: cyntch-foldable
+          profile: ${{ matrix.profile }}
+          avd-name: ${{ matrix.avd }}
+          disk-size: 6G
           cores: 2
           ram-size: 2048M
           disable-animations: true
           disable-linux-hw-accel: false
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           working-directory: mobile
-          script: node scripts/android-foldable-smoke.cjs "$CYNTCH_FOLDABLE_APK" "$RUNNER_TEMP/maestro-cli/maestro/bin/maestro" "$RUNNER_TEMP/cyntch-android-foldable"
-      - name: Retain foldable device evidence
+          script: bash scripts/android-device-ci.sh
+      - name: Retain device evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: native-android-foldable
-          path: ${{ runner.temp }}/cyntch-android-foldable/
+          name: native-android-${{ matrix.device }}
+          path: ${{ runner.temp }}/cyntch-android-${{ matrix.device }}/
           if-no-files-found: warn
           retention-days: 7

@@ -42,6 +42,7 @@ try {
     throw new Error('Expected the owned API 37 phone or tablet with 16 KB memory pages.')
   }
   owned = true
+  report.dataPartitionBeforeInstall = adb('shell', 'df', '-k', '/data').trim()
   report.displaySize = adb('shell', 'wm', 'size').trim()
   report.displayDensity = adb('shell', 'wm', 'density').trim()
   report.orientations = androidOrientationParameters(report.displaySize)
