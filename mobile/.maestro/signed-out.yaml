@@ -9,9 +9,11 @@ env:
       all: deny
 - setOrientation: ${PORTRAIT_ORIENTATION}
 - extendedWaitUntil:
-    visible: "CYNTCH"
+    # The iOS application accessibility node itself is named Cyntch, before
+    # React renders any controls. Wait for actual welcome content instead.
+    visible: "A little more together."
     timeout: 60000
-- assertVisible: "A little more together."
+- assertVisible: "CYNTCH"
 - scrollUntilVisible:
     element: "Sign in or create an account"
     direction: DOWN
@@ -107,9 +109,9 @@ env:
     permissions:
       all: deny
 - extendedWaitUntil:
-    visible: "CYNTCH"
+    visible: "A little more together."
     timeout: 60000
-- assertVisible: "A little more together."
+- assertVisible: "CYNTCH"
 - scrollUntilVisible:
     element: "Sign in or create an account"
     direction: DOWN

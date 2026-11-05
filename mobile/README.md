@@ -55,6 +55,29 @@ The next fold flow recognizes the exact System UI indication and unlocked icon,
 records it, and swipes it away before checking Cyntch. It does not restart the app
 or refill the retained form. YAML checks pass; an actual fold run is still needed.
 
+`41959523059` passed the Android phone, tablet and API 24 jobs. On the phone,
+the real POST_NOTIFICATIONS dialog was accepted, the app showed permission
+granted, Android's package state confirmed it, and the settings button opened
+the actual Cyntch notification settings activity. All three required captures
+were verified in artifact `13385602504`, SHA-256
+`7e34db1c19d18759565e2e8e3c490fc176275ef365ad03bf99ed8055200eb535`.
+No FCM delivery was tested.
+
+iOS `41956933362` current-iPhone artifact `13385488447`, SHA-256
+`55f079294b171be3372ee8f8b42957dc677933c31f835efe56834c89892596b0`,
+proves real native sign-in, active/selected household accessibility, rotation,
+restart, OS notification permission and an actual simulated alert banner with
+the unique title `Family update 68026`. This run's Notification Center swipe
+started at the exact top-center boundary and left the Home Screen visible.
+The next gesture starts just inside the top-left edge, away from the island.
+The enlarged-text welcome checks also failed: they waited for `CYNTCH`, which
+matches the iOS application node before its content is ready. React's scroll
+view appeared near the subsequent short assertion deadline; captured screens
+and accessibility trees then contained the headline and sign-in button fully.
+The existing 60-second startup wait now targets that actual content, preserving
+all required controls, rotations and captures. Native rerun is still required;
+neither this banner evidence nor previous pane evidence is live APNs proof.
+
 Android run `41867082612` (`93777e1`) passed the optimized API 36 phone/tablet
 matrix at 1x/1.6x text, including software-keyboard rotation, retained input,
 keyboard dismissal and app Back handling. Both devices also passed real native

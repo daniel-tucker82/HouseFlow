@@ -7,7 +7,7 @@ name: Native sign-in opens the household and preserves the session
       all: deny
 - setOrientation: ${PORTRAIT_ORIENTATION}
 - extendedWaitUntil:
-    visible: "CYNTCH"
+    visible: "Sign in or create an account"
     timeout: 60000
 - scrollUntilVisible:
     element: "Sign in or create an account"
