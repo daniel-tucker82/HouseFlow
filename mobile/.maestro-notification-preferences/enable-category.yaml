@@ -1,0 +1,15 @@
+appId: com.cyntch.app
+---
+- scrollUntilVisible:
+    element:
+      id: ${CATEGORY_ID}
+    direction: DOWN
+    centerElement: true
+- assertVisible:
+    id: ${CATEGORY_ID}
+    checked: false
+- tapOn:
+    id: ${CATEGORY_ID}
+- assertVisible:
+    id: ${CATEGORY_ID}
+    checked: true

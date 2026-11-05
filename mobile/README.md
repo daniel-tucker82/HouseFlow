@@ -4,34 +4,42 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
-Latest verification checkpoint, 2026-11-05: `41956061411` passed native sign-in,
-household/task loading, portrait/landscape and authenticated restart on both
-original iOS 17.0 iPhone and iPad simulators; both also passed the signed-out
-keyboard journeys at default and accessibility text sizes. Android `41956935789`
-passed phone/tablet authentication, rotation, restart and selected-household
-accessibility assertions, plus API 24. Its foldable failure showed the emulator's
-swipe lock over Cyntch; the next harness disables only that owned emulator's
-nonsecure swipe lock and restores its previous setting afterward.
+Current verification checkpoint, 2026-11-05: Android authenticated phone/tablet,
+API 24, fold posture/input retention, native permission and system settings have
+passed in the runs detailed below. The API 37 tablet kiosk journey passed in
+`41962686020`: rotation, restart, blocked settings link, incorrect/correct PIN,
+server unlock acknowledgement and another restart. Fold replay `41964740791`
+passed both text sizes using the same verified APK.
 
-`41955389110` demonstrated the actual iOS permission dialog and simulated alert
-in Notification Center. Its post-delivery still images did not prove a banner.
-The newer harness starts a video before delivery and requires the unique alert
-title in a captured banner frame. This still requires a successful device run;
-simulator injection does not establish APNs delivery. Android `41959523059` is
-verifying the dedicated packaged notification icon, real permission dialog and
-navigation to the native notification settings.
+iOS `41963857094` passed actual development sign-in, household/task loading,
+rotation and session persistence on all four simulators. Current iPhone and iOS
+17 iPad also passed both signed-out text sizes. Current iPhone passed native
+notification permission, banner and Notification Center checks for the same
+injected alert. The run still failed on an iOS 17 phone driver bootstrap and a
+current iPad initial Dynamic Type command timeout/kiosk activation failure.
+The later Settings keyboard-capture correction remains unverified on iPad.
 
-The next authenticated tablet checks add `.maestro-kiosk/lock.yaml`: enable a
-device-specific lock, show the restricted board in both orientations, restart,
-attempt a settings deep link, reject an incorrect PIN, accept the correct PIN,
-wait for unlock acknowledgement and restart again. The flow preserves the real
-signed-in session and never clears app data to pass a persistence assertion. It
-changes no household task or member. Seven named screenshots and successful UI
-assertions are required. Local lint/types, YAML/JavaScript parsing and the eight
-fixture/screenshot checks pass; these new tablet checks have not yet run on a
-native device. Physical-device, provider delivery, billing and pilot evidence
-remain separate requirements. Older checkpoints below describe their source at
-the time and are superseded where newer evidence is recorded.
+Android `41967101792` proved offline completion, force-stop persistence and upload
+on reconnect, then failed reopening. The reproduced quota/sync defects are fixed;
+43 route/SQLite regressions and real packaged-backend HTTP checks pass. Fresh
+Android `41970440613` and iOS `41970677603` are in progress. They predate the latest
+Settings keyboard fix and notification-preference test identifiers. Neither may
+be reused as proof of those app changes.
+
+Physical-device testing, live push-provider delivery, store billing, pilot use
+and store release remain separate requirements. Older checkpoints below describe
+their source at the time and are superseded where newer evidence is recorded.
+
+The next fresh authenticated phone builds also run
+`.maestro-notification-preferences/settings.yaml`. It selects Alex's completions
+while retaining only the parent's startable-task alerts, checks both orientations,
+enables recurrence creation, both routine-completion reasons and both member-add
+events, and verifies every choice after an app restart. Settings must then show
+that all saved changes have synced. Six named captures and actual control states
+are required. Only the disposable device's preferences change; this is not an
+offline-persistence, cross-device isolation or provider-delivery test. Local
+lint/types, YAML/JavaScript parsing and eight fixture/screenshot checks pass;
+the native preference journey has not yet run.
 
 An already-authorized Android installation now creates any missing Cyntch
 notification channels before registering its provider token. Previously channel

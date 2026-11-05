@@ -1,0 +1,102 @@
+appId: com.cyntch.app
+name: Per-event and family-member notification choices survive restart
+---
+# Only the disposable device's preferences change. No provider delivery or
+# household task/member change is required or claimed by this journey.
+- stopApp
+- runFlow: open.yaml
+- runFlow:
+    file: enable-category.yaml
+    env:
+      CATEGORY_ID: notification-category-task_completed
+- scrollUntilVisible:
+    element: "Tasks marked complete: Taylor Test"
+    direction: DOWN
+    centerElement: true
+- assertVisible:
+    text: "Tasks marked complete: Taylor Test"
+    checked: true
+- assertVisible:
+    text: "Tasks marked complete: Alex"
+    checked: false
+- tapOn: "Tasks marked complete: Alex"
+- tapOn: "Tasks marked complete: Taylor Test"
+- runFlow: verify-member-choices.yaml
+- takeScreenshot: notification-member-choices-portrait
+- setOrientation: ${LANDSCAPE_ORIENTATION}
+- runFlow: verify-member-choices.yaml
+- takeScreenshot: notification-member-choices-landscape
+- setOrientation: ${PORTRAIT_ORIENTATION}
+- runFlow:
+    file: enable-category.yaml
+    env:
+      CATEGORY_ID: notification-category-routine_generated
+- runFlow:
+    file: enable-category.yaml
+    env:
+      CATEGORY_ID: notification-category-routine_completed
+- runFlow:
+    file: enable-category.yaml
+    env:
+      CATEGORY_ID: notification-category-routine_superseded
+- runFlow:
+    file: enable-category.yaml
+    env:
+      CATEGORY_ID: notification-category-member_joined
+- runFlow:
+    file: enable-category.yaml
+    env:
+      CATEGORY_ID: notification-category-member_added
+- takeScreenshot: notification-household-events-portrait
+- stopApp
+- runFlow: open.yaml
+- runFlow: verify-member-choices.yaml
+- takeScreenshot: notification-member-choices-after-restart
+- scrollUntilVisible:
+    element:
+      id: notification-category-routine_generated
+    direction: DOWN
+- assertVisible:
+    id: notification-category-routine_generated
+    checked: true
+- scrollUntilVisible:
+    element:
+      id: notification-category-routine_completed
+    direction: DOWN
+- assertVisible:
+    id: notification-category-routine_completed
+    checked: true
+- scrollUntilVisible:
+    element:
+      id: notification-category-routine_superseded
+    direction: DOWN
+- assertVisible:
+    id: notification-category-routine_superseded
+    checked: true
+- scrollUntilVisible:
+    element:
+      id: notification-category-member_joined
+    direction: DOWN
+- assertVisible:
+    id: notification-category-member_joined
+    checked: true
+- scrollUntilVisible:
+    element:
+      id: notification-category-member_added
+    direction: DOWN
+- assertVisible:
+    id: notification-category-member_added
+    checked: true
+- takeScreenshot: notification-household-events-after-restart
+- scrollUntilVisible:
+    element: "Close notifications"
+    direction: UP
+- tapOn: "Close notifications"
+- scrollUntilVisible:
+    element: "Saved changes"
+    direction: DOWN
+- extendedWaitUntil:
+    visible: "All saved changes have synced."
+    timeout: 60000
+- takeScreenshot: notification-choices-synced
+- stopApp

@@ -8,6 +8,7 @@ const { androidOrientationParameters, inspectScreenshotOrientations } = require(
 const { authFixture, runAuthenticatedSmoke } = require('./native-auth-smoke.cjs')
 const { runKioskSmoke } = require('./native-kiosk-smoke.cjs')
 const { runOfflineSmoke } = require('./android-offline-smoke.cjs')
+const { runNotificationPreferencesSmoke } = require('./native-notification-preferences-smoke.cjs')
 
 if (process.platform !== 'linux' || process.env.GITHUB_ACTIONS !== 'true') {
   throw new Error('Run this verification on the Linux GitHub Actions host.')
@@ -133,6 +134,9 @@ try {
     if (!report.notifications.flow || !report.notifications.granted || !report.notifications.systemSettings || !report.notifications.screenshots.passed) {
       throw new Error('Android notification authorization or system settings verification failed.')
     }
+    report.notificationPreferences = runNotificationPreferencesSmoke({ maestro, device: serial,
+      output: path.join(output, 'notification-preferences'), orientations: report.orientations })
+    if (!report.notificationPreferences.passed) throw new Error(report.notificationPreferences.error)
   }
   if (report.runs.some(result => !result.passed)) throw new Error('Android native flow failed at one or more text sizes.')
   report.passed = true

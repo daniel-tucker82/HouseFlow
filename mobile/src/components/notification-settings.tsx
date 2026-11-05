@@ -11,10 +11,10 @@ import { PlannerDateTime } from "./planner-inputs"
 import { Action, Card, Copy, styles, usePalette } from "./ui"
 
 function report(error: unknown) { Alert.alert("Unable to update notifications", error instanceof Error ? error.message : "Please try again.") }
-function Toggle({ label, detail, value, onChange }: { label: string; detail?: string; value: boolean; onChange: (value: boolean) => void }) {
+function Toggle({ label, detail, value, onChange, testID }: { label: string; detail?: string; value: boolean; onChange: (value: boolean) => void; testID?: string }) {
   const colors = usePalette()
   return <View style={styles.row}><View style={{ flex: 1, gap: 4 }}><Copy>{label}</Copy>{detail ? <Copy tone="muted">{detail}</Copy> : null}</View>
-    <Switch accessibilityLabel={label} value={value} onValueChange={onChange} trackColor={{ true: colors.primary }} /></View>
+    <Switch testID={testID} accessibilityLabel={label} value={value} onValueChange={onChange} trackColor={{ true: colors.primary }} /></View>
 }
 
 export function NotificationSettingsCard() {
@@ -92,7 +92,7 @@ function NotificationCategory({ kind, restriction }: { kind: MobileNotificationK
   const category = notificationCatalog[kind], selection = state.preferences?.categories[kind] ?? { enabled: false, memberIds: [] }
   const members = state.members.filter(member => state.household?.role !== "member" || member.id === controller.accountId)
   const change: typeof notifications.changePreferences = update => notifications.changePreferences(update).catch(report)
-  return <Card><Toggle label={category.label} value={selection.enabled} onChange={enabled => void change(current => ({ ...current, categories: { ...current.categories, [kind]: {
+  return <Card><Toggle testID={`notification-category-${kind}`} label={category.label} value={selection.enabled} onChange={enabled => void change(current => ({ ...current, categories: { ...current.categories, [kind]: {
     enabled, memberIds: current.categories[kind]?.memberIds ?? (category.scope === "member" ? [controller.accountId] : []),
   } } }))} />
     {restriction && selection.enabled && state.preferences?.enabled ? <>

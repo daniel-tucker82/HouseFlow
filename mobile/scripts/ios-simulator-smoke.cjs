@@ -7,6 +7,7 @@ const { inspectScreenshotOrientations } = require('./device-screenshot-evidence.
 const { authFixture, runAuthenticatedSmoke } = require('./native-auth-smoke.cjs')
 const { runNotificationSmoke } = require('./ios-notification-smoke.cjs')
 const { runKioskSmoke } = require('./native-kiosk-smoke.cjs')
+const { runNotificationPreferencesSmoke } = require('./native-notification-preferences-smoke.cjs')
 const { runIOSUI, canRetryIOSBootstrap } = require('../../.github/scripts/ios-device-process.cjs')
 
 function hasFlowEvidence(folder) {
@@ -192,6 +193,10 @@ for (const [index, template] of devices.entries()) {
       stage('notification-permission-and-center')
       result.notifications = runNotificationSmoke({device:ownedDevice,maestro,output:path.join(folder,'notifications')})
       if (!result.notifications.passed) throw new Error(result.notifications.error)
+      stage('notification-preferences-and-restart')
+      result.notificationPreferences = runNotificationPreferencesSmoke({ maestro, device: ownedDevice,
+        output: path.join(folder, 'notification-preferences'), orientations: { portrait: 'PORTRAIT', landscape: 'LANDSCAPE_LEFT' } })
+      if (!result.notificationPreferences.passed) throw new Error(result.notificationPreferences.error)
     }
     if (result.runs.some(run => !run.passed)) throw new Error('Simulator flow failed at one or more text sizes.')
     result.passed = true

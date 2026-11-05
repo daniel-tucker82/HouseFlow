@@ -1,0 +1,25 @@
+appId: com.cyntch.app
+---
+- scrollUntilVisible:
+    element: "These choices apply only to this device and this household."
+    direction: UP
+- scrollUntilVisible:
+    element: "Tasks become startable: Taylor Test"
+    direction: DOWN
+    centerElement: true
+- assertVisible:
+    text: "Tasks become startable: Taylor Test"
+    checked: true
+- assertVisible:
+    text: "Tasks become startable: Alex"
+    checked: false
+- scrollUntilVisible:
+    element: "Tasks marked complete: Taylor Test"
+    direction: DOWN
+    centerElement: true
+- assertVisible:
+    text: "Tasks marked complete: Taylor Test"
+    checked: false
+- assertVisible:
+    text: "Tasks marked complete: Alex"
+    checked: true

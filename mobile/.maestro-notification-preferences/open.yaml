@@ -1,0 +1,14 @@
+appId: com.cyntch.app
+---
+- launchApp
+- setOrientation: ${PORTRAIT_ORIENTATION}
+- runFlow: ../.maestro-auth/verify-household.yaml
+- tapOn: "(?i)^Settings(,.*)?$"
+- scrollUntilVisible:
+    element: "Choose notifications"
+    direction: DOWN
+- tapOn: "Choose notifications"
+- scrollUntilVisible:
+    element: "These choices apply only to this device and this household."
+    direction: DOWN
+- assertVisible: "These choices apply only to this device and this household."
