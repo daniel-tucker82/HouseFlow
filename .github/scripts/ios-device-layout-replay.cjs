@@ -2,7 +2,10 @@
 // These plans cannot authenticate, submit edits or repeat passed font cases.
 const plans = {
   'layout-current-iphone': { family: 'iphone', runtime: '', contentSizes: ['large', 'accessibility-extra-large'] },
-  'layout-minimum-iphone-default': { family: 'iphone', runtime: '17.0', contentSizes: ['large'] },
+  // Run 42164940621 passed startup/restart/rotation, then exhausted the shared
+  // deadline after slow driver bootstrap. Resume only the unfinished keyboard
+  // journey; its own launch starts with an empty local form.
+  'layout-minimum-iphone-default': { family: 'iphone', runtime: '17.0', contentSizes: ['large'], flow: 'signed-out-keyboard.yaml' },
   'layout-current-ipad-large': { family: 'ipad', runtime: '', contentSizes: ['accessibility-extra-large'] },
   'layout-minimum-ipad': { family: 'ipad', runtime: '17.0', contentSizes: ['large', 'accessibility-extra-large'] },
 }

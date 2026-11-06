@@ -171,7 +171,7 @@ for (const [index, template] of devices.entries()) {
           try {
             run = runIOSUI(maestro, [
               '--device', ownedDevice, 'test', '-e', `IOS_FAMILY=${label}`, '--format', 'junit', '--output', path.join(attemptFolder, 'report.xml'),
-              '--test-output-dir', attemptFolder, '--debug-output', attemptFolder, path.resolve('.maestro'),
+              '--test-output-dir', attemptFolder, '--debug-output', attemptFolder, path.resolve('.maestro', layoutOnly?.flow ?? ''),
             ], { stdio: ['ignore', log, log], timeout: 540_000, env: process.env })
           } finally { fs.closeSync(log) }
           const driverOutput = fs.readFileSync(path.join(attemptFolder, 'maestro.log'), 'utf8')

@@ -6,6 +6,7 @@ const base = { EXPO_PUBLIC_API_URL: 'https://cyntch-simulator.invalid', CYNTCH_I
 test('only failed or unstarted layout cases are selected', () => {
   assert.deepEqual(layoutReplay('layout-current-iphone', base).contentSizes, ['large', 'accessibility-extra-large'])
   assert.deepEqual(layoutReplay('layout-minimum-iphone-default', { ...base, CYNTCH_IOS_TEST_RUNTIME: '17.0' }).contentSizes, ['large'])
+  assert.equal(layoutReplay('layout-minimum-iphone-default', { ...base, CYNTCH_IOS_TEST_RUNTIME: '17.0' }).flow, 'signed-out-keyboard.yaml')
   assert.deepEqual(layoutReplay('layout-current-ipad-large', { ...base, CYNTCH_IOS_TEST_FAMILY: 'ipad' }).contentSizes, ['accessibility-extra-large'])
   assert.equal(layoutReplay('offline', base), null)
   assert.deepEqual(layoutReplay('layout-minimum-ipad', { ...base, CYNTCH_IOS_TEST_FAMILY: 'ipad', CYNTCH_IOS_TEST_RUNTIME: '17.0' }).contentSizes, ['large', 'accessibility-extra-large'])
