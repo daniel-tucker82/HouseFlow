@@ -8,6 +8,7 @@ test('only failed or unstarted layout cases are selected', () => {
   assert.deepEqual(layoutReplay('layout-minimum-iphone-default', { ...base, CYNTCH_IOS_TEST_RUNTIME: '17.0' }).contentSizes, ['large'])
   assert.deepEqual(layoutReplay('layout-current-ipad-large', { ...base, CYNTCH_IOS_TEST_FAMILY: 'ipad' }).contentSizes, ['accessibility-extra-large'])
   assert.equal(layoutReplay('offline', base), null)
+  assert.deepEqual(layoutReplay('layout-minimum-ipad', { ...base, CYNTCH_IOS_TEST_FAMILY: 'ipad', CYNTCH_IOS_TEST_RUNTIME: '17.0' }).contentSizes, ['large', 'accessibility-extra-large'])
 })
 
 test('mismatched or connected journeys cannot use signed-out layout replay', () => {
