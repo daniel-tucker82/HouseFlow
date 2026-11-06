@@ -4,6 +4,10 @@ appId: com.cyntch.app
     notVisible: ".*change saved on this device.*"
     timeout: 60000
 - assertNotVisible: "You’re offline. You can still complete saved tasks."
+- scrollUntilVisible:
+    element: "^Android offline verification,.*"
+    direction: DOWN
+    centerElement: true
 - assertVisible:
     text: "^Android offline verification,.*"
     checked: true
@@ -16,6 +20,7 @@ appId: com.cyntch.app
 - scrollUntilVisible:
     element: "^Android offline verification,.*"
     direction: UP
+    centerElement: true
 - assertVisible:
     text: "^Android offline verification,.*"
     checked: false
@@ -31,6 +36,7 @@ appId: com.cyntch.app
 - scrollUntilVisible:
     element: "^Android offline verification,.*"
     direction: DOWN
+    centerElement: true
 - assertVisible:
     text: "^Android offline verification,.*"
     checked: false
