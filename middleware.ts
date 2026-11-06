@@ -24,9 +24,9 @@ const withClerk = clerkMiddleware(
 )
 
 export default function middleware(request: NextRequest, event: NextFetchEvent) {
-  // Public deletion instructions must also work without an active identity.
-  // This exact page performs no account lookup or deletion submission.
-  if (request.nextUrl.pathname === "/account-deletion") return NextResponse.next()
+  // Public policies and deletion instructions must work without an identity.
+  // These exact pages perform no account lookup or deletion submission.
+  if (["/account-deletion", "/legal/privacy", "/legal/terms"].includes(request.nextUrl.pathname)) return NextResponse.next()
   // These exact routes authenticate their own recovery key or cron secret.
   // A deleted identity, stale cookie or provider outage must not gate durable
   // recovery. Each cron handler verifies its secret before starting any work.

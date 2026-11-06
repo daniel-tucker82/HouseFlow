@@ -4,29 +4,73 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
-Current release checkpoint, 5 November 2026, 17:25 UTC: approximately 84% of the
+Current release checkpoint, 6 November 2026: approximately 84% of the
 overall goal is complete. Ordinary household controls pass on both platforms;
 private Android household deletion and private iPhone account deletion now have
 native, database and provider preservation evidence. The public deletion-request
 page and configurable native privacy/terms links are implemented and locally
-checked. Production release gates are still closed.
+checked. Public privacy and terms pages now also pass a production build,
+anonymous HTTP checks and phone portrait/landscape inspection. Production
+release gates are still closed.
 
-iPhone offline/restart verification remains open. The corrected harness in
-`686fdcb` is compatible with app `42022301424`, but both allocation attempts of
-`42068443688` ended without a runner, executed steps or artifacts. GitHub explicitly
-reported ARM Mac capacity constraints (jobs `127389253643`, `127400192788`).
-The original task/version and all 15 prior receipts are unchanged. Preserve the
-one-time offline baseline. The existing run retains its original source for a
-later inspected retry; do not claim the older binary contains the subsequent
-policy-link changes in `5377c39` or relax runtime compatibility checks.
+iPhone offline/restart verification remains open. Run `42068443688` attempt 3
+acquired a runner and authenticated, then missed the task checkbox after the
+offline banner moved it below the visible list. Artifact `13466766036` was
+inspected: the target was at y=842–894 on an 874-point screen, and the network
+was restored explicitly. No completion was recorded; the original household,
+task/version and all 15 earlier receipts remain unchanged. The corrected flows
+centre the task after status-banner changes. Isolated harness branch
+`codex/native-ios-offline-verification`, commit `4c43abf`, retains compatibility
+with app `42022301424` and has been dispatched without rebuilding it. Preserve
+the one-time baseline; inspect evidence before retrying. The older binary does
+not contain policy-link changes in `5377c39`.
 
 Further release work needs authenticated Expo/project and store access, signing
 and push credentials, actual store/RevenueCat catalogs and sandbox checks,
-confirmed public policy URLs and a monitored deletion-request mailbox/process.
-Expo CLI and the business browser are signed out; sign-in and policy/contact
-details have been requested from the owner. Physical-device accessibility and
+published policy URLs and an operational deletion-request process.
+The owner authorised selecting the policy URLs and contact. The selected URLs
+are `https://www.cyntch.com/legal/privacy` and `https://www.cyntch.com/legal/terms`;
+the existing business inbox is `daniel@nexusaspyre.com`. Expo CLI opened its
+browser login, and the owner has been guided to finish it. Physical-device accessibility and
 performance checks, real provider push, store billing, production rollout and
 household pilot results remain unverified. No store submission has been made.
+
+### Public policies prepared on 6 November 2026
+
+The privacy policy describes actual household sharing, no-email child profiles,
+local pending edits, notification preferences/previews, authentication, hosting,
+billing and push providers, deletion and retained security/transaction records.
+The terms describe household subscriptions, renewals/cancellation, store restore,
+shared-device controls and consumer rights. Neither page claims store release,
+provider delivery, a guaranteed deletion deadline or blanket legal compliance.
+The existing business mailbox was confirmed in the knowledge repository and
+connected business account; no new mailbox was invented and no email was sent.
+
+Both pages are server components, have canonical URLs and semantic headings,
+and are linked from the website footer. Only their exact paths bypass identity
+middleware. Fourteen recovery/access-boundary tests, root TypeScript, targeted
+lint and the production web build passed. The same build returned anonymous
+200 responses for both pages and retained disabled 404 for account deletion.
+Both pages were visually inspected at 390 × 844 and 844 × 390 without horizontal
+overflow. Evidence: `C:/Users/danie/.codex/tmp/cyntch-policy-pages-evidence.json`.
+The preview's development Clerk home-page prefetch logged socket-hang-up errors;
+the policy routes themselves rendered and linked correctly without sign-in.
+
+Release configuration, after the pages are publicly deployed and verified:
+`EXPO_PUBLIC_PRIVACY_POLICY_URL=https://www.cyntch.com/legal/privacy`,
+`EXPO_PUBLIC_TERMS_URL=https://www.cyntch.com/legal/terms`, and server-side
+`ACCOUNT_DELETION_SUPPORT_EMAIL=daniel@nexusaspyre.com`. Keep
+`ACCOUNT_DELETION_WEB_REQUESTS_ENABLED` disabled until the mailbox request
+process can verify ownership, confirm household choices and process requests.
+Choosing the email does not establish completed request handling. Do not point
+production native purchases at still-unpublished pages.
+
+Content was checked against the [Google Play User Data policy](https://support.google.com/googleplay/android-developer/answer/10144311?hl=en),
+[Apple review guidelines](https://developer.apple.com/app-store/review/guidelines/),
+[OAIC privacy-policy guidance](https://www.oaic.gov.au/privacy/your-privacy-rights/your-personal-information/what-is-a-privacy-policy),
+and [ACCC consumer guarantees](https://www.accc.gov.au/consumers/buying-products-and-services/consumer-rights-and-guarantees).
+The company name matches the [public ABN record](https://abr.business.gov.au/ABN/View?abn=93689591740).
+These implementation checks are not a claim of store approval or legal certification.
 
 Latest verification, 5 November 2026, 15:32 UTC: the ordinary household journey
 now passes on both platforms. iPhone `42053184859` reused app `42022301424`
