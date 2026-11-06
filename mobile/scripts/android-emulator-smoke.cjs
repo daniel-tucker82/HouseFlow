@@ -10,7 +10,7 @@ const { runKioskSmoke } = require('./native-kiosk-smoke.cjs')
 const { runOfflineSmoke } = require('./android-offline-smoke.cjs')
 const { runNotificationPreferencesSmoke } = require('./native-notification-preferences-smoke.cjs')
 const { householdFixture, runHouseholdSmoke } = require('./native-household-smoke.cjs')
-const { safetyFixture, runSafetySmoke } = require('./native-safety-smoke.cjs')
+const { safetyFixture, resumeAcceptedTerms, runSafetySmoke } = require('./native-safety-smoke.cjs')
 
 if (process.platform !== 'linux' || process.env.GITHUB_ACTIONS !== 'true') {
   throw new Error('Run this verification on the Linux GitHub Actions host.')
@@ -22,6 +22,7 @@ const offlineOnly = process.env.CYNTCH_ANDROID_OFFLINE === 'true'
 const householdOnly = process.env.CYNTCH_NATIVE_HOUSEHOLD_CHECK === 'true'
 const safetyOnly = process.env.CYNTCH_NATIVE_SAFETY_CHECK === 'true'
 if (safetyOnly) safetyFixture()
+const termsAlreadyAccepted = safetyOnly && resumeAcceptedTerms()
 if (householdOnly) {
   householdFixture()
   if (offlineOnly) throw new Error('Choose household or offline verification, not both.')
@@ -112,7 +113,7 @@ try {
     adb('shell', 'settings', 'put', 'system', 'font_scale', '1')
     if (Number(adb('shell', 'settings', 'get', 'system', 'font_scale').trim()) !== 1) throw new Error('Default text size was not restored for authenticated verification.')
     report.authentication = runAuthenticatedSmoke({ maestro, device: serial, output: path.join(output, 'authenticated'), orientations: report.orientations, fixture,
-      verifySessionJourney: !(householdOnly || safetyOnly), deferTerms: safetyOnly })
+      verifySessionJourney: !(householdOnly || safetyOnly), deferTerms: safetyOnly && !termsAlreadyAccepted })
   }
   if (report.authentication && !report.authentication.passed) throw new Error(report.authentication.error)
   if (report.authentication?.passed && report.avd === 'cyntch-tablet') {
