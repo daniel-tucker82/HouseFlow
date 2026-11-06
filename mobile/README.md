@@ -4,7 +4,7 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
-Current release checkpoint, 6 November 2026: approximately 86% of the
+Current release checkpoint, 6 November 2026: approximately 87% of the
 overall goal is complete. Ordinary household controls pass on both platforms;
 private Android household deletion and private iPhone account deletion now have
 native, database and provider preservation evidence. The public deletion-request
@@ -85,9 +85,23 @@ signed APK and actual push delivery are not yet established.
 Reference: [Expo dependency caching](https://docs.expo.dev/build-reference/caching/).
 
 Signed Android preview `38dbadac-d9d7-4ba3-b087-135cb62ff8d7` (`aaa1f47`)
-is running with that cache setting. Its inspected logs passed the earlier
-repository-resolution failure and reached native compilation; final APK evidence
-is still pending. Do not duplicate the active build.
+finished successfully at 02:33 UTC on 6 November. Its 121,606,323-byte APK has
+SHA-256 `12fd594a3434896b93c6a7ee8dd096ffca64896117e2e5e2eebe94fa69d9a9ac`.
+The signature matches the remotely generated Cyntch certificate. Local checks
+passed for package/version, Android API 24 minimum/API 36 target, notification
+permission/service/icons, linked Firebase resources and the embedded Expo
+project/development backend. ZIP alignment and all 60 ARM64/x86_64 native
+libraries pass the 16 KB checks. Evidence:
+`C:/Users/danie/.codex/tmp/cyntch-eas-android-preview-38dbadac-evidence/artifact.json`.
+This is an internal preview, not a Play release or verified notification delivery.
+
+The separate `Signed Android preview verification` workflow downloads this exact
+APK without rebuilding. It requires the recorded digest/signing identity,
+producer ancestry and unchanged app source, then installs only on a fresh owned
+API 36 emulator. The existing signed-out flow checks native authentication UI,
+portrait/landscape and restart; it does not sign in or alter household data.
+Device evidence is still pending. The local machine had less than 400 MB free
+memory, so no additional emulator was started there.
 
 The owner explicitly approved a dedicated `Cyntch Expo Push` service account,
 Firebase Cloud Messaging permissions, one private key and upload to the linked
@@ -100,6 +114,19 @@ EAS still reports no FCM V1 credential. The organisation policy was not changed.
 Evidence: `C:/Users/danie/.codex/tmp/cyntch-fcm-key-creation-once.json`.
 Inspect the policy and resolve an appropriately scoped exception before any
 further key-generation attempt; do not create another service account.
+
+Read-only policy inspection confirmed that Cyntch inherits the enforced legacy
+constraint; the newer `iam.managed.disableServiceAccountKeyCreation` constraint
+is not enforced. Both Manage policy controls are disabled. At organisation
+`nexusaspyre.com` (`798037574911`), the signed-in owner has Organisation
+Administrator but lacks Organisation Policy Administrator. The existing
+principal's role editor is open for review; no role or policy change was saved.
+Explicit approval was requested for a temporary policy-admin role, a Cyntch-only
+key-creation exception, the already-approved single key/upload, restoration of
+the inherited ban and removal of the temporary role. Do not change the whole
+organisation's enforcement or repeat key creation before resolving this gate.
+Screenshots: `cyntch-google-policy-project-blocked.png` and
+`cyntch-google-org-role-editor.png` in the local evidence directory.
 
 Further release work needs Apple/store access, iOS signing and push credentials,
 actual store/RevenueCat catalogs and sandbox checks,
