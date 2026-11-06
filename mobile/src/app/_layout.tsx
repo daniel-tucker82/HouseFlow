@@ -22,6 +22,7 @@ import { AccountDeletionRecoveryActions } from "../components/account-deletion-r
 import { AccountDeletionRecoveryFallback } from "../components/account-deletion-recovery-fallback"
 import { AccountCleanupNotice } from "../components/account-cleanup-notice"
 import { PolicyLinks } from "../components/policy-links"
+import { TermsConsentNotice } from "../components/terms-consent-notice"
 
 function Application({ onSignIn }: { onSignIn: () => void }) {
   const { isLoaded, isSignedIn, userId, sessionId } = useAuth({ treatPendingAsSignedOut: false })
@@ -42,6 +43,7 @@ function Application({ onSignIn }: { onSignIn: () => void }) {
       {kiosk.state.record.blocked || sessionId !== kiosk.state.record.kiosk.sessionId ? <Action label="Recover with parent sign-in" onPress={() => void kiosk.controller.beginRecovery().then(() => signOut()).then(onSignIn).catch(cause => Alert.alert("Parent sign-in needed", cause instanceof Error ? cause.message : "Connect and try again."))} /> : null}
     </View></SafeAreaView> : null}
     {!isLoaded ? <Loading label="Opening Cyntch…" /> : isSignedIn && userId && sessionId ? <RuntimeProvider key={`${userId}:${sessionId}:${Boolean(kiosk.state.record)}`} accountId={userId} sessionId={sessionId} canSync={!kiosk.state.record}>
+      <TermsConsentNotice />
       <Tabs screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: colors.background },
         tabBarActiveTintColor: colors.primary, tabBarInactiveTintColor: colors.muted,
         tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border }, tabBarLabelStyle: { fontSize: 12 } }}>

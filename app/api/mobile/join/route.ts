@@ -4,6 +4,7 @@ import { acceptInviteByCode } from "@/lib/actions/household"
 import { ensureCurrentUserRecord } from "@/lib/user-sync"
 import { db } from "@/lib/db"
 import { EntitlementError } from "@/lib/entitlements"
+import { TermsConsentError } from "@/lib/terms-consent"
 
 async function handlePOST(request: Request) {
   const { userId } = await auth()
@@ -21,6 +22,7 @@ async function handlePOST(request: Request) {
        where hi.code = $1`, [body.code, userId])
     return Response.json({ householdId: result.rows[0]?.household_id })
   } catch (error) {
+    if (error instanceof TermsConsentError) return Response.json({ error: error.message, code: "terms_acceptance_required" }, { status: error.status })
     if (error instanceof EntitlementError) return Response.json({ error: error.message }, { status: error.status })
     // The shared join action uses these public messages; database/internal errors stay private.
     const message = error instanceof Error ? error.message : ""

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation"
 import { auth } from "@clerk/nextjs/server"
 import { withHouseholdWrite, assertTemplateCapacity, assertTemplateItemCapacity, assertRetainedTaskCapacity, EntitlementError } from "@/lib/entitlements"
 import type { RoutineType } from "@/lib/types"
+import { requireTermsAcceptance } from "@/lib/terms-consent"
 
 export async function createRoutine(formData: FormData) {
   const householdId = String(formData.get("householdId") ?? "")
@@ -16,6 +17,7 @@ export async function createRoutine(formData: FormData) {
   if (!userId) throw new EntitlementError("Sign in required", 401)
   if (!name || !["recurring", "one_off"].includes(type)) throw new EntitlementError("Invalid template", 400)
   await withHouseholdWrite(householdId, userId, async (client, entitlement) => {
+  await requireTermsAcceptance(client, userId)
   if (recurrenceRule && !entitlement.limits.automation) throw new EntitlementError("Recurring schedules require Premium.", 402)
   await assertTemplateCapacity(client, householdId, entitlement.limits.templates)
   await client.query(
@@ -41,6 +43,7 @@ export async function createTask(formData: FormData) {
   if (!userId) throw new EntitlementError("Sign in required", 401)
   if (!title || title.length > 200 || !routineIdRaw) throw new EntitlementError("A title up to 200 characters and a template are required", 400)
   await withHouseholdWrite(householdId, userId, async (client, entitlement) => {
+  await requireTermsAcceptance(client, userId)
   if (scheduledTime && !entitlement.limits.automation) throw new EntitlementError("Timed tasks require Premium.", 402)
   await assertRetainedTaskCapacity(client,householdId,entitlement.tier,1)
   await assertTemplateItemCapacity(client, householdId, routineIdRaw, entitlement.limits.items, entitlement.tier === "free")

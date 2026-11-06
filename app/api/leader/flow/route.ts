@@ -1,4 +1,5 @@
 import { recheckNativeKioskFlow, withNativeKioskRequest } from "@/lib/native-kiosk-guard"
+import { requireTermsAcceptance, sharedContentActions, TermsConsentError } from "@/lib/terms-consent"
 import { createHouseholdWithAdmission } from "@/lib/household-admission"
 import { validInvitationLimits } from "@/shared/mobile/invitations"
 import { acceptHouseholdDeletion } from "@/lib/household-deletion"
@@ -981,6 +982,13 @@ async function handlePOST(request: Request) {
   }
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return NextResponse.json({ error: "Expected a JSON object" }, { status: 400 })
+  }
+  if (sharedContentActions.has(String(body.action))) {
+    try { await requireTermsAcceptance(db, userId) }
+    catch (error) {
+      if (error instanceof TermsConsentError) return NextResponse.json({ error: error.message, code: "terms_acceptance_required" }, { status: error.status })
+      throw error
+    }
   }
   if (body.action === "deleteHousehold") {
     try {

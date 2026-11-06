@@ -9,6 +9,7 @@ import type { AccountDeletionReview } from "../../../shared/mobile/account-delet
 import type { InvitationPage } from "../../../shared/mobile/invitations"
 import type { HouseholdDeletionReceipt } from "../../../shared/mobile/household-deletion"
 import { parseSafetyReceipt, type SafetyReportDraft } from "../../../shared/mobile/safety-reports"
+import { validateTermsStatus } from "../../../shared/terms-consent"
 import { parseAccountDeletionReview } from "./account-deletion-review"
 import { parseNativeKioskSession, type NativeKioskOperation, type NativeKioskResult } from "../../../shared/mobile/kiosk"
 import { isWebBillingCancellationUrl, type NativeBillingAction, type NativeBillingScope, type NativeBillingSetup, type NativeBillingStatus, type NativeBillingStore, type WebBillingCancellation } from "../../../shared/mobile/billing"
@@ -19,6 +20,8 @@ export interface BootstrapResult { accountId: string; households: HouseholdSumma
 
 /** All requests are bound to the account which opened this runtime. */
 export class MobileApi implements SyncTransport {
+  private termsListeners = new Set<() => void>()
+  subscribeTermsRequired(listener: () => void) { this.termsListeners.add(listener); return () => { this.termsListeners.delete(listener) } }
   constructor(
     private readonly baseUrl: string,
     private readonly accountId: string,
@@ -44,7 +47,10 @@ export class MobileApi implements SyncTransport {
         ...(body ? { body: JSON.stringify(body) } : {}),
       })
       const data = await response.json().catch(() => null)
-      if (!response.ok) throw new TransportError(data?.error ?? "Cyntch could not sync right now. Your saved changes will retry.", response.status, typeof data?.code === "string" ? data.code : undefined)
+      if (!response.ok) {
+        if (data?.code === "terms_acceptance_required") this.termsListeners.forEach(listener => listener())
+        throw new TransportError(data?.error ?? "Cyntch could not sync right now. Your saved changes will retry.", response.status, typeof data?.code === "string" ? data.code : undefined)
+      }
       if (!data || typeof data !== "object") throw new Error("Cyntch returned an unexpected response")
       return data as T
     } finally { clearTimeout(timeout) }
@@ -57,6 +63,13 @@ export class MobileApi implements SyncTransport {
   }
 
   async serverTime() { return (await this.request<{ serverTimeMs: number }>("/api/mobile/time")).serverTimeMs }
+
+  async termsStatus() { return validateTermsStatus(await this.request("/api/mobile/terms"), this.accountId) }
+  async acceptTerms(version: string) {
+    const result = validateTermsStatus(await this.request("/api/mobile/terms", { accountId: this.accountId, version, agree: true }), this.accountId)
+    if (!result.acceptedAt || result.version !== version) throw new Error("Your agreement could not be confirmed. Please retry.")
+    return result
+  }
 
   async safetyReportingAvailable() {
     const result = await this.request<{ accountId: string; enabled: boolean }>("/api/mobile/safety-reports")

@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import Link from "next/link"
 import { PolicyPage } from "@/components/policy-page"
 import { cyntchContactEmail, cyntchContactHref } from "@/lib/public-contact"
+import { termsVersion } from "@/shared/terms-consent"
 
 export const metadata: Metadata = {
   title: "Terms of use | Cyntch",
@@ -11,6 +12,7 @@ export const metadata: Metadata = {
 
 export default function TermsPage() {
   return <PolicyPage title="Terms of use" intro="These terms apply to Cyntch’s website and mobile applications, provided by Aspyre Pty Ltd (ABN 93 689 591 740), Australia.">
+    <p className="text-sm text-muted-foreground">Terms version: {termsVersion}</p>
     <section aria-labelledby="using">
       <h2 id="using">Using Cyntch</h2>
       <p>Cyntch helps your household organise tasks, routines and rewards. Keep your sign-in secure and provide accurate account information. Only invite people you are authorised to include, and only add a child’s information if you are their parent or guardian or have the necessary permission.</p>

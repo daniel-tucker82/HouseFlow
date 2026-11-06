@@ -65,7 +65,10 @@ staffed support service has been configured in production by this change.
   large text, rotation and screen-reader labels.
 - Verify the real operational inbox and an actual, reversible moderation action
   using a disposable household. Confirm who monitors it and when.
-- Publish the accurate privacy/terms pages and record terms acceptance before
-  shared content creation. Policy links alone do not record acceptance.
+- Publish the accurate privacy/terms pages, then verify and enable the separate
+  `TERMS_ACCEPTANCE_REQUIRED` gate. Explicit account-bound acceptance is
+  implemented in web/native clients and enforced before shared content creation
+  or joining a household; migration `0044` stores the versioned receipt. Keep the
+  gate off until the matching public terms URL works and both native forms pass.
 - Resolve the IARC private-household classification/age-rating gap truthfully;
   do not mark reporting as available in the store until enabled and verified.

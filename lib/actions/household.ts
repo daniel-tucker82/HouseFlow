@@ -13,6 +13,7 @@ import { enforceRequestLimit } from "@/lib/usage-controls"
 import { ensureCurrentUserRecord } from "@/lib/user-sync"
 import { createManagerNotificationEventInTransaction } from "@/lib/notifications"
 import { dispatchPushForNotificationIds } from "@/lib/push"
+import { requireTermsAcceptance } from "@/lib/terms-consent"
 
 function makeInviteCode() {
   return randomUUID().replaceAll("-", "").slice(0, 12)
@@ -78,6 +79,7 @@ export async function acceptInvite(formData: FormData) {
 export async function acceptInviteByCode(code: string, userId: string) {
   const identity = await auth()
   if (!identity.userId || identity.userId !== userId) throw new EntitlementError("Sign in required", 401)
+  await requireTermsAcceptance(db, userId)
   await enforceRequestLimit(userId, "write")
   const inviteCode = code.trim()
   if (!inviteCode) {

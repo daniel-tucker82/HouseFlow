@@ -29,8 +29,19 @@ See [the operational checklist](../docs/mobile-safety-report-operations.md).
 `SAFETY_REPORTS_ENABLED` remains off in production; no live migration or deployment
 was made. Android/iPhone form inspection and a staffed operational review process
 still need verification. Privacy and terms drafts now describe report handling
-and prohibited content; they remain unpublished. Explicit terms acceptance before
-shared-content creation remains a separate release requirement.
+and prohibited content; they remain unpublished.
+
+Explicit terms acceptance is also implemented behind `TERMS_ACCEPTANCE_REQUIRED`.
+Both web and native apps ask the signed-in account to read the versioned terms
+and actively agree before creating or editing shared content or joining a
+household. The server enforces consent, binds it to the current account, and
+returns the same durable receipt after an interrupted retry. Migration `0044`
+stores acceptance and removes it with account deletion. Task completion and
+offline saving keep their existing path. Five private-database tests cover
+explicit agreement, bounded JSON requests, account/version isolation, concurrent
+retries, native/web enforcement, joining, kiosk locks and deletion cleanup.
+The gate remains off in production. Publish the matching terms page and verify
+the native agreement and reporting forms before enabling these features.
 
 The remaining iOS 17 layout evidence is now complete. Minimum-iPad run
 `42166764904` attempt 2 passed both text sizes; artifact `13480887382` matches
@@ -359,7 +370,8 @@ explicitly requires in-app reporting even for content shared with a specified
 group, plus terms acceptance before creating content. The verified simulator
 binary has policy links but no explicit consent/reporting flow. New reporting
 code is implemented and locally tested behind a closed service gate; device and
-operational checks remain. Explicit terms acceptance still needs implementation.
+operational checks remain. Explicit terms acceptance is implemented behind a
+separate closed gate; actual UI verification and policy publication remain.
 Keep these release gaps open;
 the saved questionnaire is not proof of store compliance. No app release or
 store-review submission has been made.
