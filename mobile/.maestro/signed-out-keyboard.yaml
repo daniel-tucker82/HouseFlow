@@ -24,14 +24,30 @@ env:
     visible:
       id: "clerk.auth.start.identifier"
     timeout: 60000
-- tapOn:
-    id: "clerk.auth.start.identifier"
 # This reserved address is only typed locally. The flow never taps Continue,
 # submits authentication, creates an account or sends an email.
-- inputText: "layout-check@example.invalid"
-- assertVisible:
-    id: "clerk.auth.start.identifier"
-    text: 'layout-check@example\.invalid'
+# A hosted iOS keyboard dropped a character during initial fixture entry. Only
+# this setup may be replaced; every later rotation/retention assertion is strict.
+- retry:
+    maxRetries: 2
+    commands:
+      - tapOn:
+          id: "clerk.auth.start.identifier"
+      - eraseText
+      - inputText: "layout-check@example.invalid"
+      - assertVisible:
+          id: "clerk.auth.start.identifier"
+          text: 'layout-check@example\.invalid'
+      # The iPad can retain its dismissed keyboard between the two text sizes.
+      # Refocus the field once, without changing its value, then require keys.
+      - runFlow:
+          when:
+            notVisible: "^q$"
+          commands:
+            - tapOn:
+                id: "clerk.auth.start.identifier"
+      - assertVisible: "q"
+      - assertVisible: "p"
 # The disposable test images use English keyboards. Require actual keyboard
 # keys so a hardware-keyboard-only run cannot claim software-keyboard coverage.
 - assertVisible: "q"

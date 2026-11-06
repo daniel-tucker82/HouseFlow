@@ -25,7 +25,7 @@ on:
       replay_scope:
         description: Which checks to run when reusing a compiled simulator app
         type: choice
-        options: [notifications, current-devices, minimum-devices, phones, account-deletion, offline, household-resume-member, household-resume-colour]
+        options: [notifications, current-devices, minimum-devices, phones, account-deletion, offline, household-resume-member, household-resume-colour, layout-current-iphone, layout-minimum-iphone-default, layout-current-ipad-large]
         default: notifications
       verify_device_archive:
         description: Build and inspect a device SDK archive without distribution signing or submission
@@ -242,8 +242,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runtime: ${{ fromJSON((inputs.verify_household_phone || inputs.verify_household_deletion || inputs.verify_deletion_phone) && '["current"]' || inputs.simulator_from_run && inputs.replay_scope != 'phones' && (inputs.replay_scope == 'minimum-devices' && '["17.0"]' || '["current"]') || '["current","17.0"]') }}
-        family: ${{ fromJSON((inputs.verify_household_phone || inputs.verify_household_deletion || inputs.verify_deletion_phone) && '["iphone"]' || inputs.simulator_from_run && (inputs.replay_scope == 'notifications' || inputs.replay_scope == 'phones' || inputs.replay_scope == 'account-deletion' || inputs.replay_scope == 'offline') && '["iphone"]' || '["iphone","ipad"]') }}
+        runtime: ${{ fromJSON((inputs.verify_household_phone || inputs.verify_household_deletion || inputs.verify_deletion_phone) && '["current"]' || inputs.simulator_from_run && inputs.replay_scope != 'phones' && ((inputs.replay_scope == 'minimum-devices' || inputs.replay_scope == 'layout-minimum-iphone-default') && '["17.0"]' || '["current"]') || '["current","17.0"]') }}
+        family: ${{ fromJSON(inputs.simulator_from_run && inputs.replay_scope == 'layout-current-ipad-large' && '["ipad"]' || (inputs.verify_household_phone || inputs.verify_household_deletion || inputs.verify_deletion_phone) && '["iphone"]' || inputs.simulator_from_run && (startsWith(inputs.replay_scope, 'layout-') || inputs.replay_scope == 'notifications' || inputs.replay_scope == 'phones' || inputs.replay_scope == 'account-deletion' || inputs.replay_scope == 'offline') && '["iphone"]' || '["iphone","ipad"]') }}
     defaults:
       run:
         working-directory: mobile
@@ -280,12 +280,17 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$CYNTCH_IOS_SIMULATOR_PRODUCER" =~ ^[1-9][0-9]*$ ]]
-          node -e "if (!require('./scripts/native-auth-smoke.cjs').authFixture()) process.exit(1)"
+          if [[ "$CYNTCH_IOS_REPLAY_SCOPE" == layout-* ]]; then
+            node -e "if (!require('../.github/scripts/ios-device-layout-replay.cjs').layoutReplay(process.env.CYNTCH_IOS_REPLAY_SCOPE)) process.exit(1)"
+          else
+            node -e "if (!require('./scripts/native-auth-smoke.cjs').authFixture()) process.exit(1)"
+          fi
           if [[ "$CYNTCH_IOS_REPLAY_SCOPE" == 'account-deletion' ]]; then
             node -e "require('./scripts/native-account-deletion-smoke.cjs').deletionFixture()"
           fi
           meta=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CYNTCH_IOS_SIMULATOR_PRODUCER")
           producer_branch="$GITHUB_REF_NAME"
+          producer_event='workflow_dispatch'
           # This verification-only branch freezes the original mobile runtime
           # while product development proceeds. It may consume only the main
           # native branch's artifact; ancestry and the exact input diff below
@@ -294,8 +299,17 @@ jobs:
             [[ "$CYNTCH_IOS_REPLAY_SCOPE" == 'offline' ]]
             producer_branch='codex/native-mobile-apps'
           fi
-          jq -e --arg repo "$GITHUB_REPOSITORY" --arg branch "$producer_branch" '
-            .event == "workflow_dispatch" and .head_branch == $branch and
+          # Replay only the inspected signed-out failures from this exact push.
+          # No fixture, authentication or household writes are permitted here.
+          if [[ "$GITHUB_REF_NAME" == 'codex/native-ios-release-verification' ]]; then
+            [[ "$CYNTCH_IOS_REPLAY_SCOPE" == layout-* ]]
+            [[ "$CYNTCH_IOS_SIMULATOR_PRODUCER" == '42157109744' ]]
+            [[ "$(jq -r '.head_sha' <<<"$meta")" == '186c049c5230e0db6fc08ea30153cc04d462adf9' ]]
+            producer_branch='codex/native-mobile-apps'
+            producer_event='push'
+          fi
+          jq -e --arg repo "$GITHUB_REPOSITORY" --arg branch "$producer_branch" --arg event "$producer_event" '
+            .event == $event and .head_branch == $branch and
             .head_repository.full_name == $repo and .path == ".github/workflows/native-ios.yml"' <<<"$meta" >/dev/null
           sha=$(jq -r '.head_sha' <<<"$meta")
           [[ "$sha" =~ ^[a-f0-9]{40}$ ]]
@@ -322,7 +336,7 @@ jobs:
           run-id: ${{ inputs.simulator_from_run || github.run_id }}
       - name: Verify bounded offline network controls
         # The interruption helper remains inactive in every other journey.
-        run: node --test ../.github/scripts/ios-device-network.test.cjs ../.github/scripts/ios-device-app.test.cjs
+        run: node --test ../.github/scripts/ios-device-network.test.cjs ../.github/scripts/ios-device-app.test.cjs ../.github/scripts/ios-device-layout-replay.test.cjs
       - name: Verify and unpack the exact compiled app
         run: |
           set -euo pipefail

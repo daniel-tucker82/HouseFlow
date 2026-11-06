@@ -13,6 +13,7 @@ const { householdFixture, runHouseholdSmoke } = require('./native-household-smok
 const { deletionFixture, runAccountDeletionSmoke } = require('./native-account-deletion-smoke.cjs')
 const { runIOSUI, canRetryIOSBootstrap } = require('../../.github/scripts/ios-device-process.cjs')
 const { collectStartupDiagnostics } = require('../../.github/scripts/ios-device-startup-diagnostics.cjs')
+const { layoutReplay } = require('../../.github/scripts/ios-device-layout-replay.cjs')
 
 function hasFlowEvidence(folder) {
   return fs.readdirSync(folder, { withFileTypes: true }).some(entry => entry.isDirectory()
@@ -27,7 +28,9 @@ if (process.argv.length !== 5) throw new Error('Expected simulator app, Maestro 
 const [appPath, maestro, output] = process.argv.slice(2).map(value => path.resolve(value))
 const fixture = authFixture()
 const requestedFamily = process.env.CYNTCH_IOS_TEST_FAMILY
+const requestedRuntime = process.env.CYNTCH_IOS_TEST_RUNTIME
 const replay = process.env.CYNTCH_IOS_REPLAY_SCOPE
+const layoutOnly = layoutReplay(replay)
 const notificationsOnly = replay === 'notifications'
 const deletionOnly = replay === 'account-deletion'
 const offlineOnly = replay === 'offline'
@@ -36,7 +39,7 @@ if (householdOnly) {
   householdFixture()
   if (deletionOnly || offlineOnly || requestedFamily !== 'iphone' || process.env.CYNTCH_IOS_TEST_RUNTIME) throw new Error('Member editing requires its own current iPhone check.')
 }
-if (replay && (!['notifications','current-devices','minimum-devices','phones','account-deletion','offline','household-resume-member','household-resume-colour'].includes(replay) || !fixture || !/^[a-f0-9]{40}$/.test(process.env.CYNTCH_IOS_APP_SHA ?? ''))) throw new Error('Replaying a simulator check requires a verified app and sign-in fixture.')
+if (replay && ((!layoutOnly && (!['notifications','current-devices','minimum-devices','phones','account-deletion','offline','household-resume-member','household-resume-colour'].includes(replay) || !fixture)) || !/^[a-f0-9]{40}$/.test(process.env.CYNTCH_IOS_APP_SHA ?? ''))) throw new Error('Replaying a simulator check requires a verified app and the appropriate fixture.')
 if (replay === 'household-resume-member' && (!householdOnly || process.env.CYNTCH_NATIVE_HOUSEHOLD_RESUME_MEMBER !== 'true')) throw new Error('Select the household member resume explicitly.')
 if (replay === 'household-resume-colour' && (!householdOnly || process.env.CYNTCH_NATIVE_HOUSEHOLD_RESUME_COLOUR !== 'true')) throw new Error('Select the saved-colour resume explicitly.')
 if (offlineOnly && (requestedFamily !== 'iphone' || process.env.CYNTCH_IOS_TEST_RUNTIME || fixture?.email !== 'cyntch-native-20261103+clerk_test@example.com')) throw new Error('Offline verification requires its own current isolated iPhone check.')
@@ -67,7 +70,6 @@ const simctl = (...args) => command('xcrun', ['simctl', ...args])
 const simulatorTextSize = (device, value) => command('xcrun', ['simctl', 'ui', device, 'content_size', ...(value ? [value] : [])], 120_000)
 const inventory = JSON.parse(command('xcrun', ['simctl', 'list', '--json'], 180_000))
 fs.writeFileSync(path.join(output, 'simulator-inventory.json'), JSON.stringify(inventory, null, 2))
-const requestedRuntime = process.env.CYNTCH_IOS_TEST_RUNTIME
 if (requestedRuntime && requestedRuntime !== '17.0') throw new Error('The configured minimum-iOS check requires exactly iOS 17.0.')
 const candidates = inventory.runtimes.filter(runtime => runtime.isAvailable && runtime.identifier.includes('.iOS-'))
   .sort((left, right) => right.version.localeCompare(left.version, 'en', { numeric: true }))
@@ -90,7 +92,7 @@ const devices = requestedRuntime ? ['iPhone 15', 'iPad (10th generation)'].map(n
   available.find(device => device.name === 'iPad (A16)') ?? available.find(device => device.name.startsWith('iPad')),
 ]
 const report = { source: process.env.CYNTCH_IOS_APP_SHA || process.env.GITHUB_SHA, verificationSource: process.env.GITHUB_SHA,
-  scope: deletionOnly ? 'Disposable development account deletion and device recovery' : offlineOnly ? 'Authenticated offline task completion and process restart' : householdOnly ? 'Authenticated household journey only' : notificationsOnly ? 'Authenticated notification permission and Notification Center' : 'Device text sizes and optional household verification',
+  scope: layoutOnly ? `Signed-out layout replay: ${replay}` : deletionOnly ? 'Disposable development account deletion and device recovery' : offlineOnly ? 'Authenticated offline task completion and process restart' : householdOnly ? 'Authenticated household journey only' : notificationsOnly ? 'Authenticated notification permission and Notification Center' : 'Device text sizes and optional household verification',
   configuration: 'Release with local simulator signing', runtime: runtime.name,
   hostArchitecture: process.arch, runtimeVersion: runtime.version, requestedRuntime: requestedRuntime ?? 'latest installed', devices: [], passed: false }
 const save = () => fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify(report, null, 2))
@@ -147,7 +149,7 @@ for (const [index, template] of devices.entries()) {
     // Do not block the first UI action on a screenshot of a cold simulator.
     // The journeys require their own rendered evidence; finally also records
     // the visible screen if a journey fails before reaching an assertion.
-    for (const contentSize of (notificationsOnly || deletionOnly || householdOnly || offlineOnly ? [] : ['large', 'accessibility-extra-large'])) {
+    for (const contentSize of (layoutOnly?.contentSizes ?? (notificationsOnly || deletionOnly || householdOnly || offlineOnly ? [] : ['large', 'accessibility-extra-large']))) {
       const caseFolder = path.join(folder, contentSize === 'large' ? 'default-text' : 'large-text')
       fs.mkdirSync(caseFolder, { recursive: true })
       const textResult = { contentSize, passed: false }
