@@ -100,8 +100,19 @@ APK without rebuilding. It requires the recorded digest/signing identity,
 producer ancestry and unchanged app source, then installs only on a fresh owned
 API 36 emulator. The existing signed-out flow checks native authentication UI,
 portrait/landscape and restart; it does not sign in or alter household data.
-Device evidence is still pending. The local machine had less than 400 MB free
-memory, so no additional emulator was started there.
+Run `42152348626` (`38a6edf`) now passes on the fresh API 36 emulator. Artifact
+`13473376814` matched SHA-256
+`03f1cd26f3faa37c8a4ead3180efba1537fe53b75c98c86d08ebc6101f165824`.
+Installation, native sign-in forms, portrait/landscape, dismissal and restart
+passed with all eight required captures. The portrait and landscape native
+forms, scrolled landscape actions and restarted welcome screen were visually
+inspected. Both sign-in actions are fully reachable through the landscape
+scroll area. The crash buffer was empty, with no Cyntch ANR detected.
+Evidence: `C:/Users/danie/.codex/tmp/cyntch-heartbeat-13473376814/result.json`.
+Do not repeat this unchanged journey. This does not establish authenticated
+provider delivery, physical-device performance or store release. The local
+machine had less than 400 MB free memory, so no additional emulator was started
+there.
 
 The owner explicitly approved a dedicated `Cyntch Expo Push` service account,
 Firebase Cloud Messaging permissions, one private key and upload to the linked
