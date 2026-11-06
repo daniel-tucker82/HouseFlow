@@ -20,8 +20,13 @@ inspected: the target was at y=842–894 on an 874-point screen, and the network
 was restored explicitly. No completion was recorded; the original household,
 task/version and all 15 earlier receipts remain unchanged. The corrected flows
 centre the task after status-banner changes. Isolated harness branch
-`codex/native-ios-offline-verification`, commit `4c43abf`, retains compatibility
-with app `42022301424` and has been dispatched without rebuilding it. Preserve
+`codex/native-ios-offline-verification`, commit `217af4b`, retains compatibility
+with app `42022301424`; run `42140542799` passed the source and artifact guards
+and is running the journey without rebuilding the app. Its first run,
+`42139884472`, stopped before download at the producer-branch guard (artifact
+`13466751841`, no simulator created). Only the named offline harness now accepts
+the original native branch's producer; ancestry, runtime inputs, digest,
+signature and architecture checks are unchanged. Preserve
 the one-time baseline; inspect evidence before retrying. The older binary does
 not contain policy-link changes in `5377c39`.
 
