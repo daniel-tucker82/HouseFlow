@@ -3,6 +3,12 @@ appId: com.cyntch.app
 - extendedWaitUntil:
     visible: "You’re offline. You can still complete saved tasks."
     timeout: 60000
+# The offline banner changes the list viewport after prepare. Locate and centre
+# the checkbox again so the tap cannot land beneath the bottom navigation.
+- scrollUntilVisible:
+    element: "^Android offline verification,.*"
+    direction: DOWN
+    centerElement: true
 - tapOn:
     text: "^Android offline verification,.*"
     checked: false
@@ -10,6 +16,7 @@ appId: com.cyntch.app
 - scrollUntilVisible:
     element: "^Android offline verification,.*"
     direction: DOWN
+    centerElement: true
 - assertVisible:
     text: "^Android offline verification,.*"
     checked: true

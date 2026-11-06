@@ -10,6 +10,7 @@ appId: com.cyntch.app
 - scrollUntilVisible:
     element: "^Android offline verification,.*"
     direction: DOWN
+    centerElement: true
 - assertVisible:
     text: "^Android offline verification,.*"
     checked: true
