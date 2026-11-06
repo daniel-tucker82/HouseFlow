@@ -1,7 +1,9 @@
 appId: com.cyntch.app
 name: Request Android notification permission through the actual system dialog
 ---
-- launchApp
+- launchApp:
+    permissions:
+      notifications: unset
 - setOrientation: PORTRAIT
 - runFlow: ../../mobile/.maestro-auth/verify-household.yaml
 - tapOn: "(?i)^Settings(,.*)?$"

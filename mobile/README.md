@@ -143,8 +143,8 @@ Screenshots `cyntch-google-policy-restored.png` and
 key marker is `cyntch-fcm-key-creation-once.json`. This verifies credential
 configuration, not actual provider delivery; an isolated real-push test remains.
 
-Real Android delivery run `42158233197` is now in progress on isolated branch
-`codex/native-android-push-verification` (`697877c`). It reuses the exact signed
+Real Android delivery run `42159026771` is now in progress on isolated branch
+`codex/native-android-push-verification` (`31f9f18`). It reuses the exact signed
 APK and retains digest, signing, producer ancestry and complete app compatibility
 checks. The new emulator signs in to the existing disposable identity, requests
 permission through Android's actual dialog, backgrounds the app, then checks the
@@ -156,11 +156,22 @@ actual Expo provider adapter but a synthetic, clearly labelled test message.
 It only reads the isolated database, requires exactly one newly registered Android
 device for the test identity and unchanged original data/existing devices, and
 records a one-time marker before sending. It never automatically repeats a send.
-The bounded worker is PID `15408`, ending at 04:13 UTC on 6 November. Inspect
-`cyntch-android-push-provider-27c85274.json`, its worker log/error files and the
-run's artifacts before any retry. Never overwrite the baseline
-`cyntch-android-push-baseline-27c85274.json` or the send marker. This transport test
-does not verify domain-event expansion or change the production push gate.
+The bounded corrected-attempt worker is PID `45096`, ending at 04:21 UTC on
+6 November, using `CYNTCH_PUSH_ATTEMPT=27c85274b`. Inspect
+`cyntch-android-push-provider-27c85274b.json`, its worker log/error files and the
+run's artifacts before any retry. Never overwrite either attempt's baseline or
+send marker. This transport test does not verify domain-event expansion or
+change the production push gate.
+
+First run `42158233197` authenticated and registered a token, but artifact
+`13475697488` showed Maestro's default launch had automatically granted permission
+before the intended prompt. The failed capture was inspected and the sender
+stopped before any send; its one-time send marker does not exist. The corrected
+flow explicitly uses `notifications: unset`. Its new baseline preserves all 52
+older device rows plus the first run's device, the original household and all 19
+completion receipts. No original baseline was replaced and no notification was
+resent. The first device is `cc88265c-80ba-43e9-9c88-90dce89e928f`; it is excluded
+from the corrected sender's candidate set.
 
 ### Android packaged-permission audit (6 November 2026)
 
@@ -178,10 +189,35 @@ configuration checks and workflow/script validation passed. Evidence is
 `C:/Users/danie/.codex/tmp/cyntch-permission-introspection-evidence.json`.
 The Android build workflow now checks the final merged APK, rejecting unnecessary
 permissions and missing required capabilities. That checker correctly rejects
-the old signed APK. The old APK is unchanged; a compiled APK from this source
-still needs to pass the new check. No new EAS build is needed just for FCM setup.
-Native checks for this source are Android `42157109810` and iOS `42157109744`;
-both were compiling at the last inspection. Do not dispatch duplicate builds.
+the old signed APK. New Android run `42157109810` passed compilation and all four
+device jobs (phone, tablet, foldable and minimum API 24). Build artifact
+`13474849073` was downloaded and verified; its APK SHA-256 is
+`11d96e5f0a38ec9561995dd0b3e9b0608a070e9663fc20f20f4997791b851bd4`.
+The local final-manifest inspection confirms all three unnecessary permissions
+are absent and all required capabilities remain. Evidence:
+`C:/Users/danie/.codex/tmp/cyntch-android-permissions-186c049-evidence.json`.
+Phone, foldable and minimum-API artifacts also report success. The original signed
+EAS APK is unchanged. iOS `42157109744` was still compiling at last inspection;
+do not dispatch another build.
+
+### Store account and packaged iOS privacy inventory
+
+Google Play Console shows initial developer signup for the business Google
+account. The owner agreed to complete organisation enrollment; the signup page
+is open. Do not submit registration, agreements or payment on the owner's behalf.
+Apple Developer enrollment is also still outstanding.
+
+The already-built iPhone archive from `41950126236` was reused for a privacy
+inventory, with no rebuild. Its recorded ZIP digest matched. All 20 packaged
+privacy manifests and the app plist parsed: each manifest declares no tracking;
+the app's required-reason entries cover UserDefaults, file timestamps and system
+boot time, and Expo FileSystem also declares disk-space access. The app plist
+contains the Face ID explanation and background fetch/processing modes.
+Clerk and RevenueCat declare their SDK data categories; these are inputs to the
+store disclosures, not proof that every optional SDK category is used by Cyntch.
+The inventory is `C:/Users/danie/.codex/tmp/cyntch-ios-privacy-audit-4f466ae/report.json`.
+Store privacy forms still need to reflect actual enabled features and providers;
+this inventory is not a store-compliance or submission result.
 
 Further release work needs Apple/store access, iOS signing and push credentials,
 actual store/RevenueCat catalogs and sandbox checks,
