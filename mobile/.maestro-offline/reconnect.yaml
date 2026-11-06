@@ -8,22 +8,16 @@ appId: com.cyntch.app
     element: "^Android offline verification,.*"
     direction: DOWN
     centerElement: true
-- assertVisible:
-    text: "^Android offline verification,.*"
-    checked: true
+- assertVisible: "^Open details: Android offline verification,.*[.] Completed$"
 - takeScreenshot: offline-completion-synced
 # Restore the disposable task through the app, requiring acknowledgement again.
-- tapOn:
-    text: "^Android offline verification,.*"
-    checked: true
+- tapOn: "^Android offline verification,.*"
 # Reopening moves the task back among the ready tasks, above completed ones.
 - scrollUntilVisible:
     element: "^Android offline verification,.*"
     direction: UP
     centerElement: true
-- assertVisible:
-    text: "^Android offline verification,.*"
-    checked: false
+- assertVisible: "^Open details: Android offline verification,.*[.] Ready$"
 - extendedWaitUntil:
     notVisible: ".*change saved on this device.*"
     timeout: 60000
@@ -37,9 +31,7 @@ appId: com.cyntch.app
     element: "^Android offline verification,.*"
     direction: DOWN
     centerElement: true
-- assertVisible:
-    text: "^Android offline verification,.*"
-    checked: false
+- assertVisible: "^Open details: Android offline verification,.*[.] Ready$"
 - assertNotVisible: ".*change saved on this device.*"
 - takeScreenshot: offline-task-restored-after-restart
 - stopApp
