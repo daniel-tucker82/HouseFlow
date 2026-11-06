@@ -54,11 +54,13 @@ test('service-account credentials are rejected without disclosing their contents
   assert.match(result.output, /never a service-account private key/)
   assert.doesNotMatch(result.output, /PRIVATE_FIXTURE_DO_NOT_LOG/)
 })
-test('dynamic config preserves existing native settings and only adds the supplied file path', () => {
+test('development config preserves native settings and only adds the supplied file path', () => {
   const configure = require('../app.config.js')
   const config = { ...require('../app.json').expo, extra: { eas: { projectId: 'preserved-fixture' } } }
   const previous = process.env.GOOGLE_SERVICES_JSON
+  const previousProfile = process.env.EAS_BUILD_PROFILE
   try {
+    process.env.EAS_BUILD_PROFILE = 'development'
     delete process.env.GOOGLE_SERVICES_JSON
     assert.deepEqual(configure({ config }), config)
     process.env.GOOGLE_SERVICES_JSON = '/builder/client-config.json'
@@ -67,6 +69,8 @@ test('dynamic config preserves existing native settings and only adds the suppli
   } finally {
     if (previous === undefined) delete process.env.GOOGLE_SERVICES_JSON
     else process.env.GOOGLE_SERVICES_JSON = previous
+    if (previousProfile === undefined) delete process.env.EAS_BUILD_PROFILE
+    else process.env.EAS_BUILD_PROFILE = previousProfile
   }
 })
 test('production requires both policy links; other builds may omit links but cannot supply unsafe URLs', () => {

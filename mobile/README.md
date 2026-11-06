@@ -4,7 +4,7 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
-Current release checkpoint, 6 November 2026: approximately 87% of the
+Current release checkpoint, 6 November 2026: approximately 88% of the
 overall goal is complete. Ordinary household controls pass on both platforms;
 private Android household deletion and private iPhone account deletion now have
 native, database and provider preservation evidence. The public deletion-request
@@ -119,30 +119,48 @@ Firebase Cloud Messaging permissions, one private key and upload to the linked
 Expo project. Google Cloud account access is now verified. The new account is
 `cyntch-expo-push@cyntch-2358a.iam.gserviceaccount.com`, unique ID
 `113822402981762529819`, with the Firebase Cloud Messaging API Admin role.
-The single key-generation attempt was rejected by the enforced organisation
-policy `iam.disableServiceAccountKeyCreation`. No key was downloaded or uploaded;
-EAS still reports no FCM V1 credential. The organisation policy was not changed.
-Evidence: `C:/Users/danie/.codex/tmp/cyntch-fcm-key-creation-once.json`.
-Inspect the policy and resolve an appropriately scoped exception before any
-further key-generation attempt; do not create another service account.
+The initial key-generation attempt was rejected by the enforced legacy
+`iam.disableServiceAccountKeyCreation` constraint; it created no key. After the
+owner explicitly approved the temporary access and project-only exception,
+Chrome was restarted and the existing state was checked again. A temporary
+Organisation Policy Administrator role was added to the existing owner, and
+only project `cyntch-2358a` temporarily overrode the legacy constraint. The
+organisation policy itself and the newer managed constraint were unchanged.
 
-Read-only policy inspection confirmed that Cyntch inherits the enforced legacy
-constraint; the newer `iam.managed.disableServiceAccountKeyCreation` constraint
-is not enforced. Both Manage policy controls are disabled. At organisation
-`nexusaspyre.com` (`798037574911`), the signed-in owner has Organisation
-Administrator but lacks Organisation Policy Administrator. The existing
-principal's role editor is open for review; no role or policy change was saved.
-The owner explicitly approved a temporary policy-admin role, a Cyntch-only
-key-creation exception, the already-approved single key/upload, restoration of
-the inherited ban and removal of the temporary role. Applying it is waiting for
-the owner to restart work Chrome after browser/native control timeouts. No Save
-action was attempted; no role, policy or key change was applied. Approval remains
-valid when the connection recovers; inspect the actual state before continuing.
-The restoration journal is `cyntch-google-policy-exception-20261106.json`.
-Do not change the whole
-organisation's enforcement or repeat key creation before resolving this gate.
-Screenshots: `cyntch-google-policy-project-blocked.png` and
-`cyntch-google-org-role-editor.png` in the local evidence directory.
+Exactly one JSON key was then created for the existing dedicated account. Before
+uploading it, Cyntch's original inherited policy was restored and verified as
+Enforced, and the temporary role was removed. The owner again has only the
+original Organisation Administrator role. EAS CLI confirmed the key was uploaded
+and assigned to `com.cyntch.app` for FCM V1 in `@aspyre/cyntch`, with the correct
+project, client email, client ID and key ID. The local downloaded key was removed
+after that confirmation. No private credential was committed or embedded in the
+app. Do not create another account or key, or reopen the exception.
+
+The completed restoration journal is
+`C:/Users/danie/.codex/tmp/cyntch-google-policy-exception-20261106.json`.
+Screenshots `cyntch-google-policy-restored.png` and
+`cyntch-google-role-restored.png` show the restored protections. The one-time
+key marker is `cyntch-fcm-key-creation-once.json`. This verifies credential
+configuration, not actual provider delivery; an isolated real-push test remains.
+
+### Android packaged-permission audit (6 November 2026)
+
+The signed preview's merged manifest included unused shared-storage and overlay
+permissions inherited from native dependencies and the Expo template. The app
+uses private SQLite/cache storage and does not need shared storage or drawing
+over other apps. Expo configuration now excludes READ/WRITE_EXTERNAL_STORAGE in
+all profiles and SYSTEM_ALERT_WINDOW in distributed preview/production builds;
+development overlay tooling remains available. Notification, biometric parent
+access, background work and billing permissions remain required.
+
+Actual Expo manifest introspection passed for development, preview and production,
+with the expected manifest-removal directives. Mobile lint/type checks, six build
+configuration checks and workflow/script validation passed. Evidence is
+`C:/Users/danie/.codex/tmp/cyntch-permission-introspection-evidence.json`.
+The Android build workflow now checks the final merged APK, rejecting unnecessary
+permissions and missing required capabilities. That checker correctly rejects
+the old signed APK. The old APK is unchanged; a compiled APK from this source
+still needs to pass the new check. No new EAS build is needed just for FCM setup.
 
 Further release work needs Apple/store access, iOS signing and push credentials,
 actual store/RevenueCat catalogs and sandbox checks,

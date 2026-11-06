@@ -13,6 +13,7 @@ on:
       - lib/types.ts
       - .github/workflows/native-android.yml
       - .github/scripts/android-notification-icon.cjs
+      - .github/scripts/android-release-permissions.cjs
   workflow_dispatch:
     inputs:
       foldable_from_run:
@@ -79,6 +80,8 @@ jobs:
     env:
       CI: '1'
       EXPO_NO_DOTENV: '1'
+      # Match the permission exclusions in distributed Android builds.
+      EAS_BUILD_PROFILE: preview
       # Public development identifier; optional sign-in uses a reserved test code.
       EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ZW1lcmdpbmctdG9hZC05OC5jbGVyay5hY2NvdW50cy5kZXYk
       EXPO_PUBLIC_API_URL: ${{ inputs.fixture_url || 'https://cyntch-simulator.invalid' }}
@@ -149,6 +152,7 @@ jobs:
           test "$(unzip -p "$apk" assets/index.android.bundle | wc -c)" -gt 0
           aapt=$(find "$ANDROID_HOME/build-tools" -name aapt2 -type f | sort -V | tail -1)
           node ../../.github/scripts/android-notification-icon.cjs "$aapt" "$apk"
+          node ../../.github/scripts/android-release-permissions.cjs "$aapt" "$apk"
           mkdir -p "$RUNNER_TEMP/cyntch-android-apk"
           cp "$apk" "$RUNNER_TEMP/cyntch-android-apk/cyntch-emulator-test-signed.apk"
           sha256sum "$RUNNER_TEMP/cyntch-android-apk/cyntch-emulator-test-signed.apk" > "$RUNNER_TEMP/cyntch-android-apk/sha256.txt"
