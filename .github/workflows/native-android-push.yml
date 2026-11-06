@@ -21,6 +21,7 @@ jobs:
     timeout-minutes: 35
     env:
       MAESTRO_CLI_NO_ANALYTICS: '1'
+      CYNTCH_ANDROID_BANNER_ONLY: 'true'
       EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ZW1lcmdpbmctdG9hZC05OC5jbGVyay5hY2NvdW50cy5kZXYk
       EXPO_PUBLIC_API_URL: https://a644-203-221-238-141.ngrok-free.app
       CYNTCH_NATIVE_TEST_EMAIL: cyntch-native-20261103+clerk_test@example.com
