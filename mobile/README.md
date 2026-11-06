@@ -4,7 +4,7 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
-Current release checkpoint, 6 November 2026: approximately 91% of the
+Current release checkpoint, 7 November 2026 (Sydney): approximately 91% of the
 overall goal is complete. Ordinary household controls pass on both platforms;
 private Android household deletion and private iPhone account deletion now have
 native, database and provider preservation evidence. The public deletion-request
@@ -35,7 +35,9 @@ its inner app ZIP digest was checked separately. Reuse it with replay scope
 `safety` after the separate iOS fixture is reachable. No iPhone reporting journey
 has been dispatched. Preserve runtime, producer, digest and architecture guards.
 
-The owner is away; RevenueCat sign-in and owner-only setup can wait. Automatic
+RevenueCat sign-up and email verification are now complete. Its saved Android
+app and restore settings are recorded below; scoped credential approvals remain
+pending. Apple enrollment and actual store purchases remain outstanding. Automatic
 approval review rejected stopping the existing Android test server, then rejected
 starting a separate iOS gateway, each with only `blocked by policy`. Both commands
 were rejected before execution. Do not retry either action through another tool.
@@ -432,6 +434,15 @@ Keep these release gaps open;
 the saved questionnaire is not proof of store compliance. No app release or
 store-review submission has been made.
 
+The owner approved the prepared Google Play classification question, and it was
+submitted once on 7 November (Sydney). Google confirmed a support ticket and
+email response within two working days; the ticket is pending with case ID
+pending. An initial AI-generated recommendation was escalated to a support
+specialist; it is not a binding rating determination. Do not resend this question
+or change the factual IARC answers on the basis of the automated response alone.
+Evidence: `cyntch-play-rating-support-submission-20261107.json` and
+`cyntch-play-rating-support-submitted-20261107.png` in the local evidence folder.
+
 The already-built iPhone archive from `41950126236` was reused for a privacy
 inventory, with no rebuild. Its recorded ZIP digest matched. All 20 packaged
 privacy manifests and the app plist parsed: each manifest declares no tracking;
@@ -470,7 +481,8 @@ do not remove the current web deletion option before its replacement is live.
 No provider setting was changed. Evidence screenshots are
 `cyntch-clerk-production-profile-readonly.png` and
 `cyntch-clerk-production-native-readonly.png` in the local evidence directory.
-RevenueCat is waiting for owner sign-in; the owner is away, so defer that handoff.
+RevenueCat is signed in and its business email is confirmed; no further sign-in
+handoff is needed. See the saved provider configuration below.
 The local store preparation file `cyntch-store-preparation-20261106.json` contains
 validated listing copy, an actual-app screenshot plan and a source-backed data
 inventory. It is a draft, not an uploaded listing or submitted privacy declaration.
@@ -478,14 +490,72 @@ inventory. It is a draft, not an uploaded listing or submitted privacy declarati
 current-offering/package mapping, original-household restore settings, signed
 webhook configuration and a twelve-case sandbox verification plan. Proposed
 Australian prices carry forward the existing $5.99 monthly/$49.99 yearly web
-policy; actual store prices must still be verified. Provider-assigned identifiers
-remain empty, so the draft cannot be mistaken for configured billing. No product,
-paid provider plan, integration or purchase was created.
+policy; actual store prices must still be verified. The newer
+`cyntch-revenuecat-setup-evidence-20261107.json` records actual project/app/catalog
+identifiers and supersedes the earlier draft's proposed offering and entitlement
+names. Store product mappings and credentials remain incomplete; do not install
+the draft as enabled billing configuration. No paid provider plan, store product,
+Google credential upload, webhook integration or purchase was created.
 The owner authorised selecting the policy URLs and contact. The selected URLs
 are `https://www.cyntch.com/legal/privacy` and `https://www.cyntch.com/legal/terms`;
 the existing business inbox is `daniel@nexusaspyre.com`. Physical-device accessibility and
 performance checks, real provider push, store billing, production rollout and
 household pilot results remain unverified. No store submission has been made.
+
+### RevenueCat setup, 7 November 2026
+
+Reused the owner's existing Cyntch project rather than creating another one.
+The dashboard ID is `62598710`; the API V2 project identifier is `proj62598710`.
+The latter belongs in server configuration. Email verification completed through
+the existing business inbox. Android app `appa0503aedb2`, named
+`Cyntch (Play Store)`, is saved with package `com.cyntch.app`; its service-account
+credential field is empty. Its automatically assigned public SDK key has not
+been copied into an environment. Evidence screenshots:
+`cyntch-revenuecat-android-saved-20261107.png` and
+`cyntch-revenuecat-email-confirmed-20261107.png`.
+
+Restore behavior is saved as **Keep with original App User ID**. The separate
+sandbox override is off, so sandbox uses the same behavior. This preserves the
+server-generated household billing identity. Screenshot:
+`cyntch-revenuecat-restore-settings-20261107.png`.
+
+The existing default offering `default` (`ofrng02e10b7621`) contains monthly and
+annual packages. Both currently point only to onboarding Test Store products:
+`monthly` (`prod10e71b0a67`) and `yearly` (`prodcebde881c8`). Existing entitlement
+`cyntch_pro` (`entld3f72f3cbf`) links those products. Preserve these existing
+objects and add verified real-store mappings when available; do not duplicate
+them to match the earlier proposed names. Test Store app `appc030f85c93` and its
+products are not evidence of Google Play or Apple purchases.
+
+The iOS app form could not save without a real in-app purchase key, key ID and
+issuer UUID. No iOS app entry was created. Apple Developer enrollment and those
+credentials are prerequisites; never substitute invented identifiers.
+Screenshot: `cyntch-revenuecat-ios-key-required-20261107.png`.
+
+A V2 secret-key form is prepared with customer read/write (account erasure),
+subscription read and purchase read; all unrelated permissions remain off.
+Generation is pending the scoped browser security approval. No secret exists
+from this attempt. Keep it server-only if approved. The V1 grace-period lookup
+credential still needs validation; do not generate a broad V1 key by default.
+
+Separate Google billing access is also prepared, not submitted. Proposed account:
+`cyntch-revenuecat@cyntch-2358a.iam.gserviceaccount.com`, with Pub/Sub Editor and
+Monitoring Viewer only in Cyntch. The Play invitation draft grants only Cyntch
+app/quality read, financial read, and order/subscription management. Store
+presence was deliberately excluded because Google also grants policy-declaration
+access with it; manage products directly in Play instead. Neither app-release
+nor account-wide permissions are selected. No account, invite, role, key or
+policy change has been saved for this connection. The pending approval includes
+the three required APIs, one JSON key uploaded only to Cyntch in RevenueCat,
+and a temporary Cyntch-only key-creation exception with full rollback. Keep this
+separate from the completed Expo push setup. Recheck the original policy and role
+state before any approved exception and record rollback in its own journal.
+
+Browser handoffs: prepared RevenueCat key tab `1292242447`, Google service-account
+form `1292242475`, and Play invitation `1292242478`, all in Chrome browser `3`.
+The approved settings do not enable purchases: real credentials, store products,
+signed webhook delivery, sandbox lifecycle checks and production release gates
+remain unfinished.
 
 ### Public policies prepared on 6 November 2026
 
