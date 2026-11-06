@@ -285,7 +285,16 @@ jobs:
             node -e "require('./scripts/native-account-deletion-smoke.cjs').deletionFixture()"
           fi
           meta=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CYNTCH_IOS_SIMULATOR_PRODUCER")
-          jq -e --arg repo "$GITHUB_REPOSITORY" --arg branch "$GITHUB_REF_NAME" '
+          producer_branch="$GITHUB_REF_NAME"
+          # This verification-only branch freezes the original mobile runtime
+          # while product development proceeds. It may consume only the main
+          # native branch's artifact; ancestry and the exact input diff below
+          # still apply, as do digest, signature and architecture checks.
+          if [[ "$GITHUB_REF_NAME" == 'codex/native-ios-offline-verification' ]]; then
+            [[ "$CYNTCH_IOS_REPLAY_SCOPE" == 'offline' ]]
+            producer_branch='codex/native-mobile-apps'
+          fi
+          jq -e --arg repo "$GITHUB_REPOSITORY" --arg branch "$producer_branch" '
             .event == "workflow_dispatch" and .head_branch == $branch and
             .head_repository.full_name == $repo and .path == ".github/workflows/native-ios.yml"' <<<"$meta" >/dev/null
           sha=$(jq -r '.head_sha' <<<"$meta")
