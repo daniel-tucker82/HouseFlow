@@ -1,0 +1,17 @@
+appId: com.cyntch.app
+---
+- runFlow: open-saved.yaml
+- scrollUntilVisible:
+    element: "You are offline. A submitted report will be sent when Cyntch is open and connected."
+    direction: DOWN
+    centerElement: true
+- extendedWaitUntil:
+    visible: "You are offline. A submitted report will be sent when Cyntch is open and connected."
+    timeout: 60000
+- scrollUntilVisible:
+    element: "Submit report"
+    direction: DOWN
+    centerElement: true
+- tapOn: "Submit report"
+- assertVisible: "Saved on this device. Waiting for confirmation from Cyntch."
+- takeScreenshot: report-pending-offline

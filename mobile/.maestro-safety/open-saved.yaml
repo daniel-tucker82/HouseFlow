@@ -1,0 +1,7 @@
+appId: com.cyntch.app
+---
+- scrollUntilVisible:
+    element: "Open saved report"
+    direction: DOWN
+    centerElement: true
+- tapOn: "Open saved report"

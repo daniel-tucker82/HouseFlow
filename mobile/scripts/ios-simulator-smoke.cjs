@@ -10,6 +10,7 @@ const { runOfflineSmoke } = require('./ios-offline-smoke.cjs')
 const { runKioskSmoke } = require('./native-kiosk-smoke.cjs')
 const { runNotificationPreferencesSmoke } = require('./native-notification-preferences-smoke.cjs')
 const { householdFixture, runHouseholdSmoke } = require('./native-household-smoke.cjs')
+const { safetyFixture, runSafetySmoke } = require('./native-safety-smoke.cjs')
 const { deletionFixture, runAccountDeletionSmoke } = require('./native-account-deletion-smoke.cjs')
 const { runIOSUI, canRetryIOSBootstrap } = require('../../.github/scripts/ios-device-process.cjs')
 const { collectStartupDiagnostics } = require('../../.github/scripts/ios-device-startup-diagnostics.cjs')
@@ -34,12 +35,17 @@ const layoutOnly = layoutReplay(replay)
 const notificationsOnly = replay === 'notifications'
 const deletionOnly = replay === 'account-deletion'
 const offlineOnly = replay === 'offline'
+const safetyOnly = replay === 'safety'
+if (safetyOnly) {
+  safetyFixture()
+  if (requestedFamily !== 'iphone' || requestedRuntime) throw new Error('Safety verification requires its own current iPhone.')
+}
 const householdOnly = process.env.CYNTCH_NATIVE_HOUSEHOLD_CHECK === 'true'
 if (householdOnly) {
   householdFixture()
   if (deletionOnly || offlineOnly || requestedFamily !== 'iphone' || process.env.CYNTCH_IOS_TEST_RUNTIME) throw new Error('Member editing requires its own current iPhone check.')
 }
-if (replay && ((!layoutOnly && (!['notifications','current-devices','minimum-devices','phones','account-deletion','offline','household-resume-member','household-resume-colour'].includes(replay) || !fixture)) || !/^[a-f0-9]{40}$/.test(process.env.CYNTCH_IOS_APP_SHA ?? ''))) throw new Error('Replaying a simulator check requires a verified app and the appropriate fixture.')
+if (replay && ((!layoutOnly && (!['notifications','current-devices','minimum-devices','phones','account-deletion','offline','safety','household-resume-member','household-resume-colour'].includes(replay) || !fixture)) || !/^[a-f0-9]{40}$/.test(process.env.CYNTCH_IOS_APP_SHA ?? ''))) throw new Error('Replaying a simulator check requires a verified app and the appropriate fixture.')
 if (replay === 'household-resume-member' && (!householdOnly || process.env.CYNTCH_NATIVE_HOUSEHOLD_RESUME_MEMBER !== 'true')) throw new Error('Select the household member resume explicitly.')
 if (replay === 'household-resume-colour' && (!householdOnly || process.env.CYNTCH_NATIVE_HOUSEHOLD_RESUME_COLOUR !== 'true')) throw new Error('Select the saved-colour resume explicitly.')
 if (offlineOnly && (requestedFamily !== 'iphone' || process.env.CYNTCH_IOS_TEST_RUNTIME || fixture?.email !== 'cyntch-native-20261103+clerk_test@example.com')) throw new Error('Offline verification requires its own current isolated iPhone check.')
@@ -149,7 +155,7 @@ for (const [index, template] of devices.entries()) {
     // Do not block the first UI action on a screenshot of a cold simulator.
     // The journeys require their own rendered evidence; finally also records
     // the visible screen if a journey fails before reaching an assertion.
-    for (const contentSize of (layoutOnly?.contentSizes ?? (notificationsOnly || deletionOnly || householdOnly || offlineOnly ? [] : ['large', 'accessibility-extra-large']))) {
+    for (const contentSize of (layoutOnly?.contentSizes ?? (notificationsOnly || deletionOnly || householdOnly || offlineOnly || safetyOnly ? [] : ['large', 'accessibility-extra-large']))) {
       const caseFolder = path.join(folder, contentSize === 'large' ? 'default-text' : 'large-text')
       fs.mkdirSync(caseFolder, { recursive: true })
       const textResult = { contentSize, passed: false }
@@ -207,7 +213,7 @@ for (const [index, template] of devices.entries()) {
       stage('authenticated-household')
       result.authentication = runAuthenticatedSmoke({ maestro, device: ownedDevice, output: path.join(folder, 'authenticated'),
         orientations: { portrait: 'PORTRAIT', landscape: 'LANDSCAPE_LEFT' }, fixture,
-        verifySessionJourney: !(householdOnly || deletionOnly || offlineOnly) })
+        verifySessionJourney: !(householdOnly || deletionOnly || offlineOnly || safetyOnly), deferTerms: safetyOnly })
     }
     if (result.authentication && !result.authentication.passed) throw new Error(result.authentication.error)
     if (result.authentication?.passed && label === 'ipad' && !requestedRuntime) {
@@ -241,6 +247,12 @@ for (const [index, template] of devices.entries()) {
       stage('offline-completion-and-process-restart')
       result.offline = runOfflineSmoke({ maestro, device: ownedDevice, output: path.join(folder, 'offline') })
       if (!result.offline.passed) throw new Error(result.offline.error)
+    }
+    if (result.authentication?.passed && safetyOnly) {
+      stage('private-reporting-and-terms')
+      result.safety = runSafetySmoke({ maestro, device: ownedDevice, output: path.join(folder, 'safety'),
+        orientations: { portrait: 'PORTRAIT', landscape: 'LANDSCAPE_LEFT' } })
+      if (!result.safety.passed) throw new Error(result.safety.error)
     }
     if (result.runs.some(run => !run.passed)) throw new Error('Simulator flow failed at one or more text sizes.')
     result.passed = true

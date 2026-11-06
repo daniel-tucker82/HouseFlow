@@ -32,7 +32,7 @@ function exactTextPattern(value) {
   return '^' + value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$'
 }
 
-function runAuthenticatedSmoke({ maestro, device, output, orientations, fixture, verifySessionJourney = true }) {
+function runAuthenticatedSmoke({ maestro, device, output, orientations, fixture, verifySessionJourney = true, deferTerms = false }) {
   fs.mkdirSync(output, { recursive: true })
   const result = { source: process.env.CYNTCH_IOS_APP_SHA || process.env.CYNTCH_ANDROID_APP_SHA || process.env.GITHUB_SHA, origin: fixture.origin,
     scope: verifySessionJourney ? 'Native email-code sign-in, household/task loading, rotation and session persistence after restart.'
@@ -52,6 +52,7 @@ function runAuthenticatedSmoke({ maestro, device, output, orientations, fixture,
           '-e', `PORTRAIT_ORIENTATION=${orientations.portrait}`,
           '-e', `LANDSCAPE_ORIENTATION=${orientations.landscape}`, '--test-output-dir', attemptFolder, '--debug-output', attemptFolder,
           '-e', `VERIFY_SESSION_JOURNEY=${verifySessionJourney ? 'true' : 'false'}`,
+          '-e', `DEFER_TERMS=${deferTerms ? 'true' : 'false'}`,
           path.resolve('.maestro-auth/household.yaml')], { stdio: ['ignore', log, log],
           timeout: !ios ? 300_000 : process.env.CYNTCH_IOS_TEST_RUNTIME === '17.0' ? 720_000 : 540_000, env: process.env })
       } finally { fs.closeSync(log) }

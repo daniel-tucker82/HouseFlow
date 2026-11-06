@@ -40,6 +40,10 @@ on:
         description: Build once and verify members, invitations and deletion review on the isolated phone
         type: boolean
         default: false
+      verify_safety_phone:
+        description: Verify terms and durable reporting only in the attested private safety fixture
+        type: boolean
+        default: false
       verify_household_deletion:
         description: Delete only the explicitly attested private-schema household (never repeat submission)
         type: boolean
@@ -108,6 +112,7 @@ jobs:
           node --test scripts/device-screenshot-evidence.test.cjs
           node --test scripts/check-build-env.test.cjs
           node --test scripts/native-auth-smoke.test.cjs
+          node --test scripts/native-safety-smoke.test.cjs
           node --test scripts/native-household-smoke.test.cjs scripts/native-household-deletion-smoke.test.cjs
           node scripts/native-auth-smoke.cjs
       - name: Generate the native Android project
@@ -201,7 +206,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON((inputs.verify_household_phone || inputs.verify_household_deletion || inputs.household_phone_from_run || inputs.offline_phone_from_run || inputs.verify_offline_phone) && '[{"device":"phone","avd":"cyntch-phone","api":"37.0","target":"google_apis_ps16k","profile":"pixel_6"}]' || inputs.foldable_from_run && '[{"device":"foldable","avd":"cyntch-foldable","api":"37.0","target":"google_apis_ps16k","profile":"pixel_fold"}]' || '[{"device":"phone","avd":"cyntch-phone","api":"37.0","target":"google_apis_ps16k","profile":"pixel_6"},{"device":"tablet","avd":"cyntch-tablet","api":"37.0","target":"google_apis_ps16k","profile":"pixel_tablet"},{"device":"foldable","avd":"cyntch-foldable","api":"37.0","target":"google_apis_ps16k","profile":"pixel_fold"},{"device":"minimum-api-24","avd":"cyntch-minimum","api":"24","target":"google_apis","profile":"Nexus 5"}]') }}
+        include: ${{ fromJSON((inputs.verify_safety_phone || inputs.verify_household_phone || inputs.verify_household_deletion || inputs.household_phone_from_run || inputs.offline_phone_from_run || inputs.verify_offline_phone) && '[{"device":"phone","avd":"cyntch-phone","api":"37.0","target":"google_apis_ps16k","profile":"pixel_6"}]' || inputs.foldable_from_run && '[{"device":"foldable","avd":"cyntch-foldable","api":"37.0","target":"google_apis_ps16k","profile":"pixel_fold"}]' || '[{"device":"phone","avd":"cyntch-phone","api":"37.0","target":"google_apis_ps16k","profile":"pixel_6"},{"device":"tablet","avd":"cyntch-tablet","api":"37.0","target":"google_apis_ps16k","profile":"pixel_tablet"},{"device":"foldable","avd":"cyntch-foldable","api":"37.0","target":"google_apis_ps16k","profile":"pixel_fold"},{"device":"minimum-api-24","avd":"cyntch-minimum","api":"24","target":"google_apis","profile":"Nexus 5"}]') }}
     defaults:
       run:
         working-directory: mobile
@@ -220,6 +225,7 @@ jobs:
       CYNTCH_NATIVE_HOUSEHOLD_CHECK: ${{ (inputs.verify_household_phone || inputs.verify_household_deletion || inputs.household_phone_from_run) && 'true' || 'false' }}
       CYNTCH_NATIVE_HOUSEHOLD_DELETE_CHECK: ${{ inputs.verify_household_deletion && 'true' || 'false' }}
       CYNTCH_NATIVE_HOUSEHOLD_SECTION: ${{ inputs.household_section || 'all' }}
+      CYNTCH_NATIVE_SAFETY_CHECK: ${{ inputs.verify_safety_phone && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -251,7 +257,7 @@ jobs:
             ':!mobile/.maestro*/**' ':!mobile/scripts/ios-*-smoke.cjs' ':!mobile/scripts/native-auth-smoke.cjs' \
             ':!mobile/scripts/native-kiosk-smoke.cjs' ':!mobile/scripts/android-foldable-smoke.cjs' \
             ':!mobile/scripts/android-emulator-smoke.cjs' ':!mobile/scripts/android-offline-smoke.cjs' \
-            ':!mobile/scripts/native-auth-smoke.test.cjs' \
+            ':!mobile/scripts/native-auth-smoke.test.cjs' ':!mobile/scripts/native-safety-smoke.cjs' ':!mobile/scripts/native-safety-smoke.test.cjs' \
             ':!app/account-deletion/page.tsx' ':!lib/account-deletion-contact.ts' ':!middleware.ts' \
             ':!mobile/scripts/native-notification-preferences-smoke.cjs' ':!mobile/scripts/native-household-smoke.cjs' ':!mobile/scripts/native-household-smoke.test.cjs' ':!mobile/scripts/native-household-deletion-smoke.cjs' ':!mobile/scripts/native-household-deletion-smoke.test.cjs' \
             ':!mobile/scripts/native-account-deletion-smoke.cjs' ':!mobile/scripts/native-account-deletion-smoke.test.cjs'

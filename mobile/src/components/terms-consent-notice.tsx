@@ -45,7 +45,7 @@ export function TermsConsentNotice() {
         <Copy>Read Cyntch’s Terms of use before creating or editing household content. Keep tasks and routines appropriate for your family and respect other people’s privacy.</Copy>
         <Copy tone="muted">Do not share sexual, exploitative, threatening, hateful or abusive content. Report a concern through Settings or the contact listed in the terms.</Copy>
         <Action secondary label="Read Terms of use" onPress={() => void openURL(status.url).catch(() => setError("The terms could not be opened. Check your connection and try again."))} />
-        <View style={styles.row}><Switch accessibilityLabel="I have read and agree to the Terms of use" value={agreed} onValueChange={setAgreed} disabled={saving} trackColor={{ true: colors.primary }} />
+        <View style={styles.row}><Switch testID="terms-consent-agree" accessibilityLabel="I have read and agree to the Terms of use" value={agreed} onValueChange={setAgreed} disabled={saving} trackColor={{ true: colors.primary }} />
           <View style={{ flex: 1 }}><Copy>I have read and agree to the Terms of use.</Copy></View></View>
         <Copy tone="muted">Version {status.version}. Your agreement applies to this Cyntch account on all devices.</Copy>
         {!online ? <Copy tone="muted">Connect to confirm your agreement. You can still view your saved household and update task completion.</Copy> : null}

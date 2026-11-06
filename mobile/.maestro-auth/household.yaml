@@ -66,6 +66,18 @@ name: Native sign-in opens the household and preserves the session
     optional: true
 # Clerk's reserved development test address uses this code without email.
 - inputText: "424242"
+- runFlow:
+    when:
+      true: ${DEFER_TERMS === 'true'}
+    commands:
+      - extendedWaitUntil:
+          visible: "Before sharing with your household"
+          timeout: 60000
+      - scrollUntilVisible:
+          element: "Continue without creating content"
+          direction: DOWN
+          centerElement: true
+      - tapOn: "Continue without creating content"
 - runFlow: verify-household.yaml
 - takeScreenshot: authenticated-board-portrait
 # Focused journeys use real sign-in, then verify their own rotation/restarts.

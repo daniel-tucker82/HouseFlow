@@ -8,7 +8,7 @@ const wait = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 
 const command = (exe, args) => execFileSync(exe, args, { encoding: 'utf8', timeout: 10000 }).trim()
 function requireOwnedHost(env = process.env, platform = process.platform) {
   if (platform !== 'darwin' || env.GITHUB_ACTIONS !== 'true' || env.RUNNER_ENVIRONMENT !== 'github-hosted' ||
-    env.CYNTCH_IOS_REPLAY_SCOPE !== 'offline' || !/^[1-9][0-9]*$/.test(env.GITHUB_RUN_ID ?? '')) {
+    !(env.CYNTCH_IOS_REPLAY_SCOPE === 'offline' || (env.CYNTCH_IOS_REPLAY_SCOPE === 'safety' && env.CYNTCH_NATIVE_SAFETY_CHECK === 'true')) || !/^[1-9][0-9]*$/.test(env.GITHUB_RUN_ID ?? '')) {
     throw new Error('Network interruption is restricted to an explicit offline check on a disposable hosted macOS runner.')
   }
 }

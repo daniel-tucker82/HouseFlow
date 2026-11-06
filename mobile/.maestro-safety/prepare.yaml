@@ -1,0 +1,109 @@
+appId: com.cyntch.app
+name: Explicit terms and a private concern survive rotation and draft restart
+---
+- launchApp
+- setOrientation: ${PORTRAIT_ORIENTATION}
+- extendedWaitUntil:
+    visible: "Before sharing with your household"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      id: "terms-consent-agree"
+    direction: DOWN
+    centerElement: true
+- assertVisible:
+    id: "terms-consent-agree"
+    checked: false
+- scrollUntilVisible:
+    element: "Accept and continue"
+    direction: DOWN
+    centerElement: true
+- assertVisible:
+    text: "Accept and continue"
+    enabled: false
+- takeScreenshot: terms-unaccepted-portrait
+- setOrientation: ${LANDSCAPE_ORIENTATION}
+- scrollUntilVisible:
+    element: "Accept and continue"
+    direction: DOWN
+    centerElement: true
+- assertVisible:
+    text: "Accept and continue"
+    enabled: false
+- takeScreenshot: terms-unaccepted-landscape
+- setOrientation: ${PORTRAIT_ORIENTATION}
+- scrollUntilVisible:
+    element:
+      id: "terms-consent-agree"
+    direction: UP
+    centerElement: true
+- tapOn:
+    id: "terms-consent-agree"
+- scrollUntilVisible:
+    element: "Accept and continue"
+    direction: DOWN
+    centerElement: true
+- tapOn:
+    text: "Accept and continue"
+    enabled: true
+- extendedWaitUntil:
+    notVisible: "Before sharing with your household"
+    timeout: 60000
+- tapOn: "(?i)^Settings(,.*)?$"
+- scrollUntilVisible:
+    element: "Report content or a member"
+    direction: DOWN
+    centerElement: true
+- tapOn:
+    text: "Report content or a member"
+    enabled: true
+- tapOn: "A household member"
+- scrollUntilVisible:
+    element:
+      id: "safety-report-subject"
+    direction: DOWN
+    centerElement: true
+- tapOn:
+    id: "safety-report-subject"
+- inputText: "Disposable verification member"
+- scrollUntilVisible:
+    element:
+      id: "safety-report-message"
+    direction: DOWN
+    centerElement: true
+- tapOn:
+    id: "safety-report-message"
+- inputText: "Disposable UI verification only. No real concern or person."
+- scrollUntilVisible:
+    element: "Draft saved on this device. It has not been sent."
+    direction: DOWN
+    centerElement: true
+- assertVisible: "Draft saved on this device. It has not been sent."
+- scrollUntilVisible:
+    element: "Close report"
+    direction: DOWN
+    centerElement: true
+- tapOn: "Close report"
+- stopApp
+- launchApp
+- assertNotVisible: "Before sharing with your household"
+- tapOn: "(?i)^Settings(,.*)?$"
+- runFlow: open-saved.yaml
+- assertVisible: "Disposable verification member"
+- scrollUntilVisible:
+    element: "Disposable UI verification only. No real concern or person."
+    direction: DOWN
+    centerElement: true
+- takeScreenshot: report-draft-after-restart
+- setOrientation: ${LANDSCAPE_ORIENTATION}
+- scrollUntilVisible:
+    element: "Disposable UI verification only. No real concern or person."
+    direction: DOWN
+    centerElement: true
+- takeScreenshot: report-draft-landscape
+- setOrientation: ${PORTRAIT_ORIENTATION}
+- scrollUntilVisible:
+    element: "Close report"
+    direction: DOWN
+    centerElement: true
+- tapOn: "Close report"

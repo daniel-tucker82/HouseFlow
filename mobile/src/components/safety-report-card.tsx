@@ -36,9 +36,9 @@ export function SafetyReportCard() {
             <Copy tone="label">Household: {household?.name ?? "Saved household"}</Copy>
             <View style={{ gap: 8 }}>{kinds.map(kind => <Action key={kind.value} secondary label={kind.label} selected={draft.kind === kind.value} disabled={report.pending} onPress={() => edit({ kind: kind.value })} />)}</View>
             <Copy tone="label">Which content or person?</Copy>
-            <TextInput accessibilityLabel="Content or person to report" value={draft.subject} onChangeText={subject => edit({ subject })} editable={!report.pending} maxLength={200} style={inputStyle} />
+            <TextInput testID="safety-report-subject" accessibilityLabel="Content or person to report" value={draft.subject} onChangeText={subject => edit({ subject })} editable={!report.pending} maxLength={200} style={inputStyle} />
             <Copy tone="label">Describe your concern</Copy>
-            <TextInput accessibilityLabel="Describe your concern" value={draft.message} onChangeText={message => edit({ message })} editable={!report.pending} multiline maxLength={2000} style={[inputStyle, { minHeight: 144, textAlignVertical: "top" }]} />
+            <TextInput testID="safety-report-message" accessibilityLabel="Describe your concern" value={draft.message} onChangeText={message => edit({ message })} editable={!report.pending} multiline maxLength={2000} style={[inputStyle, { minHeight: 144, textAlignVertical: "top" }]} />
             <Copy tone="muted">{report.saving ? "Saving on this device…" : !report.saved ? "Not saved yet. Keep this screen open." : report.pending ? "Saved on this device. Waiting for confirmation from Cyntch." : "Draft saved on this device. It has not been sent."}</Copy>
             {!board.online ? <Copy tone="muted">You are offline. A submitted report will be sent when Cyntch is open and connected.</Copy> : null}
             {report.error ? <Copy style={{ color: colors.warning }}>{report.error}</Copy> : null}

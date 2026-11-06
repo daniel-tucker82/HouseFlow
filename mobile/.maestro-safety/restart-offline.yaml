@@ -1,0 +1,17 @@
+appId: com.cyntch.app
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "(?i)^Settings(,.*)?$"
+    timeout: 60000
+- tapOn: "(?i)^Settings(,.*)?$"
+- runFlow: open-saved.yaml
+- scrollUntilVisible:
+    element: "Saved on this device. Waiting for confirmation from Cyntch."
+    direction: DOWN
+    centerElement: true
+- assertVisible: "Saved on this device. Waiting for confirmation from Cyntch."
+- assertVisible:
+    text: "Retry saved report"
+    enabled: false
+- takeScreenshot: report-pending-after-kill

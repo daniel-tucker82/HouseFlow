@@ -1,0 +1,18 @@
+appId: com.cyntch.app
+---
+- extendedWaitUntil:
+    visible: "^Report received[.] Keep this reference.*"
+    timeout: 60000
+- assertNotVisible: "Submit report"
+- takeScreenshot: report-received
+- tapOn: "Close report"
+- stopApp
+- launchApp
+- tapOn: "(?i)^Settings(,.*)?$"
+- scrollUntilVisible:
+    element: "^Report received[.] Reference:.*"
+    direction: DOWN
+    centerElement: true
+- assertNotVisible: "Open saved report"
+- assertNotVisible: "Before sharing with your household"
+- takeScreenshot: report-receipt-after-restart

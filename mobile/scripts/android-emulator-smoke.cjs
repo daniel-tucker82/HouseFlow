@@ -10,6 +10,7 @@ const { runKioskSmoke } = require('./native-kiosk-smoke.cjs')
 const { runOfflineSmoke } = require('./android-offline-smoke.cjs')
 const { runNotificationPreferencesSmoke } = require('./native-notification-preferences-smoke.cjs')
 const { householdFixture, runHouseholdSmoke } = require('./native-household-smoke.cjs')
+const { safetyFixture, runSafetySmoke } = require('./native-safety-smoke.cjs')
 
 if (process.platform !== 'linux' || process.env.GITHUB_ACTIONS !== 'true') {
   throw new Error('Run this verification on the Linux GitHub Actions host.')
@@ -19,6 +20,8 @@ const [apk, maestro, output] = process.argv.slice(2).map(value => path.resolve(v
 const fixture = authFixture()
 const offlineOnly = process.env.CYNTCH_ANDROID_OFFLINE === 'true'
 const householdOnly = process.env.CYNTCH_NATIVE_HOUSEHOLD_CHECK === 'true'
+const safetyOnly = process.env.CYNTCH_NATIVE_SAFETY_CHECK === 'true'
+if (safetyOnly) safetyFixture()
 if (householdOnly) {
   householdFixture()
   if (offlineOnly) throw new Error('Choose household or offline verification, not both.')
@@ -35,7 +38,7 @@ const report = {
   source: process.env.CYNTCH_ANDROID_APP_SHA || process.env.GITHUB_SHA,
   verificationSource: process.env.GITHUB_SHA,
   configuration: 'Release, minified, x86_64, development signing only',
-  scope: householdOnly ? 'Authenticated household journey only' : offlineOnly ? 'Authenticated offline journey only' : 'Full device verification',
+  scope: safetyOnly ? 'Private reporting and terms journey only' : householdOnly ? 'Authenticated household journey only' : offlineOnly ? 'Authenticated offline journey only' : 'Full device verification',
   apkSha256: createHash('sha256').update(fs.readFileSync(apk)).digest('hex'),
   serial,
   runs: [],
@@ -65,7 +68,7 @@ try {
     throw new Error('Cyntch installation was not acknowledged on the owned emulator.')
   }
   adb('logcat', '-c')
-  for (const fontScale of (offlineOnly || householdOnly ? [] : [1, 1.6])) {
+  for (const fontScale of (offlineOnly || householdOnly || safetyOnly ? [] : [1, 1.6])) {
     const folder = path.join(output, fontScale === 1 ? 'default-text' : 'large-text')
     fs.mkdirSync(folder, { recursive: true })
     const result = { fontScale, passed: false }
@@ -109,7 +112,7 @@ try {
     adb('shell', 'settings', 'put', 'system', 'font_scale', '1')
     if (Number(adb('shell', 'settings', 'get', 'system', 'font_scale').trim()) !== 1) throw new Error('Default text size was not restored for authenticated verification.')
     report.authentication = runAuthenticatedSmoke({ maestro, device: serial, output: path.join(output, 'authenticated'), orientations: report.orientations, fixture,
-      verifySessionJourney: process.env.CYNTCH_NATIVE_HOUSEHOLD_CHECK !== 'true' })
+      verifySessionJourney: !(householdOnly || safetyOnly), deferTerms: safetyOnly })
   }
   if (report.authentication && !report.authentication.passed) throw new Error(report.authentication.error)
   if (report.authentication?.passed && report.avd === 'cyntch-tablet') {
@@ -121,7 +124,12 @@ try {
     report.householdMembers = runHouseholdSmoke({ maestro, device: serial, output: path.join(output, 'household-members'), orientations: report.orientations })
     if (!report.householdMembers.passed) throw new Error(report.householdMembers.error)
   }
-  if (!offlineOnly && !householdOnly && report.authentication?.passed && report.avd === 'cyntch-phone') {
+  if (safetyOnly) {
+    if (!report.authentication?.passed || report.avd !== 'cyntch-phone') throw new Error('Safety verification requires the authenticated phone.')
+    report.safety = runSafetySmoke({ maestro, device: serial, output: path.join(output, 'safety'), orientations: report.orientations })
+    if (!report.safety.passed) throw new Error(report.safety.error)
+  }
+  if (!offlineOnly && !householdOnly && !safetyOnly && report.authentication?.passed && report.avd === 'cyntch-phone') {
     const folder=path.join(output,'notifications')
     fs.mkdirSync(folder,{recursive:true})
     const log=fs.openSync(path.join(folder,'maestro.log'),'w')
@@ -148,7 +156,7 @@ try {
   }
   // Both a full authenticated phone check and an offline-only check verify the
   // prepared disposable task. Compile once for the current application revision.
-  if (!householdOnly && report.authentication?.passed && report.avd === 'cyntch-phone') {
+  if (!householdOnly && !safetyOnly && report.authentication?.passed && report.avd === 'cyntch-phone') {
     report.offline = runOfflineSmoke({ maestro, device: serial, output: path.join(output, 'offline'), orientations: report.orientations })
     if (!report.offline.passed) throw new Error(report.offline.error)
   }
