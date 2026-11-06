@@ -4,7 +4,7 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
-Current release checkpoint, 6 November 2026: approximately 90% of the
+Current release checkpoint, 6 November 2026: approximately 91% of the
 overall goal is complete. Ordinary household controls pass on both platforms;
 private Android household deletion and private iPhone account deletion now have
 native, database and provider preservation evidence. The public deletion-request
@@ -13,25 +13,37 @@ checked. Public privacy and terms pages now also pass a production build,
 anonymous HTTP checks and phone portrait/landscape inspection. Production
 release gates are still closed.
 
-Current new-feature verification: Android run `42177470430` and iOS compile-only
-run `42176986312` build source `27c31e4`. The new scoped journey checks terms
-acceptance, report draft rotation/restart, offline report submission, termination,
-reconnection and durable receipt. It requires a fresh private-schema attestation
-with no existing acceptance/report and compares the whole original public schema
-before and after. Inspect any failure before resuming; saved submissions must not
-be duplicated. Android runs first. The iPhone app will then be reused on its own
-fresh schema with replay scope `safety`, using the matching `macos-26` architecture.
-Android compiled successfully and accepted the terms, but its test stopped
-before report submission because the keyboard covered the saved-draft status.
-Artifact `13484094027` (SHA-256
-`c66edae48155a4cb270e38c6b8fabfaa6d3ebfda0e02130096a7932be401637d`)
-was inspected. One acceptance and zero reports exist; the entire original public
-schema remains unchanged. `cyntch-safety-android-partial-42177470430.json` preserves
-the acceptance fingerprint. The corrected harness dismisses the keyboard and
-can reuse this APK to resume after terms, without accepting them again. This
-explicit resume is bound to producer `42177470430` and still rejects any existing
-report. Its new emulator recreates only the lost unsent local draft. The iOS
-compile remains pending; no completed native reporting result is claimed yet.
+Android reporting verification now passes in run `42181300863`, reusing app
+source `27c31e4` from producer `42177470430`. Artifact `13485318788` matches SHA-256
+`9a4e51187d7e58f5bf96f6a66799744146c3cd8a315f4901ecbd3dacc2549475`.
+The inspected evidence covers draft rotation, offline submission, termination,
+offline relaunch, explicit network restoration, receipt and receipt after restart.
+Exactly one report was stored; the earlier terms acceptance fingerprint and the
+whole original public schema are unchanged. The six new captures and two earlier
+terms captures cover this combined journey. Final server proof is
+`cyntch-safety-android-evidence-42181300863.json`. Do not repeat the submission.
+
+Earlier artifacts `13484094027` and `13485486109` were inspected before correcting
+the keyboard dismissal and already-accepted-terms checks. Neither failed run
+submitted a report. `cyntch-safety-android-partial-42177470430.json` retains the
+original consent fingerprint; never replace it with a new baseline.
+
+iOS compile-only run `42176986312` also passed for source `27c31e4`, on ARM64
+`macos-26`. App artifact `13484279977` matches SHA-256
+`6be555b458d604524b46e0f76ba19284c5886ab2f3df41aa6fbcf8acfbc56157`;
+its inner app ZIP digest was checked separately. Reuse it with replay scope
+`safety` after the separate iOS fixture is reachable. No iPhone reporting journey
+has been dispatched. Preserve runtime, producer, digest and architecture guards.
+
+The owner is away; RevenueCat sign-in and owner-only setup can wait. Automatic
+approval review rejected stopping the existing Android test server, then rejected
+starting a separate iOS gateway, each with only `blocked by policy`. Both commands
+were rejected before execution. Do not retry either action through another tool.
+The existing Android server and public tunnel are unchanged. A separate iOS server
+did start on localhost 3023 at 07:44:49 UTC, with a 90-minute limit (09:14:49 UTC);
+it is not publicly routed. The prepared gateway at 3024 was not started. Before
+resuming later, inspect actual listeners, lifetime, fixture counts and preservation;
+do not duplicate a process or assume this backend is still running.
 
 The isolated safety backend (`C:/dev/HouseFlow-native-safety-check`, server source
 `e86c000`, localhost port 3018) passed its production build and authenticated
@@ -66,8 +78,13 @@ Android and iOS JavaScript exports also pass (local `cyntch-reporting-export-202
 this checks bundling, not the reporting form on a device.
 See [the operational checklist](../docs/mobile-safety-report-operations.md).
 `SAFETY_REPORTS_ENABLED` remains off in production; no live migration or deployment
-was made. Android/iPhone form inspection and a staffed operational review process
-still need verification. Privacy and terms drafts now describe report handling
+was made. Android form inspection now passes; iPhone inspection and a staffed
+operational review process still need verification. The actual operator CLI also
+passes a disposable-schema check covering explicit access, private list output,
+escaped terminal text, concurrent review conflicts, audit records and 90-day
+redaction. `tests/safety-report-operations.test.cjs` exercises the real command
+process, not just its helper functions. It does not claim a staffed inbox or an
+actual moderation action. Privacy and terms drafts now describe report handling
 and prohibited content; they remain unpublished.
 
 Explicit terms acceptance is also implemented behind `TERMS_ACCEPTANCE_REQUIRED`.
@@ -444,6 +461,26 @@ Test log: `C:/Users/danie/.codex/tmp/cyntch-billing-optional-environment-tests.l
 Further release work needs Apple/store access, iOS signing and push credentials,
 actual store/RevenueCat catalogs and sandbox checks,
 published policy URLs and an operational deletion-request process.
+Read-only production Clerk inspection on 6 November confirmed that native
+applications are not enabled yet. Email is required and verified; phone sign-up
+and sign-in are off, first/last names are optional, and mobile biometrics are off.
+Direct provider account deletion is still enabled by default. Coordinate its
+restriction for new and existing users with the verified custom deletion rollout;
+do not remove the current web deletion option before its replacement is live.
+No provider setting was changed. Evidence screenshots are
+`cyntch-clerk-production-profile-readonly.png` and
+`cyntch-clerk-production-native-readonly.png` in the local evidence directory.
+RevenueCat is waiting for owner sign-in; the owner is away, so defer that handoff.
+The local store preparation file `cyntch-store-preparation-20261106.json` contains
+validated listing copy, an actual-app screenshot plan and a source-backed data
+inventory. It is a draft, not an uploaded listing or submitted privacy declaration.
+`cyntch-native-subscription-setup-20261106.json` prepares the two store catalogues,
+current-offering/package mapping, original-household restore settings, signed
+webhook configuration and a twelve-case sandbox verification plan. Proposed
+Australian prices carry forward the existing $5.99 monthly/$49.99 yearly web
+policy; actual store prices must still be verified. Provider-assigned identifiers
+remain empty, so the draft cannot be mistaken for configured billing. No product,
+paid provider plan, integration or purchase was created.
 The owner authorised selecting the policy URLs and contact. The selected URLs
 are `https://www.cyntch.com/legal/privacy` and `https://www.cyntch.com/legal/terms`;
 the existing business inbox is `daniel@nexusaspyre.com`. Physical-device accessibility and
