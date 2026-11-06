@@ -1,0 +1,48 @@
+appId: com.cyntch.app
+---
+- extendedWaitUntil:
+    visible: "Before sharing with your household"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      id: "terms-consent-agree"
+    direction: DOWN
+    centerElement: true
+- assertVisible:
+    id: "terms-consent-agree"
+    checked: false
+- scrollUntilVisible:
+    element: "Accept and continue"
+    direction: DOWN
+    centerElement: true
+- assertVisible:
+    text: "Accept and continue"
+    enabled: false
+- takeScreenshot: terms-unaccepted-portrait
+- setOrientation: ${LANDSCAPE_ORIENTATION}
+- scrollUntilVisible:
+    element: "Accept and continue"
+    direction: DOWN
+    centerElement: true
+- assertVisible:
+    text: "Accept and continue"
+    enabled: false
+- takeScreenshot: terms-unaccepted-landscape
+- setOrientation: ${PORTRAIT_ORIENTATION}
+- scrollUntilVisible:
+    element:
+      id: "terms-consent-agree"
+    direction: UP
+    centerElement: true
+- tapOn:
+    id: "terms-consent-agree"
+- scrollUntilVisible:
+    element: "Accept and continue"
+    direction: DOWN
+    centerElement: true
+- tapOn:
+    text: "Accept and continue"
+    enabled: true
+- extendedWaitUntil:
+    notVisible: "Before sharing with your household"
+    timeout: 60000

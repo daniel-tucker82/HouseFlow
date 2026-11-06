@@ -21,7 +21,17 @@ with no existing acceptance/report and compares the whole original public schema
 before and after. Inspect any failure before resuming; saved submissions must not
 be duplicated. Android runs first. The iPhone app will then be reused on its own
 fresh schema with replay scope `safety`, using the matching `macos-26` architecture.
-These runs are pending; no native reporting/consent result is claimed yet.
+Android compiled successfully and accepted the terms, but its test stopped
+before report submission because the keyboard covered the saved-draft status.
+Artifact `13484094027` (SHA-256
+`c66edae48155a4cb270e38c6b8fabfaa6d3ebfda0e02130096a7932be401637d`)
+was inspected. One acceptance and zero reports exist; the entire original public
+schema remains unchanged. `cyntch-safety-android-partial-42177470430.json` preserves
+the acceptance fingerprint. The corrected harness dismisses the keyboard and
+can reuse this APK to resume after terms, without accepting them again. This
+explicit resume is bound to producer `42177470430` and still rejects any existing
+report. Its new emulator recreates only the lost unsent local draft. The iOS
+compile remains pending; no completed native reporting result is claimed yet.
 
 The isolated safety backend (`C:/dev/HouseFlow-native-safety-check`, server source
 `e86c000`, localhost port 3018) passed its production build and authenticated
@@ -32,6 +42,15 @@ holds separate Android/iPhone scopes and an immutable whole-public-schema
 baseline; `cyntch-safety-gateway-journal.json` records the gateway rollback.
 Original household hash and 19 completion receipts remain preserved. Never
 overwrite either these baselines or the earlier deletion/offline/push evidence.
+
+A separate local upgrade rehearsal restored the November 3 backup into
+`cyntch_upgrade_84b82f13aeeb4ce5b9e21a51bb1d4ce5` and applied migrations `0016`–`0044`
+twice. All 29 migrations were repeatable; 8 households, 160 tasks and 5 routines
+were preserved, except the intended `0035` legacy notification privacy cleanup.
+Evidence is `cyntch-mobile-upgrade-cyntch_upgrade_84b82f13aeeb4ce5b9e21a51bb1d4ce5.json`
+in the local evidence directory. This is not a fresh production backup or a live
+migration. Read-only Vercel inspection found live source `81e52f7` already included
+in this branch. No production deployment or configuration was changed.
 
 Latest additions: native Settings now has a private content/member reporting
 form with account-scoped durable drafts, immutable submissions and receipt-safe

@@ -15,18 +15,27 @@ function safetyFixture(env = process.env) {
   }
   return fixture
 }
-function validateAttestation(value, platform, source, final = false) {
+function validateAttestation(value, platform, source, final = false, resumeTerms = false) {
   assert.equal(value.scope, 'cyntch-private-safety-verification')
   assert.equal(value.platform, platform); assert.equal(value.source, source)
   assert.match(value.schema, /^native_safety_[a-f0-9]{32}$/)
   assert.equal(value.originalPreserved, true); assert.equal(value.termsVersion, '2026-11-06.1')
-  assert.equal(value.termsAcceptances, final ? 1 : 0)
+  assert.equal(value.termsAcceptances, final || resumeTerms ? 1 : 0)
   assert.equal(value.reports, final ? 1 : 0)
   if (final) assert.equal(value.expectedReportMatches, true)
   return value
 }
+function resumeAcceptedTerms(env = process.env, platform = process.platform) {
+  if (env.CYNTCH_NATIVE_SAFETY_RESUME_TERMS !== 'true') return false
+  // Explicitly resume the inspected Android failure before any report was sent.
+  // A fresh disposable emulator recreates only its lost, unsent local draft.
+  assert.equal(platform, 'linux')
+  assert.equal(env.CYNTCH_ANDROID_APK_PRODUCER, '42177470430')
+  return true
+}
 function runSafetySmoke({ maestro, device, output, orientations }) {
   const fixture = safetyFixture(), ios = process.platform === 'darwin'
+  const resumeTerms = resumeAcceptedTerms()
   if (process.env.GITHUB_ACTIONS !== 'true' || !['linux', 'darwin'].includes(process.platform)) throw new Error('Use an owned Actions device.')
   const source = process.env.CYNTCH_IOS_APP_SHA || process.env.CYNTCH_ANDROID_APP_SHA || process.env.GITHUB_SHA
   assert.match(source, /^[a-f0-9]{40}$/)
@@ -34,7 +43,7 @@ function runSafetySmoke({ maestro, device, output, orientations }) {
   const adb = (...args) => command('adb', ['-s', device, ...args])
   const simctl = (...args) => command('xcrun', ['simctl', ...args])
   const attest = final => validateAttestation(JSON.parse(command(ios ? '/usr/bin/curl' : 'curl', ['--fail', '--silent', '--show-error', '--max-time', '20',
-    '--header', 'ngrok-skip-browser-warning: 1', fixture.origin + '/__cyntch-native-safety-fixture'])), ios ? 'ios' : 'android', source, final)
+    '--header', 'ngrok-skip-browser-warning: 1', fixture.origin + '/__cyntch-native-safety-fixture'])), ios ? 'ios' : 'android', source, final, resumeTerms)
   let before
   if (ios) {
     network.requireOwnedHost()
@@ -47,7 +56,7 @@ function runSafetySmoke({ maestro, device, output, orientations }) {
     assert.ok(Object.values(before).every(value => ['0', '1'].includes(value)))
   }
   fs.mkdirSync(output, { recursive: true })
-  const result = { source, verificationSource: process.env.GITHUB_SHA, scope: 'Private fixture only: explicit terms, report draft rotation/restart, offline submission, process stop, receipt on reconnection and receipt restart.', passed: false }
+  const result = { source, verificationSource: process.env.GITHUB_SHA, resumeTerms, priorTermsEvidence: resumeTerms ? '42177470430/artifact13484094027' : null, scope: 'Private fixture only: explicit terms, report draft rotation/restart, offline submission, process stop, receipt on reconnection and receipt restart.', passed: false }
   const folder = path.join(output, 'network')
   const save = () => fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify(result, null, 2))
   function flow(name, timeout = 300000) {
@@ -55,7 +64,7 @@ function runSafetySmoke({ maestro, device, output, orientations }) {
     const log = fs.openSync(path.join(evidence, 'maestro.log'), 'w')
     try {
       const run = (ios ? runIOSUI : spawnSync)(maestro, ['--device', device, 'test', '--format', 'junit', '--output', path.join(evidence, 'report.xml'),
-        '-e', `PORTRAIT_ORIENTATION=${orientations.portrait}`, '-e', `LANDSCAPE_ORIENTATION=${orientations.landscape}`,
+        '-e', `PORTRAIT_ORIENTATION=${orientations.portrait}`, '-e', `LANDSCAPE_ORIENTATION=${orientations.landscape}`, '-e', `RESUME_TERMS=${resumeTerms}`,
         '--test-output-dir', evidence, '--debug-output', evidence, path.resolve('.maestro-safety', name + '.yaml')], { stdio: ['ignore', log, log], timeout, env: process.env })
       if (run.error || run.status !== 0) throw new Error(`Safety ${name} failed (${run.error?.code ?? run.status}). Inspect retained evidence before continuing.`)
     } finally { fs.closeSync(log) }
@@ -73,7 +82,8 @@ function runSafetySmoke({ maestro, device, output, orientations }) {
     disconnected = false
   }
   try {
-    // An existing acceptance/report stops the whole journey before another save.
+    // Existing reports always stop before another save. Only the explicitly
+    // inspected, accepted-terms stage can resume, without accepting again.
     result.before = attest(false); save()
     flow('prepare', 540000)
     disconnected = true
@@ -92,7 +102,7 @@ function runSafetySmoke({ maestro, device, output, orientations }) {
     restore()
     flow('reconnect'); result.after = attest(true)
     result.screenshots = inspectScreenshotOrientations(output, {
-      'terms-unaccepted-portrait.png': 'portrait', 'terms-unaccepted-landscape.png': 'landscape',
+      ...(!resumeTerms ? { 'terms-unaccepted-portrait.png': 'portrait', 'terms-unaccepted-landscape.png': 'landscape' } : {}),
       'report-draft-after-restart.png': 'portrait', 'report-draft-landscape.png': 'landscape',
       'report-pending-offline.png': 'portrait', 'report-pending-after-kill.png': 'portrait',
       'report-received.png': 'portrait', 'report-receipt-after-restart.png': 'portrait',
@@ -106,4 +116,4 @@ function runSafetySmoke({ maestro, device, output, orientations }) {
   }
   return result
 }
-module.exports = { safetyFixture, validateAttestation, runSafetySmoke }
+module.exports = { safetyFixture, validateAttestation, resumeAcceptedTerms, runSafetySmoke }
