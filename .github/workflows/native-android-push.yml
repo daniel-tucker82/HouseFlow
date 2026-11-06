@@ -1,0 +1,98 @@
+name: Android real push verification
+
+on:
+  push:
+    branches: [codex/native-android-push-verification]
+    paths:
+      - .github/workflows/native-android-push.yml
+      - .github/scripts/android-fcm-smoke.cjs
+      - .github/flows/android-push-*.yaml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cyntch-single-android-push
+  cancel-in-progress: false
+
+jobs:
+  push:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      MAESTRO_CLI_NO_ANALYTICS: '1'
+      EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ZW1lcmdpbmctdG9hZC05OC5jbGVyay5hY2NvdW50cy5kZXYk
+      EXPO_PUBLIC_API_URL: https://a644-203-221-238-141.ngrok-free.app
+      CYNTCH_NATIVE_TEST_EMAIL: cyntch-native-20261103+clerk_test@example.com
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22.23.3'
+      - name: Require exact app compatibility and download existing signed APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = daniel-tucker82/HouseFlow
+          test "$GITHUB_REF_NAME" = codex/native-android-push-verification
+          source=$(jq -r .source .github/fixtures/android-preview.json)
+          test "$source" = aaa1f4723e8b4afc2e0a4a88afb3225886890cb7
+          git merge-base --is-ancestor "$source" "$GITHUB_SHA"
+          git diff --quiet "$source" "$GITHUB_SHA" -- . ':!.github/' ':!mobile/README.md'
+          url=$(jq -r .url .github/fixtures/android-preview.json)
+          [[ "$url" =~ ^https://expo\.dev/artifacts/eas/[A-Za-z0-9_-]+\.apk$ ]]
+          mkdir -p "$RUNNER_TEMP/cyntch-android-push"
+          curl --fail --location --retry 2 "$url" -o "$RUNNER_TEMP/cyntch-signed-preview.apk"
+          printf '%s  %s\n' "$(jq -r .sha256 .github/fixtures/android-preview.json)" "$RUNNER_TEMP/cyntch-signed-preview.apk" | sha256sum -c -
+          printf 'JAVA_HOME=%s\n' "$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+          printf '%s/bin\n' "$JAVA_HOME_17_X64" >> "$GITHUB_PATH"
+      - name: Verify signing identity and native configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'build-tools;36.0.0'
+          node .github/scripts/android-preview-artifact.cjs "$RUNNER_TEMP/cyntch-signed-preview.apk" \
+            "$RUNNER_TEMP/cyntch-android-push" "$ANDROID_HOME/build-tools/36.0.0" readelf
+      - name: Install the pinned test runner and parse flows
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 2 https://github.com/mobile-dev-inc/Maestro/releases/download/cli-2.12.1/maestro.zip -o "$RUNNER_TEMP/maestro.zip"
+          printf '%s  %s\n' '54dbb0716425626604973cbb374c585ca30272375d9ce15177a1152765ddd9d7' "$RUNNER_TEMP/maestro.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/maestro.zip" -d "$RUNNER_TEMP/maestro-cli"
+          java -cp "$RUNNER_TEMP/maestro-cli/maestro/lib/*" .github/scripts/CheckMaestroFlows.java . \
+            .github/flows/android-push-permission.yaml .github/flows/android-push-open.yaml mobile/.maestro-auth/household.yaml
+      - name: Enable emulator acceleration
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Verify actual Android system permission and provider delivery
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        timeout-minutes: 23
+        with:
+          api-level: '36'
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          avd-name: cyntch-android-push
+          disk-size: 6G
+          cores: 2
+          ram-size: 4096M
+          disable-animations: true
+          disable-linux-hw-accel: false
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: node .github/scripts/android-fcm-smoke.cjs "$RUNNER_TEMP/cyntch-signed-preview.apk" "$RUNNER_TEMP/maestro-cli/maestro/bin/maestro" "$RUNNER_TEMP/cyntch-android-push"
+      - name: Retain actual push evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-real-push-evidence
+          path: ${{ runner.temp }}/cyntch-android-push/
+          if-no-files-found: warn
+          retention-days: 7

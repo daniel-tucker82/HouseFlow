@@ -143,6 +143,25 @@ Screenshots `cyntch-google-policy-restored.png` and
 key marker is `cyntch-fcm-key-creation-once.json`. This verifies credential
 configuration, not actual provider delivery; an isolated real-push test remains.
 
+Real Android delivery run `42158233197` is now in progress on isolated branch
+`codex/native-android-push-verification` (`697877c`). It reuses the exact signed
+APK and retains digest, signing, producer ancestry and complete app compatibility
+checks. The new emulator signs in to the existing disposable identity, requests
+permission through Android's actual dialog, backgrounds the app, then checks the
+notification pane and tap destination. The banner capture requires visual review.
+No household edit is part of this journey.
+
+The local sender `C:/Users/danie/.codex/tmp/cyntch-android-push-once.cjs` uses the
+actual Expo provider adapter but a synthetic, clearly labelled test message.
+It only reads the isolated database, requires exactly one newly registered Android
+device for the test identity and unchanged original data/existing devices, and
+records a one-time marker before sending. It never automatically repeats a send.
+The bounded worker is PID `15408`, ending at 04:13 UTC on 6 November. Inspect
+`cyntch-android-push-provider-27c85274.json`, its worker log/error files and the
+run's artifacts before any retry. Never overwrite the baseline
+`cyntch-android-push-baseline-27c85274.json` or the send marker. This transport test
+does not verify domain-event expansion or change the production push gate.
+
 ### Android packaged-permission audit (6 November 2026)
 
 The signed preview's merged manifest included unused shared-storage and overlay
@@ -161,6 +180,8 @@ The Android build workflow now checks the final merged APK, rejecting unnecessar
 permissions and missing required capabilities. That checker correctly rejects
 the old signed APK. The old APK is unchanged; a compiled APK from this source
 still needs to pass the new check. No new EAS build is needed just for FCM setup.
+Native checks for this source are Android `42157109810` and iOS `42157109744`;
+both were compiling at the last inspection. Do not dispatch duplicate builds.
 
 Further release work needs Apple/store access, iOS signing and push credentials,
 actual store/RevenueCat catalogs and sandbox checks,

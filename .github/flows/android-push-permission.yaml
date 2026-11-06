@@ -1,0 +1,27 @@
+appId: com.cyntch.app
+name: Request Android notification permission through the actual system dialog
+---
+- launchApp
+- setOrientation: PORTRAIT
+- runFlow: ../../mobile/.maestro-auth/verify-household.yaml
+- tapOn: "(?i)^Settings(,.*)?$"
+- scrollUntilVisible:
+    element: "Choose notifications"
+    direction: DOWN
+- tapOn: "Choose notifications"
+- assertVisible: "Allow device notifications"
+- takeScreenshot: android-push-before-permission
+- tapOn: "Allow device notifications"
+- extendedWaitUntil:
+    visible:
+      id: "com.android.permissioncontroller:id/permission_allow_button"
+    timeout: 20000
+- takeScreenshot: android-push-system-prompt
+- tapOn:
+    id: "com.android.permissioncontroller:id/permission_allow_button"
+- extendedWaitUntil:
+    visible: "Notifications are allowed by this device."
+    timeout: 20000
+- takeScreenshot: android-push-permission-granted
+- pressKey: Home
+- takeScreenshot: android-push-background-before-send
