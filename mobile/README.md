@@ -4,7 +4,7 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
-Current release checkpoint, 7 November 2026 (Sydney): approximately 91% of the
+Current release checkpoint, 7 November 2026 (Sydney): approximately 92% of the
 overall goal is complete. Ordinary household controls pass on both platforms;
 private Android household deletion and private iPhone account deletion now have
 native, database and provider preservation evidence. The public deletion-request
@@ -36,8 +36,12 @@ its inner app ZIP digest was checked separately. Reuse it with replay scope
 has been dispatched. Preserve runtime, producer, digest and architecture guards.
 
 RevenueCat sign-up and email verification are now complete. Its saved Android
-app and restore settings are recorded below; scoped credential approvals remain
-pending. Apple enrollment and actual store purchases remain outstanding. Automatic
+app and restore settings are recorded below. Both scoped credential approvals
+were received; the server V2 key is securely staged and its read access is
+verified. The Google billing JSON is saved in RevenueCat and the temporary
+key-creation ban and original owner role are restored. Google Payments
+merchant setup, first-build recognition and subscription-event setup remain
+unfinished. Apple enrollment and actual store purchases remain outstanding. Automatic
 approval review rejected stopping the existing Android test server, then rejected
 starting a separate iOS gateway, each with only `blocked by policy`. Both commands
 were rejected before execution. Do not retry either action through another tool.
@@ -494,12 +498,13 @@ policy; actual store prices must still be verified. The newer
 `cyntch-revenuecat-setup-evidence-20261107.json` records actual project/app/catalog
 identifiers and supersedes the earlier draft's proposed offering and entitlement
 names. Store product mappings and credentials remain incomplete; do not install
-the draft as enabled billing configuration. No paid provider plan, store product,
-Google credential upload, webhook integration or purchase was created.
+the draft as enabled billing configuration. No paid provider plan, real store
+product, Cyntch webhook integration or purchase was created. The approved Google
+credential upload is saved; its actual validation limits are recorded below.
 The owner authorised selecting the policy URLs and contact. The selected URLs
 are `https://www.cyntch.com/legal/privacy` and `https://www.cyntch.com/legal/terms`;
 the existing business inbox is `daniel@nexusaspyre.com`. Physical-device accessibility and
-performance checks, real provider push, store billing, production rollout and
+performance checks, real iOS provider push, store billing, production rollout and
 household pilot results remain unverified. No store submission has been made.
 
 ### RevenueCat setup, 7 November 2026
@@ -508,9 +513,10 @@ Reused the owner's existing Cyntch project rather than creating another one.
 The dashboard ID is `62598710`; the API V2 project identifier is `proj62598710`.
 The latter belongs in server configuration. Email verification completed through
 the existing business inbox. Android app `appa0503aedb2`, named
-`Cyntch (Play Store)`, is saved with package `com.cyntch.app`; its service-account
-credential field is empty. Its automatically assigned public SDK key has not
-been copied into an environment. Evidence screenshots:
+`Cyntch (Play Store)`, is saved with package `com.cyntch.app`; its approved
+service-account credential is saved and persisted after a page reload. Its
+public SDK key is staged in protected local server configuration, with no live
+environment or purchase-gate changes. Initial configuration screenshots:
 `cyntch-revenuecat-android-saved-20261107.png` and
 `cyntch-revenuecat-email-confirmed-20261107.png`.
 
@@ -532,30 +538,75 @@ issuer UUID. No iOS app entry was created. Apple Developer enrollment and those
 credentials are prerequisites; never substitute invented identifiers.
 Screenshot: `cyntch-revenuecat-ios-key-required-20261107.png`.
 
-A V2 secret-key form is prepared with customer read/write (account erasure),
-subscription read and purchase read; all unrelated permissions remain off.
-Generation is pending the scoped browser security approval. No secret exists
-from this attempt. Keep it server-only if approved. The V1 grace-period lookup
-credential still needs validation; do not generate a broad V1 key by default.
+A single approved V2 key, **Cyntch server verification and account deletion**,
+was generated with customer read/write (account erasure), subscription read and
+purchase read. All unrelated permissions, including token issuance, remain off.
+It is staged outside the repository in an owner/SYSTEM-only server configuration;
+it is not installed in production or embedded in an app. A live V2 customer-list
+request returned HTTP 200 with zero customers. No customer was created or erased.
+The Android public SDK key is staged there as `REVENUECAT_ANDROID_PUBLIC_KEY`.
+Screenshot: `cyntch-revenuecat-server-key-created-20261107.png` (keys masked).
 
-Separate Google billing access is also prepared, not submitted. Proposed account:
-`cyntch-revenuecat@cyntch-2358a.iam.gserviceaccount.com`, with Pub/Sub Editor and
-Monitoring Viewer only in Cyntch. The Play invitation draft grants only Cyntch
-app/quality read, financial read, and order/subscription management. Store
-presence was deliberately excluded because Google also grants policy-declaration
-access with it; manage products directly in Play instead. Neither app-release
-nor account-wide permissions are selected. No account, invite, role, key or
-policy change has been saved for this connection. The pending approval includes
-the three required APIs, one JSON key uploaded only to Cyntch in RevenueCat,
-and a temporary Cyntch-only key-creation exception with full rollback. Keep this
-separate from the completed Expo push setup. Recheck the original policy and role
-state before any approved exception and record rollback in its own journal.
+The V1 grace-period lookup credential still needs validation; do not generate a
+broad V1 key by default. Its customer GET is explicitly a get-or-create endpoint,
+so do not probe an arbitrary customer and describe it as read-only. Test it with
+the later disposable billing fixture and the documented public SDK credential.
 
-Browser handoffs: prepared RevenueCat key tab `1292242447`, Google service-account
-form `1292242475`, and Play invitation `1292242478`, all in Chrome browser `3`.
-The approved settings do not enable purchases: real credentials, store products,
-signed webhook delivery, sandbox lifecycle checks and production release gates
-remain unfinished.
+Approved Google billing account
+`cyntch-revenuecat@cyntch-2358a.iam.gserviceaccount.com` was created once, with
+Pub/Sub Editor and Monitoring Viewer only in Cyntch. Cloud roles were inspected
+after saving. Play access is Active and grants only Cyntch app/quality read,
+financial read, and order/subscription management. Store presence was excluded
+because Google includes policy-declaration access with it; manage products
+directly in Play. No release, admin or account-wide Play access was granted.
+Android Publisher and Play Reporting APIs were enabled; Pub/Sub was already on.
+
+One JSON key was created after the first attempt was blocked during policy
+propagation. Before upload, the Cyntch-only exception was removed: legacy key
+creation is again **Inherit parent's policy / Enforced**, and the owner has only
+the original **Organisation Administrator** role. Organisation-wide policies,
+the managed constraint and Expo push credentials were unchanged. Rollback proof:
+`cyntch-revenuecat-key-ban-restored-20261107.png` and
+`cyntch-revenuecat-org-role-restored-20261107.png`.
+
+RevenueCat's saved credential passes product and subscription-catalog reads.
+Purchase access reports that `com.cyntch.app` is not found; no initial store build
+has been uploaded. Do not replace the correct package name or regenerate keys
+to work around this. Google Play separately blocks its Subscriptions page until
+the owner creates a Google Payments merchant profile. The financial-account
+setup is left for the owner in Chrome.
+Saved credential and actual check results:
+`cyntch-revenuecat-google-validation-20261107.png`.
+
+The downloaded JSON is restricted to the Windows owner and SYSTEM. Automatic
+approval review rejected its requested local deletion before execution, stating
+only `blocked by policy`. The owner was asked to delete
+`C:/Users/danie/Downloads/cyntch-2358a-12f077556688.json`; cleanup is pending and
+must not be retried through another tool. Do not delete the working cloud key.
+The authoritative connection and cleanup journal is
+`C:/Users/danie/.codex/tmp/cyntch-google-revenuecat-connection-20261107.json`.
+
+The first real-time subscription-notification connection created topic
+`projects/cyntch-2358a/topics/Play-Store-Notifications`, but did not complete.
+The topic has no subscriptions and no Google Play publisher grant. Reuse this
+partial resource after inspecting the failure; do not create a duplicate.
+Domain restricted sharing is inherited and allows only `C03ygs8wm`; it has not
+been changed. This is separate from the restored key-creation policy. The
+documented Google Play publisher `google-play-developer-notifications@system.gserviceaccount.com`
+is prepared with Pub/Sub Publisher on that topic only, but not saved. Approval
+was requested for this grant and, only if blocked, a temporary Cyntch-only
+domain-sharing exception with role/policy rollback. Audit Logs showed the
+successful topic creation; no detailed failed publisher event was available.
+The domain restriction is a supported diagnosis, not a confirmed API error.
+See `cyntch-google-rtdn-publisher-prepared-20261107.png`. Do not enable tracking
+of unknown purchases from server notifications with the original-household
+restore policy; purchases must remain identified through the SDK.
+The separate pending-approval journal is `cyntch-google-rtdn-connection-20261107.json`.
+Provider reference: [Google real-time developer notifications](https://www.revenuecat.com/docs/platform-resources/server-notifications/google-server-notifications).
+
+The saved settings do not enable purchases: actual store products, signed
+Cyntch webhook delivery, sandbox lifecycle checks and production release gates
+remain unfinished. Apple enrollment and valid iOS credentials are still needed.
 
 ### Public policies prepared on 6 November 2026
 
