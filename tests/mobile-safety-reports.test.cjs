@@ -60,7 +60,9 @@ test('disabled service, malformed reports, pending account deletion and kiosk ac
   for (const patch of [{ id: 'wrong' }, { kind: ['content'] }, { subject: ' ' }, { message: 'short' }, { message: 'x'.repeat(2001) }]) {
     await assert.rejects(f.api.sendSafetyReport({ ...f.report(), ...patch }), e => e.status === 400)
   }
-  const tooLarge = await f.POST(new Request('https://fixture.cyntch.test/api/mobile/safety-reports', { method: 'POST', body: JSON.stringify({ ...f.report(), padding: 'x'.repeat(12000) }) }))
+  const form = await f.POST(new Request('https://fixture.cyntch.test/api/mobile/safety-reports', { method: 'POST', body: JSON.stringify(f.report()) }))
+  assert.equal(form.status, 415, 'HTML form encodings cannot submit a concern through a cookie-authenticated session')
+  const tooLarge = await f.POST(new Request('https://fixture.cyntch.test/api/mobile/safety-reports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...f.report(), padding: 'x'.repeat(12000) }) }))
   assert.equal(tooLarge.status, 413)
   await f.db.query('insert into native_kiosk_sessions(id,user_id,session_id,device_id,household_id,visible_member_ids,editable_member_ids,exit_secret_hash,request_hash) values($1,$2,$3,$4,$5,array[$2],array[$2],$6,$6)',
     [randomUUID(), f.owner, f.scope.sessionId, f.scope.deviceId, f.deleting, 'b'.repeat(64)])

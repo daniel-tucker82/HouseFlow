@@ -258,7 +258,7 @@ jobs:
             ':!mobile/scripts/native-kiosk-smoke.cjs' ':!mobile/scripts/android-foldable-smoke.cjs' \
             ':!mobile/scripts/android-emulator-smoke.cjs' ':!mobile/scripts/android-offline-smoke.cjs' \
             ':!mobile/scripts/native-auth-smoke.test.cjs' ':!mobile/scripts/native-safety-smoke.cjs' ':!mobile/scripts/native-safety-smoke.test.cjs' \
-            ':!app/account-deletion/page.tsx' ':!lib/account-deletion-contact.ts' ':!middleware.ts' \
+            ':!app/account-deletion/page.tsx' ':!lib/account-deletion-contact.ts' ':!app/api/mobile/safety-reports/route.ts' ':!middleware.ts' \
             ':!mobile/scripts/native-notification-preferences-smoke.cjs' ':!mobile/scripts/native-household-smoke.cjs' ':!mobile/scripts/native-household-smoke.test.cjs' ':!mobile/scripts/native-household-deletion-smoke.cjs' ':!mobile/scripts/native-household-deletion-smoke.test.cjs' \
             ':!mobile/scripts/native-account-deletion-smoke.cjs' ':!mobile/scripts/native-account-deletion-smoke.test.cjs'
           printf 'CYNTCH_ANDROID_APP_SHA=%s\n' "$sha" >> "$GITHUB_ENV"

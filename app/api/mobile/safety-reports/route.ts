@@ -8,6 +8,9 @@ import { SafetyReportError } from "@/shared/mobile/safety-reports"
 export const dynamic = "force-dynamic"
 const headers = { "Cache-Control": "no-store" }
 async function readBody(request: Request) {
+  if (request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== "application/json") {
+    throw new SafetyReportError("Use a JSON report request.", 415)
+  }
   const reader = request.body?.getReader()
   if (!reader) throw new SafetyReportError("Enter a report.")
   const chunks: Uint8Array[] = []

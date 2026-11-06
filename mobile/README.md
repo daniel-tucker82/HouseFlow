@@ -13,6 +13,26 @@ checked. Public privacy and terms pages now also pass a production build,
 anonymous HTTP checks and phone portrait/landscape inspection. Production
 release gates are still closed.
 
+Current new-feature verification: Android run `42177470430` and iOS compile-only
+run `42176986312` build source `27c31e4`. The new scoped journey checks terms
+acceptance, report draft rotation/restart, offline report submission, termination,
+reconnection and durable receipt. It requires a fresh private-schema attestation
+with no existing acceptance/report and compares the whole original public schema
+before and after. Inspect any failure before resuming; saved submissions must not
+be duplicated. Android runs first. The iPhone app will then be reused on its own
+fresh schema with replay scope `safety`, using the matching `macos-26` architecture.
+These runs are pending; no native reporting/consent result is claimed yet.
+
+The isolated safety backend (`C:/dev/HouseFlow-native-safety-check`, server source
+`e86c000`, localhost port 3018) passed its production build and authenticated
+local/HTTPS preflight. The reserved parent routes to it through the temporary
+gateway; task edits and deletion requests are denied. Other traffic keeps the
+previous routing. `cyntch-safety-fixtures.json` in the local Codex temp folder
+holds separate Android/iPhone scopes and an immutable whole-public-schema
+baseline; `cyntch-safety-gateway-journal.json` records the gateway rollback.
+Original household hash and 19 completion receipts remain preserved. Never
+overwrite either these baselines or the earlier deletion/offline/push evidence.
+
 Latest additions: native Settings now has a private content/member reporting
 form with account-scoped durable drafts, immutable submissions and receipt-safe
 retries on foreground/reconnection. The authenticated API accepts all household
