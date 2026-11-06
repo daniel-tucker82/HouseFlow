@@ -4,7 +4,7 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
-Current release checkpoint, 6 November 2026: approximately 85% of the
+Current release checkpoint, 6 November 2026: approximately 86% of the
 overall goal is complete. Ordinary household controls pass on both platforms;
 private Android household deletion and private iPhone account deletion now have
 native, database and provider preservation evidence. The public deletion-request
@@ -13,7 +13,21 @@ checked. Public privacy and terms pages now also pass a production build,
 anonymous HTTP checks and phone portrait/landscape inspection. Production
 release gates are still closed.
 
-iPhone offline/restart verification remains open. Run `42140542799` did save
+iPhone offline/restart verification now passes in run `42146636425`, using
+the existing compatible app. Artifact `13470973108` matched SHA-256
+`f48aa7fcc0fca5dcb9873156ea40a609c90a0710ecb86a9ae4527d3c496ab708`.
+The test verified an actual network outage, offline completion, process
+termination, offline relaunch, explicit network restoration, server
+acknowledgement, task reopening and a final restart. All six required captures
+passed; the offline restarted, synchronised and final restored task captures
+were visually inspected. Server evidence confirms the original household and
+previous receipts are unchanged, the earlier partial completion is preserved,
+and exactly three further completion/reopening receipts restore the test task.
+Evidence: `C:/Users/danie/.codex/tmp/cyntch-native-ios-offline-evidence-42146636425.json`.
+No unchanged rerun is needed. This simulator result does not replace physical
+device or household pilot checks.
+
+Earlier run `42140542799` did save
 the completion while the network was unavailable, and it synchronised after
 explicit network restoration. Artifact `13466749637` was inspected: the native
 checkbox value was `checkbox, checked` and the task showed `Completed`, while
@@ -69,6 +83,23 @@ Android profiles now use Expo's documented `EAS_BUILD_DISABLE_MAVEN_CACHE=1`
 setting; the composite build's repository restriction is unchanged. A successful
 signed APK and actual push delivery are not yet established.
 Reference: [Expo dependency caching](https://docs.expo.dev/build-reference/caching/).
+
+Signed Android preview `38dbadac-d9d7-4ba3-b087-135cb62ff8d7` (`aaa1f47`)
+is running with that cache setting. Its inspected logs passed the earlier
+repository-resolution failure and reached native compilation; final APK evidence
+is still pending. Do not duplicate the active build.
+
+The owner explicitly approved a dedicated `Cyntch Expo Push` service account,
+Firebase Cloud Messaging permissions, one private key and upload to the linked
+Expo project. Google Cloud account access is now verified. The new account is
+`cyntch-expo-push@cyntch-2358a.iam.gserviceaccount.com`, unique ID
+`113822402981762529819`, with the Firebase Cloud Messaging API Admin role.
+The single key-generation attempt was rejected by the enforced organisation
+policy `iam.disableServiceAccountKeyCreation`. No key was downloaded or uploaded;
+EAS still reports no FCM V1 credential. The organisation policy was not changed.
+Evidence: `C:/Users/danie/.codex/tmp/cyntch-fcm-key-creation-once.json`.
+Inspect the policy and resolve an appropriately scoped exception before any
+further key-generation attempt; do not create another service account.
 
 Further release work needs Apple/store access, iOS signing and push credentials,
 actual store/RevenueCat catalogs and sandbox checks,
