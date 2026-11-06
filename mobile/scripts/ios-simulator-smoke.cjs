@@ -188,7 +188,7 @@ for (const [index, template] of devices.entries()) {
           'native-keyboard-portrait.png': 'portrait',
           'native-keyboard-landscape.png': 'landscape',
           'native-keyboard-dismissed-landscape.png': 'landscape',
-        })
+        }, { includeStartup: layoutOnly?.flow !== 'signed-out-keyboard.yaml' })
         if (run.error || run.status !== 0) throw new Error(`Simulator flow failed (${run.error?.code ?? run.status}).`)
         if (!textResult.orientationEvidence.passed) throw new Error('Screenshots do not prove both requested orientations.')
         textResult.passed = true

@@ -1,6 +1,8 @@
 const test = require('node:test')
+const { Buffer } = require('node:buffer')
 const assert = require('node:assert/strict')
-const { screenshotDimensions, androidOrientationParameters } = require('./device-screenshot-evidence.cjs')
+const { screenshotDimensions, androidOrientationParameters, inspectScreenshotOrientations } = require('./device-screenshot-evidence.cjs')
+const fs = require('node:fs'), os = require('node:os'), path = require('node:path')
 
 // Metadata-only fixtures exercise the checker, not rendering or device behavior.
 function chunk(type, data = Buffer.alloc(0)) {
@@ -30,6 +32,17 @@ test('PNG without EXIF keeps the stored dimensions', () => {
   assert.deepEqual(screenshotDimensions(png()), {
     pixelWidth: 1206, pixelHeight: 2622, exifOrientation: 1, width: 1206, height: 2622,
   })
+})
+
+test('keyboard-only evidence requires each keyboard capture while the full journey still requires startup', t => {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'cyntch-orientation-'))
+  t.after(() => fs.rmSync(folder, { recursive: true, force: true }))
+  const expected = { 'native-keyboard-portrait.png': 'portrait', 'native-keyboard-landscape.png': 'landscape', 'native-keyboard-dismissed-landscape.png': 'landscape' }
+  for (const [name, orientation] of Object.entries(expected)) fs.writeFileSync(path.join(folder, name), png(chunk('eXIf', exif(orientation === 'portrait' ? 1 : 8))))
+  assert.equal(inspectScreenshotOrientations(folder, expected).passed, false)
+  assert.equal(inspectScreenshotOrientations(folder, expected, { includeStartup: false }).passed, true)
+  fs.unlinkSync(path.join(folder, 'native-keyboard-dismissed-landscape.png'))
+  assert.deepEqual(inspectScreenshotOrientations(folder, expected, { includeStartup: false }).missing, ['native-keyboard-dismissed-landscape.png'])
 })
 
 test('TIFF orientations use display axes in both byte orders', () => {
