@@ -8,6 +8,7 @@ import type { NotificationHistoryAction, NotificationHistoryPage, NotificationHi
 import type { AccountDeletionReview } from "../../../shared/mobile/account-deletion"
 import type { InvitationPage } from "../../../shared/mobile/invitations"
 import type { HouseholdDeletionReceipt } from "../../../shared/mobile/household-deletion"
+import { parseSafetyReceipt, type SafetyReportDraft } from "../../../shared/mobile/safety-reports"
 import { parseAccountDeletionReview } from "./account-deletion-review"
 import { parseNativeKioskSession, type NativeKioskOperation, type NativeKioskResult } from "../../../shared/mobile/kiosk"
 import { isWebBillingCancellationUrl, type NativeBillingAction, type NativeBillingScope, type NativeBillingSetup, type NativeBillingStatus, type NativeBillingStore, type WebBillingCancellation } from "../../../shared/mobile/billing"
@@ -56,6 +57,16 @@ export class MobileApi implements SyncTransport {
   }
 
   async serverTime() { return (await this.request<{ serverTimeMs: number }>("/api/mobile/time")).serverTimeMs }
+
+  async safetyReportingAvailable() {
+    const result = await this.request<{ accountId: string; enabled: boolean }>("/api/mobile/safety-reports")
+    if (result.accountId !== this.accountId || result.enabled !== true) throw new Error("Reporting is unavailable for this sign-in.")
+    return true
+  }
+
+  async sendSafetyReport(draft: SafetyReportDraft) {
+    return parseSafetyReceipt(await this.request("/api/mobile/safety-reports", { ...draft }), this.accountId, draft)
+  }
 
   async invitations(householdId: string, cursor?: string): Promise<InvitationPage> {
     const params = new URLSearchParams({ householdId, ...(cursor ? { cursor } : {}) })

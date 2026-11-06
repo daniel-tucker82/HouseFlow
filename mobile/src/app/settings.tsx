@@ -12,6 +12,7 @@ import { useRouter } from "expo-router"
 import { AccountCleanupNotice } from "../components/account-cleanup-notice"
 import { PolicyLinks } from "../components/policy-links"
 import { policyLinks } from "../services/policy-links"
+import { SafetyReportCard } from "../components/safety-report-card"
 
 export default function SettingsScreen() {
   const router = useRouter()
@@ -40,6 +41,7 @@ export default function SettingsScreen() {
     </View></Card>
     <KioskSettingsCard />
     <NotificationSettingsCard />
+    <SafetyReportCard />
     <Card><Copy tone="heading">Saved changes</Copy><Copy tone="muted">{savedCount ? `${savedCount} ${savedCount === 1 ? "change is" : "changes are"} saved on this device and ${savedCount === 1 ? "has" : "have"} not synced.` : "All saved changes have synced."}</Copy>
       {needsAttention ? <Copy style={{ color: colors.warning }}>{needsAttention} saved {needsAttention === 1 ? "change needs" : "changes need"} attention.</Copy> : null}
       {history.syncError ? <View style={{ gap: 8 }}><Copy style={{ color: colors.warning }}>{history.syncError}</Copy>

@@ -16,6 +16,7 @@ export default function TermsPage() {
       <p>Cyntch helps your household organise tasks, routines and rewards. Keep your sign-in secure and provide accurate account information. Only invite people you are authorised to include, and only add a child’s information if you are their parent or guardian or have the necessary permission.</p>
       <p>Parents are responsible for supervising children’s use and choosing appropriate tasks and rewards. A parent or guardian manages a child’s profile without an email address. Kiosk mode restricts controls within Cyntch and does not prevent someone leaving the app or using other device functions.</p>
       <p>Do not use Cyntch unlawfully, harass others, upload content you have no right to use, interfere with the service or attempt to access another person’s account or household without permission.</p>
+      <p>Do not share sexual or exploitative content, threats, hateful or abusive material, content promoting violence or self-harm, or another person’s private information without permission. Report harmful content or behaviour using Report a concern in the app’s Settings where available, or contact us below. We may review reports, remove harmful content and restrict accounts where appropriate. Reports are not an emergency service.</p>
     </section>
     <section aria-labelledby="content">
       <h2 id="content">Your household content</h2>

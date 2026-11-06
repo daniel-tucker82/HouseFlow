@@ -13,6 +13,41 @@ checked. Public privacy and terms pages now also pass a production build,
 anonymous HTTP checks and phone portrait/landscape inspection. Production
 release gates are still closed.
 
+Latest additions: native Settings now has a private content/member reporting
+form with account-scoped durable drafts, immutable submissions and receipt-safe
+retries on foreground/reconnection. The authenticated API accepts all household
+roles, rejects outsiders and locked kiosk sessions, caps new reports, and never
+lists concerns to household members. Migration `0043` adds the private inbox and
+review audit. An operator CLI supports revision-checked review/resolution and
+redaction of resolved text after 90 days while preserving retry receipts.
+Eleven PostgreSQL/SQLite tests passed, covering concurrency, restart, lost replies,
+local write failure, access loss, isolation, kiosk/account-deletion guards,
+retention and actual account cleanup. Root/mobile types and targeted lint pass.
+Android and iOS JavaScript exports also pass (local `cyntch-reporting-export-20261106`);
+this checks bundling, not the reporting form on a device.
+See [the operational checklist](../docs/mobile-safety-report-operations.md).
+`SAFETY_REPORTS_ENABLED` remains off in production; no live migration or deployment
+was made. Android/iPhone form inspection and a staffed operational review process
+still need verification. Privacy and terms drafts now describe report handling
+and prohibited content; they remain unpublished. Explicit terms acceptance before
+shared-content creation remains a separate release requirement.
+
+The remaining iOS 17 layout evidence is now complete. Minimum-iPad run
+`42166764904` attempt 2 passed both text sizes; artifact `13480887382` matches
+SHA-256 `709280276169278239fa0423743054ce0ef1d684df7a957499307f3532eb9258`.
+Large-text welcome and keyboard-dismissed landscape captures were inspected.
+Minimum-iPhone keyboard-only run `42168497967` passed its actual Maestro journey
+(one test, zero failures) and all three keyboard captures. The CI result remains
+failed because its checker incorrectly required startup captures from the earlier
+journey. The checker is corrected; saved artifact `13480538701`, SHA-256
+`f72b6d9bc809bf47f3758b9bad78777fa027a9863710349a21196f52e34793e5`, passes scoped
+local re-evaluation. Proof is `cyntch-ios17-keyboard-evidence-42168497967.json`
+under the local evidence directory. The earlier inspected run `42164940621`
+already proved startup/restart/rotation. No app rerun was needed. Current iPhone
+`42164935298` and current iPad `42164943268` attempt 2 also passed previously.
+These results use simulator app source `186c049`, before the new reporting UI;
+they do not establish reporting-form verification or store-signed iOS delivery.
+
 iPhone offline/restart verification now passes in run `42146636425`, using
 the existing compatible app. Artifact `13470973108` matched SHA-256
 `f48aa7fcc0fca5dcb9873156ea40a609c90a0710ecb86a9ae4527d3c496ab708`.
@@ -269,8 +304,9 @@ Artifact `13479991016` (SHA-256
 `f009529aa8f549942562a132f73804aa2d9fbdd4215dc075deec39bc3ff2485b`)
 was inspected: the bounded initial-entry recovery worked, and the final screen
 retains the correct text in landscape, but keyboard dismissal was unfinished.
-Replay `42168497967`, source `7461470`, runs only that keyboard flow, reusing the
-same app. The earlier replay source was `302ffc8` on
+Replay `42168497967`, source `7461470`, completed that keyboard flow with the
+same app. Its CI-only screenshot-scope failure and successful saved-evidence
+re-evaluation are detailed in the latest checkpoint above. The earlier replay source was `302ffc8` on
 `codex/native-ios-release-verification`. Compilation is skipped; producer ancestry,
 runtime equality, digest, architecture and signing checks remain. These journeys
 stay signed out and exclude previously passed font cases. Current iPad attempt 1
@@ -285,7 +321,8 @@ artifact `13480655603` (SHA-256
 `b14eba95703c6c24234bdf0e8872631d58432c678492f819b51ae95a9864ab0e`)
 shows unresponsive simulator services and load average 372 on a four-CPU host;
 the app is installed on the captured home screen. Only that failed job was
-requeued as attempt 2. Do not confuse host resource exhaustion with an app crash.
+requeued as attempt 2, which passed both text sizes; the inspected artifact is
+`13480887382`. Do not confuse host resource exhaustion with an app crash.
 
 ### Store account and packaged iOS privacy inventory
 
@@ -319,8 +356,11 @@ The distinction between private household collaboration and primary UGC sharing
 needs review, and the actual safeguards need completion before release.
 [Google's UGC policy](https://support.google.com/googleplay/android-developer/answer/9876937?hl=en)
 explicitly requires in-app reporting even for content shared with a specified
-group, plus terms acceptance before creating content. The current native app
-has policy links but no explicit consent/reporting flow. Keep this gap open;
+group, plus terms acceptance before creating content. The verified simulator
+binary has policy links but no explicit consent/reporting flow. New reporting
+code is implemented and locally tested behind a closed service gate; device and
+operational checks remain. Explicit terms acceptance still needs implementation.
+Keep these release gaps open;
 the saved questionnaire is not proof of store compliance. No app release or
 store-review submission has been made.
 
