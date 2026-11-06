@@ -18,6 +18,8 @@ name: Request Android notification permission through the actual system dialog
     visible:
       id: "com.android.permissioncontroller:id/permission_allow_button"
     timeout: 20000
+- waitForAnimationToEnd:
+    timeout: 5000
 - takeScreenshot: android-push-system-prompt
 - tapOn:
     id: "com.android.permissioncontroller:id/permission_allow_button"
