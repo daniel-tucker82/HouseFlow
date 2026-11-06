@@ -7,7 +7,7 @@ const { execFileSync, spawnSync } = require('node:child_process')
 const { authFixture, runAuthenticatedSmoke } = require('../../mobile/scripts/native-auth-smoke.cjs')
 const { androidOrientationParameters, inspectScreenshotOrientations } = require('../../mobile/scripts/device-screenshot-evidence.cjs')
 const expected = require('../fixtures/android-preview.json')
-const body = 'Android push verification 27c85274.'
+const body = 'Android push verification 27c85274c.'
 if (process.platform !== 'linux' || process.env.GITHUB_ACTIONS !== 'true'
   || process.env.GITHUB_REPOSITORY !== 'daniel-tucker82/HouseFlow'
   || process.env.GITHUB_REF_NAME !== 'codex/native-android-push-verification') throw Error('Requires the isolated owned Actions branch.')
@@ -20,7 +20,9 @@ const adb = (...args) => execFileSync('adb', ['-s', 'emulator-5554', ...args], {
 const report = { source: expected.source, verificationSource: process.env.GITHUB_SHA, buildId: expected.buildId,
   scope: 'Real FCM delivery to one new test emulator: system permission, notification pane and tap. No household edits; provider receipt is separate local evidence.', passed: false }
 const save = () => fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify(report, null, 2))
-const capture = name => fs.writeFileSync(path.join(output, name + '.png'), execFileSync('adb', ['-s', 'emulator-5554', 'exec-out', 'screencap', '-p'], { timeout: 15000 }))
+// Full-resolution launcher screenshots can exceed Node's default 1 MiB buffer.
+// Match the bounded allowance used by the other Android device harnesses.
+const capture = name => fs.writeFileSync(path.join(output, name + '.png'), execFileSync('adb', ['-s', 'emulator-5554', 'exec-out', 'screencap', '-p'], { timeout: 15000, maxBuffer: 16 * 1024 * 1024 }))
 function flow(name) {
   const directory = path.join(output, name)
   fs.mkdirSync(directory, { recursive: true })
@@ -77,7 +79,11 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
         // push tokens or unrelated notification payloads.
         fs.writeFileSync(path.join(output, 'system-notification.txt'), notifications.split(/\r?\n/)
           .filter(line => line.includes(body) || /NotificationRecord\(.*com\.cyntch\.app/.test(line)).join('\n'))
-        capture('android-push-banner-candidate')
+        // A failed image capture must not discard the chance to inspect and tap
+        // the already-delivered notification. The required-image check below
+        // still fails the journey if this capture is missing.
+        try { capture('android-push-banner-candidate') } catch (error) { report.bannerCaptureError = error.message }
+        save()
         break
       }
       await pause(750)

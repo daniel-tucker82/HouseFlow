@@ -141,27 +141,50 @@ The completed restoration journal is
 Screenshots `cyntch-google-policy-restored.png` and
 `cyntch-google-role-restored.png` show the restored protections. The one-time
 key marker is `cyntch-fcm-key-creation-once.json`. This verifies credential
-configuration, not actual provider delivery; an isolated real-push test remains.
+configuration. The isolated Android transport result below now also confirms
+provider acceptance and receipt by the operating system.
 
-Real Android delivery run `42159026771` is now in progress on isolated branch
-`codex/native-android-push-verification` (`31f9f18`). It reuses the exact signed
+Real Android delivery run `42159026771` completed on isolated branch
+`codex/native-android-push-verification` (`31f9f18`). It reused the exact signed
 APK and retains digest, signing, producer ancestry and complete app compatibility
 checks. The new emulator signs in to the existing disposable identity, requests
 permission through Android's actual dialog, backgrounds the app, then checks the
 notification pane and tap destination. The banner capture requires visual review.
-No household edit is part of this journey.
+No household edit is part of this journey. Artifact `13476017765` matched SHA-256
+`f6d0ed3305f315c788c5f72f4dd80e6b2c85e6c9139c050c66d77969ca2ce81c`.
+Authentication and the actual system permission prompt passed. Android recorded
+the Cyntch notification on `cyntch-task_available` at high importance at 03:58:38
+UTC, and Expo's provider receipt was `ok`. The test then stopped with
+`spawnSync adb ENOBUFS`: its screenshot exceeded Node's default 1 MiB buffer.
+The notification pane, banner appearance and tap destination were not verified.
+This is partial transport evidence, not a passed complete notification journey.
+
+The harness now allows 16 MiB for screenshots, matching the other Android
+harnesses, and preserves the opportunity to inspect/tap a delivered notification
+even if its initial image capture fails. Missing required images still fail the
+overall result. A local reproduction confirmed the former buffer failure and
+then captured all 4 MiB exactly with the corrected function. Mobile lint/types,
+script lint and actual Maestro flow parsing pass. Evidence:
+`C:/Users/danie/.codex/tmp/cyntch-android-push-capture-regression.json`.
 
 The local sender `C:/Users/danie/.codex/tmp/cyntch-android-push-once.cjs` uses the
 actual Expo provider adapter but a synthetic, clearly labelled test message.
 It only reads the isolated database, requires exactly one newly registered Android
 device for the test identity and unchanged original data/existing devices, and
 records a one-time marker before sending. It never automatically repeats a send.
-The bounded corrected-attempt worker is PID `45096`, ending at 04:21 UTC on
-6 November, using `CYNTCH_PUSH_ATTEMPT=27c85274b`. Inspect
+The corrected-attempt worker, PID `45096`, completed at 03:59:08 UTC on
+6 November, using `CYNTCH_PUSH_ATTEMPT=27c85274b`. It sent exactly once to
+device `0714fdc4-eff1-4246-b95a-74bee05b925b`; do not restart it or resend.
+The provider report and a later read-only check confirm the original household,
+task state and all 19 completion receipts remain unchanged. Inspect
 `cyntch-android-push-provider-27c85274b.json`, its worker log/error files and the
 run's artifacts before any retry. Never overwrite either attempt's baseline or
 send marker. This transport test does not verify domain-event expansion or
-change the production push gate.
+change the production push gate. A separately labelled `27c85274c` test is
+prepared but awaits the owner's response before dispatch or another send.
+Its preparation requires the inspected failed artifact, acknowledged prior
+delivery and preservation of every earlier device row. Its baseline and worker
+have not been started, and no new app build is needed.
 
 First run `42158233197` authenticated and registered a token, but artifact
 `13475697488` showed Maestro's default launch had automatically granted permission
@@ -196,16 +219,26 @@ device jobs (phone, tablet, foldable and minimum API 24). Build artifact
 The local final-manifest inspection confirms all three unnecessary permissions
 are absent and all required capabilities remain. Evidence:
 `C:/Users/danie/.codex/tmp/cyntch-android-permissions-186c049-evidence.json`.
-Phone, foldable and minimum-API artifacts also report success. The original signed
+Phone, foldable, tablet and minimum-API artifacts also report success. Tablet
+artifact `13476345484` matched SHA-256
+`e518c16f942889eb13ac0ae00b0ff70681ee1bcc5015d6c07ee924677cb95c6e`;
+normal and large text journeys passed on Android API 37 with 16 KB pages.
+The large-text landscape keyboard capture was visually inspected: the entered
+email and Continue action remain visible above the keyboard. The original signed
 EAS APK is unchanged. iOS `42157109744` was still compiling at last inspection;
 do not dispatch another build.
 
 ### Store account and packaged iOS privacy inventory
 
-Google Play Console shows initial developer signup for the business Google
-account. The owner agreed to complete organisation enrollment; the signup page
-is open. Do not submit registration, agreements or payment on the owner's behalf.
-Apple Developer enrollment is also still outstanding.
+Google Play organisation registration is now confirmed for `Aspyre Software`,
+account `8592557990835197846`. The account's Home page still disables Create app
+until identity, trader-status, website and phone verification are complete.
+Website ownership requires Google Search Console verification and approval of
+the Play request; phone checks follow organisation/identity approval. The owner
+agreed to complete the verification checklist and has the page open. Do not
+interrupt or submit identity documents/business declarations on their behalf.
+Screenshot: `C:/Users/danie/.codex/tmp/cyntch-play-account-verification-required.png`.
+Apple Developer enrollment is still outstanding.
 
 The already-built iPhone archive from `41950126236` was reused for a privacy
 inventory, with no rebuild. Its recorded ZIP digest matched. All 20 packaged
