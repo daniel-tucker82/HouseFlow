@@ -25,7 +25,7 @@ on:
       replay_scope:
         description: Which checks to run when reusing a compiled simulator app
         type: choice
-        options: [notifications, current-devices, minimum-devices, phones, account-deletion, offline, household-resume-member, household-resume-colour, layout-current-iphone, layout-minimum-iphone-default, layout-current-ipad-large]
+        options: [notifications, current-devices, minimum-devices, phones, account-deletion, offline, household-resume-member, household-resume-colour, layout-current-iphone, layout-minimum-iphone-default, layout-current-ipad-large, layout-minimum-ipad]
         default: notifications
       verify_device_archive:
         description: Build and inspect a device SDK archive without distribution signing or submission
@@ -237,13 +237,13 @@ jobs:
     # The app is compiled once with the release toolchain. Use an older XCTest
     # host for the iOS 17 phone that could not start the driver. The iPad's
     # original host already executed its UI tests. Preserve binary architecture.
-    runs-on: ${{ matrix.runtime == '17.0' && matrix.family == 'iphone' && (inputs.runner == 'macos-26' && 'macos-15' || 'macos-15-intel') || inputs.runner || 'macos-26-intel' }}
+    runs-on: ${{ matrix.runtime == '17.0' && (matrix.family == 'iphone' || inputs.replay_scope == 'layout-minimum-ipad') && (inputs.runner == 'macos-26' && 'macos-15' || 'macos-15-intel') || inputs.runner || 'macos-26-intel' }}
     timeout-minutes: 80
     strategy:
       fail-fast: false
       matrix:
-        runtime: ${{ fromJSON((inputs.verify_household_phone || inputs.verify_household_deletion || inputs.verify_deletion_phone) && '["current"]' || inputs.simulator_from_run && inputs.replay_scope != 'phones' && ((inputs.replay_scope == 'minimum-devices' || inputs.replay_scope == 'layout-minimum-iphone-default') && '["17.0"]' || '["current"]') || '["current","17.0"]') }}
-        family: ${{ fromJSON(inputs.simulator_from_run && inputs.replay_scope == 'layout-current-ipad-large' && '["ipad"]' || (inputs.verify_household_phone || inputs.verify_household_deletion || inputs.verify_deletion_phone) && '["iphone"]' || inputs.simulator_from_run && (startsWith(inputs.replay_scope, 'layout-') || inputs.replay_scope == 'notifications' || inputs.replay_scope == 'phones' || inputs.replay_scope == 'account-deletion' || inputs.replay_scope == 'offline') && '["iphone"]' || '["iphone","ipad"]') }}
+        runtime: ${{ fromJSON((inputs.verify_household_phone || inputs.verify_household_deletion || inputs.verify_deletion_phone) && '["current"]' || inputs.simulator_from_run && inputs.replay_scope != 'phones' && ((inputs.replay_scope == 'minimum-devices' || inputs.replay_scope == 'layout-minimum-iphone-default' || inputs.replay_scope == 'layout-minimum-ipad') && '["17.0"]' || '["current"]') || '["current","17.0"]') }}
+        family: ${{ fromJSON(inputs.simulator_from_run && (inputs.replay_scope == 'layout-current-ipad-large' || inputs.replay_scope == 'layout-minimum-ipad') && '["ipad"]' || (inputs.verify_household_phone || inputs.verify_household_deletion || inputs.verify_deletion_phone) && '["iphone"]' || inputs.simulator_from_run && (startsWith(inputs.replay_scope, 'layout-') || inputs.replay_scope == 'notifications' || inputs.replay_scope == 'phones' || inputs.replay_scope == 'account-deletion' || inputs.replay_scope == 'offline') && '["iphone"]' || '["iphone","ipad"]') }}
     defaults:
       run:
         working-directory: mobile
@@ -251,7 +251,7 @@ jobs:
     env:
       CI: '1'
       EXPO_NO_DOTENV: '1'
-      DEVELOPER_DIR: ${{ matrix.runtime == '17.0' && matrix.family == 'iphone' && '/Applications/Xcode_16.4.app/Contents/Developer' || '/Applications/Xcode_26.6.app/Contents/Developer' }}
+      DEVELOPER_DIR: ${{ matrix.runtime == '17.0' && (matrix.family == 'iphone' || inputs.replay_scope == 'layout-minimum-ipad') && '/Applications/Xcode_16.4.app/Contents/Developer' || '/Applications/Xcode_26.6.app/Contents/Developer' }}
       CYNTCH_IOS_TEST_RUNTIME: ${{ matrix.runtime == '17.0' && '17.0' || '' }}
       CYNTCH_IOS_TEST_FAMILY: ${{ matrix.family }}
       CYNTCH_IOS_SIMULATOR_PRODUCER: ${{ inputs.simulator_from_run }}

@@ -199,12 +199,18 @@ The pane and destination images were visually inspected. Expo receipt was `ok`;
 sender D completed at 04:43:38 UTC. Original household, task and all 19 receipts
 were unchanged; its baseline/marker are preserved. Final evidence is
 `C:/Users/danie/.codex/tmp/cyntch-android-push-evidence-42163426840.json`.
-Its launcher frame did not show the transient banner, so banner presentation is
-not yet verified. A separate banner-only run `42165222000` (`e4df135`) captures
-eight successive frames after notification-service acknowledgement. It neither
-changes OS settings nor repeats the successful pane/tap journey. Sender E is
-PID `28992`, ending 05:24:14 UTC; its fresh baseline preserves all 56 earlier
-devices. Inspect its artifacts, provider report and frames before any follow-up.
+Its launcher frame did not show the transient banner. Separate banner-only run
+`42165222000` (`e4df135`) passed; artifact `13478912737` matched SHA-256
+`162a04f6566a7a5278af845b60a5357a8b447c2bb4c44eccc92006bec633404a`.
+Frame `android-push-banner-2.png` visibly shows the real Cyntch heads-up banner
+over the launcher. OS heads-up was enabled and Do Not Disturb was off; neither
+setting was changed. All eight bounded frame captures passed. Expo receipt was
+`ok`; sender E completed at 05:02:13 UTC, with the household and 19 receipts
+unchanged. Preserve all baselines and send markers; no further unchanged push
+run is needed. Evidence: `cyntch-android-push-evidence-42165222000.json` in the
+same local evidence folder. These two runs establish this signed preview's
+Android provider delivery, banner, notification-pane display and task tap, not
+iOS APNs, production event delivery, or a physical household pilot.
 
 First run `42158233197` authenticated and registered a token, but artifact
 `13475697488` showed Maestro's default launch had automatically granted permission
@@ -250,26 +256,33 @@ timed out at simulator launch; the iOS 17 phone passed large text but initial
 default-text fixture entry dropped a character. Current iPad passed default text
 but its keyboard stayed dismissed for the large-text case. All three artifacts
 were inspected. Narrow setup retry/refocus retains strict rotation assertions.
-Existing app replays are current iPhone `42164935298`, iOS 17 default-text phone
-`42164940621`, and current large-text iPad `42164943268`, source `302ffc8` on
+Current iPhone replay `42164935298` passed both text sizes. Artifact `13478808792`
+matched SHA-256 `31069cdeec966ac15cb038b423053f34660bb7375ac579ff3055efc9401bff43`;
+large-text landscape keyboard/text retention was visually inspected.
+Remaining existing-app replays are iOS 17 default-text phone `42164940621` and
+current large-text iPad `42164943268`, source `302ffc8` on
 `codex/native-ios-release-verification`. Compilation is skipped; producer ancestry,
 runtime equality, digest, architecture and signing checks remain. These journeys
-stay signed out and exclude previously passed font cases. The original iOS 17
-iPad artifact `13478593019` also reports simulator/driver timeouts and requires
-its remaining evidence inspection before a targeted replay. No new build is needed.
+stay signed out and exclude previously passed font cases. Current iPad attempt 1
+timed out at installation before any flow (artifact `13479215673` inspected);
+only that failed job was requeued on a fresh host. The original iOS 17 iPad
+artifact `13478593019` was inspected: driver startup and subsequent simctl calls
+timed out, with a black captured screen. Targeted replay `42166764904`, harness
+`ee5520e`, uses the same compatible macOS 15 XCTest host as the minimum iPhone
+and the exact compiled app. No app code or deployment requirement was relaxed.
 
 ### Store account and packaged iOS privacy inventory
 
 Google Play organisation registration is now confirmed for `Aspyre Software`,
-account `8592557990835197846`. The account's Home page still disables Create app
-until the account verifications are complete. The owner completed the available
-steps. The latest Home page now reports uploaded identity documents under Google
-review, with phone verification waiting on that approval; trader-status and
-website tasks no longer appear. The owner will advise when Google completes its
-review, which the console says may take days. Do not repeatedly ask or poll the
-console. No app record, subscription product or store release has been created.
-Screenshot: `C:/Users/danie/.codex/tmp/cyntch-play-account-verification-required.png`.
-Apple Developer enrollment is still outstanding.
+account `8592557990835197846`. The owner completed verification; the live console
+enabled app creation. After explicit owner approval of the three required
+declarations, Cyntch was created as `com.cyntch.app`, English (Australia), App,
+Free. The new app ID is `4976465428897413174`; its actual dashboard was verified.
+Productivity and the owner-approved business contact `daniel@nexusaspyre.com`
+were saved to store settings. No release has been published, no subscription
+product created and no unverified policy URL supplied. Creation and saved-settings
+screenshots are `cyntch-play-app-created.png` and `cyntch-play-store-settings.png`
+under `C:/Users/danie/.codex/tmp/`. Apple Developer enrollment remains outstanding.
 
 The already-built iPhone archive from `41950126236` was reused for a privacy
 inventory, with no rebuild. Its recorded ZIP digest matched. All 20 packaged

@@ -4,6 +4,7 @@ const plans = {
   'layout-current-iphone': { family: 'iphone', runtime: '', contentSizes: ['large', 'accessibility-extra-large'] },
   'layout-minimum-iphone-default': { family: 'iphone', runtime: '17.0', contentSizes: ['large'] },
   'layout-current-ipad-large': { family: 'ipad', runtime: '', contentSizes: ['accessibility-extra-large'] },
+  'layout-minimum-ipad': { family: 'ipad', runtime: '17.0', contentSizes: ['large', 'accessibility-extra-large'] },
 }
 
 function layoutReplay(scope, env = process.env) {
