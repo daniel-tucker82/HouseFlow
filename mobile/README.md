@@ -182,16 +182,29 @@ run's artifacts before any retry. Never overwrite either attempt's baseline or
 send marker. This transport test does not verify domain-event expansion or
 change the production push gate. The owner approved the separately labelled
 `27c85274c` test and explicitly authorised future routine development and
-disposable-device tests without repeated permission requests. Fresh run
-`42161565292` (`f3b8bd5`) is in progress, reusing the existing app. Its baseline
-preserves all 54 earlier device rows and the original household/19 receipts.
-Worker PID `17284` is bounded until 04:46:47 UTC on 6 November. Inspect its
-`cyntch-android-push-provider-27c85274c.json` report and the run artifacts before
-further action. Never restart a sender after its send marker exists. Earlier
+disposable-device tests without repeated permission requests. Run `42161565292`
+(`f3b8bd5`) did not send: artifact `13477736691` showed the app was backgrounded
+before server registration completed. Worker `17284` was stopped with no send
+marker. The next flow requires the actual server registration confirmation.
+Never restart a sender after its send marker exists. Earlier
 baselines, sent-message proof and markers remain intact. The settled system
 permission capture now also waits for animation; the earlier image caught the
 dimmed app before the permission sheet was drawn, although the actual OS Allow
 control was found/tapped and the permission was granted.
+
+Run `42163426840` (`2c6c5f2`) passed actual permission, FCM delivery, the visible
+notification pane and tap through to the correct task. Artifact `13478516622`
+matched SHA-256 `31a16b6e0e3de1b870baf926025a2175a8028f0baa1d62d34237c39ac1c203ee`.
+The pane and destination images were visually inspected. Expo receipt was `ok`;
+sender D completed at 04:43:38 UTC. Original household, task and all 19 receipts
+were unchanged; its baseline/marker are preserved. Final evidence is
+`C:/Users/danie/.codex/tmp/cyntch-android-push-evidence-42163426840.json`.
+Its launcher frame did not show the transient banner, so banner presentation is
+not yet verified. A separate banner-only run `42165222000` (`e4df135`) captures
+eight successive frames after notification-service acknowledgement. It neither
+changes OS settings nor repeats the successful pane/tap journey. Sender E is
+PID `28992`, ending 05:24:14 UTC; its fresh baseline preserves all 56 earlier
+devices. Inspect its artifacts, provider report and frames before any follow-up.
 
 First run `42158233197` authenticated and registered a token, but artifact
 `13475697488` showed Maestro's default launch had automatically granted permission
@@ -232,8 +245,18 @@ artifact `13476345484` matched SHA-256
 normal and large text journeys passed on Android API 37 with 16 KB pages.
 The large-text landscape keyboard capture was visually inspected: the entered
 email and Continue action remain visible above the keyboard. The original signed
-EAS APK is unchanged. iOS `42157109744` has compiled successfully and is testing
-current/iOS 17 iPhones and iPads; do not dispatch another build.
+EAS APK is unchanged. iOS `42157109744` compiled successfully. Its current iPhone
+timed out at simulator launch; the iOS 17 phone passed large text but initial
+default-text fixture entry dropped a character. Current iPad passed default text
+but its keyboard stayed dismissed for the large-text case. All three artifacts
+were inspected. Narrow setup retry/refocus retains strict rotation assertions.
+Existing app replays are current iPhone `42164935298`, iOS 17 default-text phone
+`42164940621`, and current large-text iPad `42164943268`, source `302ffc8` on
+`codex/native-ios-release-verification`. Compilation is skipped; producer ancestry,
+runtime equality, digest, architecture and signing checks remain. These journeys
+stay signed out and exclude previously passed font cases. The original iOS 17
+iPad artifact `13478593019` also reports simulator/driver timeouts and requires
+its remaining evidence inspection before a targeted replay. No new build is needed.
 
 ### Store account and packaged iOS privacy inventory
 
