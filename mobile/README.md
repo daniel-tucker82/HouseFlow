@@ -132,9 +132,14 @@ is not enforced. Both Manage policy controls are disabled. At organisation
 `nexusaspyre.com` (`798037574911`), the signed-in owner has Organisation
 Administrator but lacks Organisation Policy Administrator. The existing
 principal's role editor is open for review; no role or policy change was saved.
-Explicit approval was requested for a temporary policy-admin role, a Cyntch-only
+The owner explicitly approved a temporary policy-admin role, a Cyntch-only
 key-creation exception, the already-approved single key/upload, restoration of
-the inherited ban and removal of the temporary role. Do not change the whole
+the inherited ban and removal of the temporary role. Applying it is waiting for
+the owner to restart work Chrome after browser/native control timeouts. No Save
+action was attempted; no role, policy or key change was applied. Approval remains
+valid when the connection recovers; inspect the actual state before continuing.
+The restoration journal is `cyntch-google-policy-exception-20261106.json`.
+Do not change the whole
 organisation's enforcement or repeat key creation before resolving this gate.
 Screenshots: `cyntch-google-policy-project-blocked.png` and
 `cyntch-google-org-role-editor.png` in the local evidence directory.
