@@ -7,7 +7,7 @@ const { execFileSync, spawnSync } = require('node:child_process')
 const { authFixture, runAuthenticatedSmoke } = require('../../mobile/scripts/native-auth-smoke.cjs')
 const { androidOrientationParameters, inspectScreenshotOrientations } = require('../../mobile/scripts/device-screenshot-evidence.cjs')
 const expected = require('../fixtures/android-preview.json')
-const body = 'Android push verification 27c85274c.'
+const body = 'Android push verification 27c85274d.'
 if (process.platform !== 'linux' || process.env.GITHUB_ACTIONS !== 'true'
   || process.env.GITHUB_REPOSITORY !== 'daniel-tucker82/HouseFlow'
   || process.env.GITHUB_REF_NAME !== 'codex/native-android-push-verification') throw Error('Requires the isolated owned Actions branch.')
@@ -94,6 +94,7 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
     report.screenshots = inspectScreenshotOrientations(output, {
       'android-push-before-permission.png': 'portrait', 'android-push-system-prompt.png': 'portrait',
       'android-push-permission-granted.png': 'portrait', 'android-push-background-before-send.png': 'portrait',
+      'android-push-registration-confirmed.png': 'portrait',
       'android-push-notification-pane.png': 'portrait', 'android-push-opened-task.png': 'portrait',
       'android-push-banner-candidate.png': 'portrait',
     }, { includeStartup: false })

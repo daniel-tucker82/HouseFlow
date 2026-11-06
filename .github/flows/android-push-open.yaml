@@ -2,10 +2,10 @@ appId: com.cyntch.app
 name: Open the actual provider-delivered Android notification
 ---
 - extendedWaitUntil:
-    visible: "Android push verification 27c85274c."
+    visible: "Android push verification 27c85274d."
     timeout: 20000
 - takeScreenshot: android-push-notification-pane
-- tapOn: "Android push verification 27c85274c."
+- tapOn: "Android push verification 27c85274d."
 - extendedWaitUntil:
     visible: "Android offline verification"
     timeout: 60000
