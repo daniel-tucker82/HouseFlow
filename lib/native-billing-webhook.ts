@@ -16,6 +16,10 @@ const relevant = new Set(["INITIAL_PURCHASE", "RENEWAL", "CANCELLATION", "UNCANC
   "EXPIRATION", "SUBSCRIPTION_PAUSED", "SUBSCRIPTION_EXTENDED", "REFUND_REVERSED", "TRANSFER", "TEMPORARY_ENTITLEMENT_GRANT",
   "SUBSCRIBER_ALIAS", "PRICE_INCREASE_CONSENT_REQUIRED", "PRICE_INCREASE_CONSENT_APPROVED"])
 const sparse = new Set(["TRANSFER", "TEMPORARY_ENTITLEMENT_GRANT", "TEST"])
+// Identity and price-consent events do not have the lifecycle envelope's
+// required environment. They still require an app and subscriber; the worker
+// verifies the configured environment against the provider before access changes.
+const environmentOptional = new Set(["SUBSCRIBER_ALIAS", "PRICE_INCREASE_CONSENT_REQUIRED", "PRICE_INCREASE_CONSENT_APPROVED"])
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 function validText(value: unknown, max: number): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= max && !/[\u0000-\u001f]/.test(value)
@@ -73,7 +77,8 @@ export function parseNativeBillingWebhook(body: unknown): NativeBillingEvent {
     typeof event.event_timestamp_ms !== "number" || !Number.isSafeInteger(event.event_timestamp_ms) || event.event_timestamp_ms <= 0 || event.event_timestamp_ms > 8_640_000_000_000_000 ||
     (event.environment !== undefined && !["PRODUCTION", "SANDBOX"].includes(String(event.environment))) ||
     (event.app_id !== undefined && !validText(event.app_id, 255))) throw new NativeBillingWebhookError("invalid_event", 400)
-  if (relevant.has(event.type) && !sparse.has(event.type) && (!event.environment || !event.app_id || !validText(event.app_user_id, 1500))) throw new NativeBillingWebhookError("invalid_event", 400)
+  if (relevant.has(event.type) && !sparse.has(event.type) &&
+    ((!event.environment && !environmentOptional.has(event.type)) || !event.app_id || !validText(event.app_user_id, 1500))) throw new NativeBillingWebhookError("invalid_event", 400)
   const customers = new Set<string>()
   for (const field of ["app_user_id", "original_app_user_id"]) {
     const value = event[field]

@@ -180,11 +180,18 @@ task state and all 19 completion receipts remain unchanged. Inspect
 `cyntch-android-push-provider-27c85274b.json`, its worker log/error files and the
 run's artifacts before any retry. Never overwrite either attempt's baseline or
 send marker. This transport test does not verify domain-event expansion or
-change the production push gate. A separately labelled `27c85274c` test is
-prepared but awaits the owner's response before dispatch or another send.
-Its preparation requires the inspected failed artifact, acknowledged prior
-delivery and preservation of every earlier device row. Its baseline and worker
-have not been started, and no new app build is needed.
+change the production push gate. The owner approved the separately labelled
+`27c85274c` test and explicitly authorised future routine development and
+disposable-device tests without repeated permission requests. Fresh run
+`42161565292` (`f3b8bd5`) is in progress, reusing the existing app. Its baseline
+preserves all 54 earlier device rows and the original household/19 receipts.
+Worker PID `17284` is bounded until 04:46:47 UTC on 6 November. Inspect its
+`cyntch-android-push-provider-27c85274c.json` report and the run artifacts before
+further action. Never restart a sender after its send marker exists. Earlier
+baselines, sent-message proof and markers remain intact. The settled system
+permission capture now also waits for animation; the earlier image caught the
+dimmed app before the permission sheet was drawn, although the actual OS Allow
+control was found/tapped and the permission was granted.
 
 First run `42158233197` authenticated and registered a token, but artifact
 `13475697488` showed Maestro's default launch had automatically granted permission
@@ -225,18 +232,19 @@ artifact `13476345484` matched SHA-256
 normal and large text journeys passed on Android API 37 with 16 KB pages.
 The large-text landscape keyboard capture was visually inspected: the entered
 email and Continue action remain visible above the keyboard. The original signed
-EAS APK is unchanged. iOS `42157109744` was still compiling at last inspection;
-do not dispatch another build.
+EAS APK is unchanged. iOS `42157109744` has compiled successfully and is testing
+current/iOS 17 iPhones and iPads; do not dispatch another build.
 
 ### Store account and packaged iOS privacy inventory
 
 Google Play organisation registration is now confirmed for `Aspyre Software`,
 account `8592557990835197846`. The account's Home page still disables Create app
-until identity, trader-status, website and phone verification are complete.
-Website ownership requires Google Search Console verification and approval of
-the Play request; phone checks follow organisation/identity approval. The owner
-agreed to complete the verification checklist and has the page open. Do not
-interrupt or submit identity documents/business declarations on their behalf.
+until the account verifications are complete. The owner completed the available
+steps. The latest Home page now reports uploaded identity documents under Google
+review, with phone verification waiting on that approval; trader-status and
+website tasks no longer appear. The owner will advise when Google completes its
+review, which the console says may take days. Do not repeatedly ask or poll the
+console. No app record, subscription product or store release has been created.
 Screenshot: `C:/Users/danie/.codex/tmp/cyntch-play-account-verification-required.png`.
 Apple Developer enrollment is still outstanding.
 
@@ -251,6 +259,20 @@ store disclosures, not proof that every optional SDK category is used by Cyntch.
 The inventory is `C:/Users/danie/.codex/tmp/cyntch-ios-privacy-audit-4f466ae/report.json`.
 Store privacy forms still need to reflect actual enabled features and providers;
 this inventory is not a store-compliance or submission result.
+
+The release contract review found that price-increase consent and legacy
+subscriber-alias webhooks were incorrectly required to include the subscription
+lifecycle environment field. RevenueCat documents that environment as optional
+for price consent and outside the subscriber-identity field group. The parser
+now accepts its omission for those event types while retaining required app and
+customer identities, malformed-value rejection and all signature/authentication
+checks. The durable worker still fetches provider state in the configured
+environment before changing access. No entitlement is granted from webhook
+claims. The reproduced failing case now passes, along with 18 signed-request,
+isolated PostgreSQL, deduplication, boundary and worker-recovery checks. Root
+typecheck and focused lint pass. No production billing gate was changed.
+Reference: [RevenueCat event fields](https://www.revenuecat.com/docs/integrations/webhooks/event-types-and-fields).
+Test log: `C:/Users/danie/.codex/tmp/cyntch-billing-optional-environment-tests.log`.
 
 Further release work needs Apple/store access, iOS signing and push credentials,
 actual store/RevenueCat catalogs and sandbox checks,

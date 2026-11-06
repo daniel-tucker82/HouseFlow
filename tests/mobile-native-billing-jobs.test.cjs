@@ -50,6 +50,20 @@ test('webhooks authenticate exact bytes and fresh delivery signatures, including
     { NATIVE_BILLING_ENVIRONMENT: 'sandbox', VERCEL_ENV: 'production' }]) assert.throws(() => webhook.nativeBillingWebhookConfig({ ...env, ...change }), { code: 'configuration' })
 })
 
+test('identity and price-consent webhooks can omit the store environment but still require app and customer identities', async () => {
+  for (const type of ['SUBSCRIBER_ALIAS', 'PRICE_INCREASE_CONSENT_REQUIRED', 'PRICE_INCREASE_CONSENT_APPROVED']) {
+    const raw = event(undefined, { type, environment: undefined })
+    const parsed = await webhook.readNativeBillingWebhook(request(raw), config)
+    assert.equal(parsed.environment, null)
+    assert.equal(parsed.appId, config.appIds[0])
+    assert.deepEqual(parsed.customerIds, [raw.event.app_user_id])
+    for (const changes of [{ app_id: undefined }, { app_user_id: undefined }, { environment: 'UNKNOWN' }]) {
+      await assert.rejects(webhook.readNativeBillingWebhook(request({ ...raw, event: { ...raw.event, ...changes } }), config), { code: 'invalid_event' })
+    }
+  }
+  await assert.rejects(webhook.readNativeBillingWebhook(request(event(undefined, { environment: undefined })), config), { code: 'invalid_event' })
+})
+
 async function fixture(t) {
   const destination = new URL(url)
   assert.ok(['localhost', '127.0.0.1', '[::1]'].includes(destination.hostname) && destination.pathname === '/cyntch_mobile_test')
@@ -81,6 +95,25 @@ async function fixture(t) {
 
 test('billing webhook receipts and jobs survive retries, concurrent delivery, crashes and lifecycle changes', { skip: !url }, async t => {
   const f = await fixture(t)
+  await t.test('environmentless identity and price consent events only queue configured-account verification', async () => {
+    for (const type of ['SUBSCRIBER_ALIAS', 'PRICE_INCREASE_CONSENT_REQUIRED', 'PRICE_INCREASE_CONSENT_APPROVED']) {
+      const raw = event(f.owner.id, { type, environment: undefined, entitlement_ids: ['premium'], expiration_at_ms: Date.now() + 86400_000 })
+      const parsed = await webhook.readNativeBillingWebhook(request(raw), config)
+      const accepted = await f.lib.acceptNativeBillingWebhook(f.db, config, parsed)
+      assert.equal(accepted.queued, 1)
+      assert.equal((await f.lib.acceptNativeBillingWebhook(f.db, config, parsed)).duplicate, true)
+      assert.equal((await f.accept(event(f.owner.id, { type, environment: undefined, app_id: 'other_app' }))).outcome, 'ignored_app')
+      assert.equal((await f.accept(event(f.owner.id, { type, environment: 'SANDBOX' }))).outcome, 'ignored_environment')
+    }
+    const jobs = await f.jobs()
+    assert.equal(jobs.length, 1)
+    assert.equal(jobs[0].account_id, f.owner.id)
+    assert.equal(jobs[0].requested_generation, '3')
+    assert.equal((await f.subscriptions()).length, 0)
+    assert.equal((await f.drain(async () => response([]))).verified, 1)
+    assert.equal((await f.subscriptions()).length, 0)
+    await f.clear()
+  })
   await t.test('concurrent duplicates enqueue once, and webhook payment claims cannot grant access', async () => {
     const raw = event(f.owner.id, { expiration_at_ms: Date.now() + 100 * 365 * 86400_000, price: 999, entitlement_ids: ['premium'] })
     const results = await Promise.all([f.accept(raw), f.accept(raw), f.accept(raw)])
