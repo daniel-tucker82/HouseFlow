@@ -7,7 +7,8 @@ const { execFileSync, spawnSync } = require('node:child_process')
 const { authFixture, runAuthenticatedSmoke } = require('../../mobile/scripts/native-auth-smoke.cjs')
 const { androidOrientationParameters, inspectScreenshotOrientations } = require('../../mobile/scripts/device-screenshot-evidence.cjs')
 const expected = require('../fixtures/android-preview.json')
-const body = 'Android push verification 27c85274d.'
+const body = 'Android push verification 27c85274e.'
+const bannerOnly = process.env.CYNTCH_ANDROID_BANNER_ONLY === 'true'
 if (process.platform !== 'linux' || process.env.GITHUB_ACTIONS !== 'true'
   || process.env.GITHUB_REPOSITORY !== 'daniel-tucker82/HouseFlow'
   || process.env.GITHUB_REF_NAME !== 'codex/native-android-push-verification') throw Error('Requires the isolated owned Actions branch.')
@@ -18,7 +19,8 @@ const root = path.resolve(__dirname, '../..')
 fs.mkdirSync(output, { recursive: true })
 const adb = (...args) => execFileSync('adb', ['-s', 'emulator-5554', ...args], { encoding: 'utf8', timeout: 30000, maxBuffer: 24 * 1024 * 1024 })
 const report = { source: expected.source, verificationSource: process.env.GITHUB_SHA, buildId: expected.buildId,
-  scope: 'Real FCM delivery to one new test emulator: system permission, notification pane and tap. No household edits; provider receipt is separate local evidence.', passed: false }
+  scope: bannerOnly ? 'Real FCM banner capture only on one new test emulator; no repeated pane/tap or household edits. Frames require visual review.'
+    : 'Real FCM delivery to one new test emulator: system permission, notification pane and tap. No household edits; provider receipt is separate local evidence.', passed: false }
 const save = () => fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify(report, null, 2))
 // Full-resolution launcher screenshots can exceed Node's default 1 MiB buffer.
 // Match the bounded allowance used by the other Android device harnesses.
@@ -68,6 +70,10 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
     report.permissionGranted = /android\.permission\.POST_NOTIFICATIONS: granted=true/.test(adb('shell', 'dumpsys', 'package', 'com.cyntch.app'))
     if (!report.permissionGranted) throw Error('OS notification permission was not granted.')
     report.readyAt = new Date().toISOString()
+    report.systemPresentationSettings = {
+      headsUp: adb('shell', 'settings', 'get', 'global', 'heads_up_notifications_enabled').trim(),
+      zenMode: adb('shell', 'settings', 'get', 'global', 'zen_mode').trim(),
+    }
     save()
     console.log('Ready for the single bounded test notification at ' + report.readyAt)
     const deadline = Date.now() + 8 * 60000
@@ -83,19 +89,35 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
         // the already-delivered notification. The required-image check below
         // still fails the journey if this capture is missing.
         try { capture('android-push-banner-candidate') } catch (error) { report.bannerCaptureError = error.message }
+        if (bannerOnly) {
+          // NotificationManager can acknowledge delivery before SystemUI draws
+          // the heads-up animation. Keep a bounded sequence without expanding
+          // the shade, reposting the notification or changing OS preferences.
+          report.bannerFrames = []
+          for (let frame = 1; frame <= 8; frame++) {
+            await pause(500)
+            const name = `android-push-banner-${frame}`
+            const at = new Date().toISOString()
+            try { capture(name); report.bannerFrames.push({ name, at }) }
+            catch (error) { report.bannerFrames.push({ name, at, error: error.message }) }
+          }
+        }
         save()
         break
       }
       await pause(750)
     }
     if (!report.systemNotificationAt) throw Error('No actual provider notification arrived within the bounded wait; do not resend automatically.')
-    adb('shell', 'cmd', 'statusbar', 'expand-notifications')
-    flow('android-push-open')
+    if (!bannerOnly) {
+      adb('shell', 'cmd', 'statusbar', 'expand-notifications')
+      flow('android-push-open')
+    }
     report.screenshots = inspectScreenshotOrientations(output, {
       'android-push-before-permission.png': 'portrait', 'android-push-system-prompt.png': 'portrait',
       'android-push-permission-granted.png': 'portrait', 'android-push-background-before-send.png': 'portrait',
       'android-push-registration-confirmed.png': 'portrait',
-      'android-push-notification-pane.png': 'portrait', 'android-push-opened-task.png': 'portrait',
+      ...(bannerOnly ? Object.fromEntries(Array.from({ length: 8 }, (_, i) => [`android-push-banner-${i + 1}.png`, 'portrait']))
+        : { 'android-push-notification-pane.png': 'portrait', 'android-push-opened-task.png': 'portrait' }),
       'android-push-banner-candidate.png': 'portrait',
     }, { includeStartup: false })
     if (!report.screenshots.passed) throw Error('Required notification evidence is incomplete.')
