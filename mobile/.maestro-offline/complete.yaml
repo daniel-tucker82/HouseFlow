@@ -9,16 +9,15 @@ appId: com.cyntch.app
     element: "^Android offline verification,.*"
     direction: DOWN
     centerElement: true
-- tapOn:
-    text: "^Android offline verification,.*"
-    checked: false
+- assertVisible: "^Open details: Android offline verification,.*[.] Ready$"
+- tapOn: "^Android offline verification,.*"
 # Completed tasks sort after ready tasks and can move outside the viewport.
 - scrollUntilVisible:
     element: "^Android offline verification,.*"
     direction: DOWN
     centerElement: true
-- assertVisible:
-    text: "^Android offline verification,.*"
-    checked: true
+# iOS exposes `value=checkbox, checked`, but Maestro 2.12.1 reports its
+# `checked` attribute as false. Assert this task's explicit Completed state.
+- assertVisible: "^Open details: Android offline verification,.*[.] Completed$"
 - assertVisible: "1 change saved on this device. Will sync when connected."
 - takeScreenshot: offline-completion-saved

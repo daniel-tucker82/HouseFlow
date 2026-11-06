@@ -11,8 +11,6 @@ appId: com.cyntch.app
     element: "^Android offline verification,.*"
     direction: DOWN
     centerElement: true
-- assertVisible:
-    text: "^Android offline verification,.*"
-    checked: true
+- assertVisible: "^Open details: Android offline verification,.*[.] Completed$"
 - assertVisible: "1 change saved on this device. Will sync when connected."
 - takeScreenshot: offline-completion-after-kill

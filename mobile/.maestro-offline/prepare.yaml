@@ -12,14 +12,11 @@ appId: com.cyntch.app
 # disposable task through the real UI; retain its server receipt history.
 - runFlow:
     when:
-      visible:
-        text: "^Android offline verification,.*"
-        checked: true
+      visible: "^Open details: Android offline verification,.*[.] Completed$"
     commands:
       - takeScreenshot: offline-existing-completion
       - tapOn:
           text: "^Android offline verification,.*"
-          checked: true
       - scrollUntilVisible:
           element: "^Android offline verification,.*"
           direction: UP
@@ -27,8 +24,6 @@ appId: com.cyntch.app
       - extendedWaitUntil:
           notVisible: ".*change saved on this device.*"
           timeout: 60000
-- assertVisible:
-    text: "^Android offline verification,.*"
-    checked: false
+- assertVisible: "^Open details: Android offline verification,.*[.] Ready$"
 - assertNotVisible: ".*change saved on this device.*"
 - takeScreenshot: offline-before-edit
