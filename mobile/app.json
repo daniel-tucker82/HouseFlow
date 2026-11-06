@@ -47,6 +47,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "477cbaf9-065b-4120-a065-fec2b9d60d8a"
+      }
+    },
+    "owner": "aspyre"
   }
 }

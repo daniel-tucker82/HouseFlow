@@ -4,7 +4,7 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
-Current release checkpoint, 6 November 2026: approximately 84% of the
+Current release checkpoint, 6 November 2026: approximately 85% of the
 overall goal is complete. Ordinary household controls pass on both platforms;
 private Android household deletion and private iPhone account deletion now have
 native, database and provider preservation evidence. The public deletion-request
@@ -13,30 +13,53 @@ checked. Public privacy and terms pages now also pass a production build,
 anonymous HTTP checks and phone portrait/landscape inspection. Production
 release gates are still closed.
 
-iPhone offline/restart verification remains open. Run `42068443688` attempt 3
-acquired a runner and authenticated, then missed the task checkbox after the
-offline banner moved it below the visible list. Artifact `13466766036` was
-inspected: the target was at y=842–894 on an 874-point screen, and the network
-was restored explicitly. No completion was recorded; the original household,
-task/version and all 15 earlier receipts remain unchanged. The corrected flows
-centre the task after status-banner changes. Isolated harness branch
-`codex/native-ios-offline-verification`, commit `217af4b`, retains compatibility
-with app `42022301424`; run `42140542799` passed the source and artifact guards
-and is running the journey without rebuilding the app. Its first run,
-`42139884472`, stopped before download at the producer-branch guard (artifact
-`13466751841`, no simulator created). Only the named offline harness now accepts
-the original native branch's producer; ancestry, runtime inputs, digest,
-signature and architecture checks are unchanged. Preserve
-the one-time baseline; inspect evidence before retrying. The older binary does
-not contain policy-link changes in `5377c39`.
+iPhone offline/restart verification remains open. Run `42140542799` did save
+the completion while the network was unavailable, and it synchronised after
+explicit network restoration. Artifact `13466749637` was inspected: the native
+checkbox value was `checkbox, checked` and the task showed `Completed`, while
+Maestro reported its separate `checked` attribute as false. The assertion
+stopped the journey before process restart. This is partial evidence, not a
+completed restart test. The exact completion receipt and completed/version-75
+state are saved in `cyntch-native-ios-offline-partial-42140542799.json`; the
+original 15 receipts and original household hash are unchanged.
 
-Further release work needs authenticated Expo/project and store access, signing
-and push credentials, actual store/RevenueCat catalogs and sandbox checks,
+Run `42144645765`, isolated harness commit `b7e9b49`, reuses app `42022301424`.
+It checks the task's explicit Ready/Completed accessibility text, restores the
+recorded completion once through the app, then tests offline completion,
+process termination, offline restart and reconnection. Do not replace either
+the original baseline or the saved partial proof. Final server verification
+requires all six captures, the preserved partial receipt and exactly three new
+receipts (reopen, complete offline, reopen after sync). Inspect artifacts before
+any retry. The named `codex/native-ios-offline-verification` branch retains the
+producer ancestry, complete runtime comparison, digest, signing and architecture
+guards. The older binary does not contain policy-link changes in `5377c39` or
+the newly linked Expo project configuration.
+
+Expo authentication is now confirmed for `danieltucker`, with owner access to
+the business organisation `aspyre`. The existing `@aspyre/cyntch` project is
+linked in `app.json`: `477cbaf9-065b-4120-a065-fec2b9d60d8a`.
+[Project dashboard](https://expo.dev/accounts/aspyre/projects/cyntch).
+EAS generated the Android signing keystore remotely; no private key was
+downloaded or committed. The owner confirmed that Apple Developer Program
+enrollment has not been completed. iOS credential setup was stopped at the Apple
+ID prompt; membership and Apple signing remain external prerequisites. Expo
+sign-in does not establish Apple membership, APNs credentials or store access.
+
+The EAS project `preview` environment now contains the isolated HTTPS gateway,
+the matching Clerk development publishable key and the existing `cyntch-2358a`
+Firebase Android client file. The client file is a secret file variable, supplied
+separately from the source archive; no service-account private key is embedded.
+This preview depends on the temporary verification backend and is not a
+production configuration. Production environment and policy URL settings remain
+unchanged. Local preview preflight and all six build-environment checks pass.
+Configuration evidence: `C:/Users/danie/.codex/tmp/cyntch-eas-preview-config-evidence.json`.
+
+Further release work needs Apple/store access, iOS signing and push credentials,
+actual store/RevenueCat catalogs and sandbox checks,
 published policy URLs and an operational deletion-request process.
 The owner authorised selecting the policy URLs and contact. The selected URLs
 are `https://www.cyntch.com/legal/privacy` and `https://www.cyntch.com/legal/terms`;
-the existing business inbox is `daniel@nexusaspyre.com`. Expo CLI opened its
-browser login, and the owner has been guided to finish it. Physical-device accessibility and
+the existing business inbox is `daniel@nexusaspyre.com`. Physical-device accessibility and
 performance checks, real provider push, store billing, production rollout and
 household pilot results remain unverified. No store submission has been made.
 
