@@ -4,7 +4,7 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
-Current release checkpoint, 6 November 2026: approximately 88% of the
+Current release checkpoint, 6 November 2026: approximately 90% of the
 overall goal is complete. Ordinary household controls pass on both platforms;
 private Android household deletion and private iPhone account deletion now have
 native, database and provider preservation evidence. The public deletion-request
@@ -259,8 +259,18 @@ were inspected. Narrow setup retry/refocus retains strict rotation assertions.
 Current iPhone replay `42164935298` passed both text sizes. Artifact `13478808792`
 matched SHA-256 `31069cdeec966ac15cb038b423053f34660bb7375ac579ff3055efc9401bff43`;
 large-text landscape keyboard/text retention was visually inspected.
-Remaining existing-app replays are iOS 17 default-text phone `42164940621` and
-current large-text iPad `42164943268`, source `302ffc8` on
+The current large-text iPad replay `42164943268` attempt 2 passed. Artifact
+`13480182651` matched SHA-256
+`329f7ebc7da104db64c067b2f6348a720e9ccf4c43ad39cb951eb6d7312d1967`;
+large-text landscape and keyboard retention were visually inspected. No rerun
+is needed. iOS 17 default-text phone `42164940621` passed the startup/restart
+journey, then exhausted its shared 540-second deadline after slow driver startup.
+Artifact `13479991016` (SHA-256
+`f009529aa8f549942562a132f73804aa2d9fbdd4215dc075deec39bc3ff2485b`)
+was inspected: the bounded initial-entry recovery worked, and the final screen
+retains the correct text in landscape, but keyboard dismissal was unfinished.
+Replay `42168497967`, source `7461470`, runs only that keyboard flow, reusing the
+same app. The earlier replay source was `302ffc8` on
 `codex/native-ios-release-verification`. Compilation is skipped; producer ancestry,
 runtime equality, digest, architecture and signing checks remain. These journeys
 stay signed out and exclude previously passed font cases. Current iPad attempt 1
@@ -270,6 +280,12 @@ artifact `13478593019` was inspected: driver startup and subsequent simctl calls
 timed out, with a black captured screen. Targeted replay `42166764904`, harness
 `ee5520e`, uses the same compatible macOS 15 XCTest host as the minimum iPhone
 and the exact compiled app. No app code or deployment requirement was relaxed.
+Its first attempt timed out at `get_app_container` before any flow. Inspected
+artifact `13480655603` (SHA-256
+`b14eba95703c6c24234bdf0e8872631d58432c678492f819b51ae95a9864ab0e`)
+shows unresponsive simulator services and load average 372 on a four-CPU host;
+the app is installed on the captured home screen. Only that failed job was
+requeued as attempt 2. Do not confuse host resource exhaustion with an app crash.
 
 ### Store account and packaged iOS privacy inventory
 
@@ -283,6 +299,30 @@ were saved to store settings. No release has been published, no subscription
 product created and no unverified policy URL supplied. Creation and saved-settings
 screenshots are `cyntch-play-app-created.png` and `cyntch-play-store-settings.png`
 under `C:/Users/danie/.codex/tmp/`. Apple Developer enrollment remains outstanding.
+
+The unpublished Play setup now also saves no advertising, no government
+affiliation, no financial-services features, no health-specific features and
+the organisation's already-verified trader status. Household rewards are task
+labels, not cash payouts, transferable assets or a purchase-loyalty programme.
+The optional terms URL is left empty until its public deployment is verified.
+
+After separate explicit owner approval, IARC's terms were accepted and the
+factual questionnaire saved on 6 November at 05:35 UTC. Current answers declare
+invitation-only user-created household content and digital subscriptions, with
+no public nudity/violence, location sharing, chance purchases, cash rewards,
+external content catalogue, user-reporting or user-blocking feature. The
+result is Brazil 14+, ESRB Teen, PEGI parental guidance and 12+ elsewhere.
+This is an unresolved release issue for the intended 7–8+ audience, not an
+approved family-age classification. Do not misrepresent content or select an
+adults-only audience to avoid it. Screenshot: `cyntch-play-iarc-saved.png`.
+The distinction between private household collaboration and primary UGC sharing
+needs review, and the actual safeguards need completion before release.
+[Google's UGC policy](https://support.google.com/googleplay/android-developer/answer/9876937?hl=en)
+explicitly requires in-app reporting even for content shared with a specified
+group, plus terms acceptance before creating content. The current native app
+has policy links but no explicit consent/reporting flow. Keep this gap open;
+the saved questionnaire is not proof of store compliance. No app release or
+store-review submission has been made.
 
 The already-built iPhone archive from `41950126236` was reused for a privacy
 inventory, with no rebuild. Its recorded ZIP digest matched. All 20 packaged
