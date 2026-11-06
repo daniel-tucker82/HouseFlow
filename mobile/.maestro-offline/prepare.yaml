@@ -3,7 +3,7 @@ appId: com.cyntch.app
 - launchApp
 - setOrientation: ${PORTRAIT_ORIENTATION}
 - runFlow: ../.maestro-auth/verify-household.yaml
-- tapOn: "^All$"
+- runFlow: select-all.yaml
 - scrollUntilVisible:
     element: "^Android offline verification,.*"
     direction: DOWN

@@ -26,7 +26,7 @@ appId: com.cyntch.app
 - extendedWaitUntil:
     visible: "^Choose household: Cyntch emulator family$"
     timeout: 60000
-- tapOn: "^All$"
+- runFlow: select-all.yaml
 - scrollUntilVisible:
     element: "^Android offline verification,.*"
     direction: DOWN

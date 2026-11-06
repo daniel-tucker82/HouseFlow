@@ -6,7 +6,7 @@ appId: com.cyntch.app
     visible: "^Choose household: Cyntch emulator family$"
     timeout: 60000
 - assertNotVisible: "Sign in or create an account"
-- tapOn: "^All$"
+- runFlow: select-all.yaml
 - scrollUntilVisible:
     element: "^Android offline verification,.*"
     direction: DOWN
