@@ -1,0 +1,23 @@
+appId: com.cyntch.app
+---
+# The list header can move while launch/scroll settles. Retry only this
+# idempotent filter selection, never task toggles or deletion submissions.
+- repeat:
+    times: 3
+    while:
+      notVisible:
+        text: "^All$"
+        selected: true
+    commands:
+      - scrollUntilVisible:
+          element: "^All$"
+          direction: UP
+          centerElement: true
+      - waitForAnimationToEnd:
+          timeout: 5000
+      - tapOn: "^All$"
+      - waitForAnimationToEnd:
+          timeout: 5000
+- assertVisible:
+    text: "^All$"
+    selected: true
