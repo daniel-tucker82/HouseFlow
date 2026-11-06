@@ -27,5 +27,14 @@ name: Request Android notification permission through the actual system dialog
     visible: "Notifications are allowed by this device."
     timeout: 20000
 - takeScreenshot: android-push-permission-granted
+- extendedWaitUntil:
+    notVisible: "Waiting to register this device for push notifications."
+    timeout: 60000
+- tapOn: "Close notifications"
+- scrollUntilVisible:
+    element: "This device is registered"
+    direction: UP
+    timeout: 20000
+- takeScreenshot: android-push-registration-confirmed
 - pressKey: Home
 - takeScreenshot: android-push-background-before-send
