@@ -23,8 +23,14 @@ completed restart test. The exact completion receipt and completed/version-75
 state are saved in `cyntch-native-ios-offline-partial-42140542799.json`; the
 original 15 receipts and original household hash are unchanged.
 
-Run `42144645765`, isolated harness commit `b7e9b49`, reuses app `42022301424`.
-It checks the task's explicit Ready/Completed accessibility text, restores the
+Run `42144645765` stopped during filter selection, before changing the task or
+blocking the network. Artifact `13469714541` showed the list moving during the
+All-filter tap; To do remained selected. The saved partial proof still matches
+the task/version and all 16 receipts. Run `42146636425`, isolated harness commit
+`9d4c66c`, reuses app `42022301424`. Filter selection now waits for movement to
+settle and confirms the selected state, with at most three attempts of that
+idempotent control. Task toggles are never retried automatically.
+The journey checks the task's explicit Ready/Completed accessibility text, restores the
 recorded completion once through the app, then tests offline completion,
 process termination, offline restart and reconnection. Do not replace either
 the original baseline or the saved partial proof. Final server verification
@@ -53,6 +59,16 @@ This preview depends on the temporary verification backend and is not a
 production configuration. Production environment and policy URL settings remain
 unchanged. Local preview preflight and all six build-environment checks pass.
 Configuration evidence: `C:/Users/danie/.codex/tmp/cyntch-eas-preview-config-evidence.json`.
+
+The first signed EAS Android preview, `365f7ba8-dea7-4755-8eb8-dfe8ee870c53`
+(`e0c5baf`), passed environment validation, source upload, native generation and
+remote signing setup, but failed before compilation of the app. Its saved Gradle
+logs show the EAS Maven-cache initialization script adding a project repository
+to the Clerk composite build, whose settings prohibit project repositories.
+Android profiles now use Expo's documented `EAS_BUILD_DISABLE_MAVEN_CACHE=1`
+setting; the composite build's repository restriction is unchanged. A successful
+signed APK and actual push delivery are not yet established.
+Reference: [Expo dependency caching](https://docs.expo.dev/build-reference/caching/).
 
 Further release work needs Apple/store access, iOS signing and push credentials,
 actual store/RevenueCat catalogs and sandbox checks,

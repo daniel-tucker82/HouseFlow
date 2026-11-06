@@ -8,7 +8,8 @@
       "node": "22.23.3",
       "developmentClient": true,
       "distribution": "internal",
-      "environment": "development"
+      "environment": "development",
+      "android": { "env": { "EAS_BUILD_DISABLE_MAVEN_CACHE": "1" } }
     },
     "development-simulator": {
       "extends": "development",
@@ -17,7 +18,8 @@
     "preview": {
       "node": "22.23.3",
       "distribution": "internal",
-      "environment": "preview"
+      "environment": "preview",
+      "android": { "env": { "EAS_BUILD_DISABLE_MAVEN_CACHE": "1" } }
     },
     "preview-simulator": {
       "extends": "preview",
@@ -26,7 +28,8 @@
     "production": {
       "node": "22.23.3",
       "environment": "production",
-      "autoIncrement": true
+      "autoIncrement": true,
+      "android": { "env": { "EAS_BUILD_DISABLE_MAVEN_CACHE": "1" } }
     }
   }
 }
