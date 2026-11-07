@@ -42,7 +42,18 @@ installation from Play can sign in. Keep build 2 in draft during these steps.
    closed. Use the internal track and licensed billing test accounts only after
    the release is usable and a tester rollout is authorized. Check that Play and
    RevenueCat agree on the package, both actual base plans, offering and entitlement.
-   Verify purchase, restore and cancellation with sandbox evidence. Do not repeat
+   Test purchase, restore and cancellation with a **separate test installation**
+   using the same Android package, actual Play catalogue, an isolated backend
+   and an explicitly non-production sandbox runtime. Build 2 points to the live
+   server. Its production entitlement guard deliberately rejects sandbox grants;
+   do not change that guard or use a test grant as proof of live access.
+   [Google's license testing guidance](https://developer.android.com/google/play/billing/test)
+   allows a matching-package development installation for a license tester;
+   [RevenueCat's Play sandbox guide](https://www.revenuecat.com/docs/test-and-launch/sandbox/google-play-store)
+   also documents track opt-in and device account setup. Check real catalogue
+   availability and the Play **test** payment prompt before any test transaction.
+   Keep licensed billing evidence distinct from build 2's Play installation check.
+   Do not repeat
    completed push or destructive deletion journeys to demonstrate backend readiness.
 
 If cutover verification fails, withhold distribution, stop new submissions for
