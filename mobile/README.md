@@ -15,8 +15,15 @@ backend, automatic deletion and store purchase rollout are separate.
 
 Google Play saved the public privacy URL for review. The first Android store
 bundle is EAS build `ba68b09f-0bc3-437c-86a1-45d1d30a6951`, source `c71518d`,
-version 1.0.0 (2). Automatic submission is off. Verify the downloaded bundle
-before a draft upload; its build does not activate the production mobile backend.
+version 1.0.0 (2). Its downloaded AAB (87,066,846 bytes) passed bundletool
+validation, upload-signing certificate comparison, production API/Clerk/policy
+and Firebase checks, billing/notification permissions, and 16 KB alignment for
+all 60 included 64-bit libraries. SHA-256:
+`435d5ffdd88bcb69a9970a71d64a811629ccf66db05236e55316dc31a8f181d7`.
+The local `cyntch-eas-android-store-ba68b09f-0bc3-437c-86a1-45d1d30a6951/bundle-artifact.json`
+records the checks. Automatic submission is off; the internal draft upload is
+waiting for Chrome file access or a manual owner upload. No rollout or tester
+selection. Reuse this bundle and inspect the existing draft before uploading.
 Future store builds also reject non-Cyntch API, sign-in, policy and Firebase
 destinations. Development and preview builds continue to permit test fixtures.
 
@@ -620,6 +627,13 @@ Provider reference: [Google real-time developer notifications](https://www.reven
 The saved settings do not enable purchases: actual store products, signed
 Cyntch webhook delivery, sandbox lifecycle checks and production release gates
 remain unfinished. Apple enrollment and valid iOS credentials are still needed.
+
+The RevenueCat Integrations page, filtered to **Active**, **All types** with an
+empty search on 7 November, showed no outbound integrations. The purchase-history
+disclosure inventory records this observation and must be updated when a webhook
+or another integration is enabled. This does not establish app-wide sharing
+practices. The prepared Play icon and feature graphic are in `store/google-play`;
+store screenshots still need actual captures using synthetic household data.
 
 ### Public policies prepared on 6 November 2026
 
