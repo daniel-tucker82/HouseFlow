@@ -8,7 +8,9 @@ installation from Play can sign in. Keep build 2 in draft during these steps.
    `6c1a5de`. Confirm the current production revision before promoting anything.
    Preserve its three public pages, the monitored contact address, and existing web
    account access. Run the public, private and recovery route boundary tests
-   on the exact candidate. A branch name alone does not identify a deployment.
+   on the exact candidate. The mobile branch integrated the public release at
+   `e74555f`; 15 public-page and account-recovery boundary checks passed.
+   A branch name alone does not identify a deployment.
 2. **Rehearse the populated schema upgrade.** Set `CYNTCH_REHEARSAL_ADMIN_URL` to
    an explicit loopback PostgreSQL URL for the `postgres` maintenance database on
    a disposable local cluster, then run `node scripts/rehearse-mobile-upgrade.cjs`.
@@ -30,7 +32,10 @@ installation from Play can sign in. Keep build 2 in draft during these steps.
    enablement, the Android package/signing certificate, and the API deployment.
    Do not remove web self-deletion until the replacement flow and recovery process
    are operational. On the deployed origin check anonymous public pages and
-   unauthorized native API responses, then sign in with a designated test
+   unauthorized native API responses with `node scripts/check-mobile-backend.cjs <origin>`.
+   The script makes 13 GET requests without credentials, rejects redirects, and
+   checks page content and API error bodies. It never submits an operation. Sign
+   in separately with a designated test
    household and verify bootstrap, board refresh and the server clock. An HTTP
    401 proves the route exists; it does not prove a signed-in session works.
 5. **Open the testing track separately.** Keep production public purchase access
@@ -49,4 +54,7 @@ On 8 November 2026 (Sydney), the local rehearsal upgraded 18 published migration
 through 27 pending migrations, taking 26 public tables to 54. All 93 populated
 fixture rows matched their expected values, all 12 occurrence tasks received
 distinct status versions, and rerunning the entire set changed no stored rows.
-This is local release evidence; it does not establish production compatibility.
+All 13 anonymous HTTP checks also passed against a local production-mode build
+with the same server route and middleware sources as `e74555f`, using the
+isolated fixture and development authentication configuration. Neither check
+establishes production compatibility or proves a signed-in store install works.
