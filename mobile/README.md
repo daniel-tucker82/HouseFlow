@@ -21,9 +21,9 @@ and Firebase checks, billing/notification permissions, and 16 KB alignment for
 all 60 included 64-bit libraries. SHA-256:
 `435d5ffdd88bcb69a9970a71d64a811629ccf66db05236e55316dc31a8f181d7`.
 The local `cyntch-eas-android-store-ba68b09f-0bc3-437c-86a1-45d1d30a6951/bundle-artifact.json`
-records the checks. Automatic submission is off; the internal draft upload is
-waiting for Chrome file access or a manual owner upload. No rollout or tester
-selection. Reuse this bundle and inspect the existing draft before uploading.
+records the checks. The owner uploaded this exact bundle. Google Play recognised
+version code 2 (1.0.0) and confirmed the internal testing draft was saved.
+No testers or rollout; do not upload the bundle again.
 Future store builds also reject non-Cyntch API, sign-in, policy and Firebase
 destinations. Development and preview builds continue to permit test fixtures.
 
@@ -56,9 +56,15 @@ verified. The Google billing JSON is saved in RevenueCat and the temporary
 key-creation restriction and original owner role are restored. The owner completed
 the Google Payments merchant profile. Google Play sent one developer test notification;
 RevenueCat recorded its receipt at **03:21 UTC on 7 November**. Both temporary
-Google security exceptions are closed. Play still needs the first billing-enabled
-store bundle to recognise the package. Apple enrollment and actual store purchases
-remain outstanding. Automatic
+Google security exceptions are closed. Play has accepted the billing-enabled
+bundle. Its Cyntch Premium subscription, `cyntch_premium_v1`, has two Australian
+auto-renewing base plans in Draft: `monthly-autorenewing` (AUD 5.99) and
+`yearly-autorenewing` (AUD 49.99). RevenueCat imported both directly from Play
+as `prodeb6e53fbd0` and `prod6b0a1f5f72`, respectively. Both are attached to
+`cyntch_pro` and the matching `$rc_monthly` and `$rc_annual` packages in the
+`default` offering, alongside the existing Test Store products. Evidence:
+`cyntch-play-revenuecat-catalogue-20261107.json`. Neither plan is activated.
+Apple enrollment and purchases through a store sandbox remain outstanding. Automatic
 approval review rejected stopping the existing Android test server, then rejected
 starting a separate iOS gateway, each with only `blocked by policy`. Both commands
 were rejected before execution. Do not retry either action through another tool.
