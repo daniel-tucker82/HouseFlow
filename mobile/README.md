@@ -13,6 +13,13 @@ are deployed on www.cyntch.com and verified anonymously. The owner confirmed
 the deletion-request inbox is monitored and ownership is verified. Mobile
 backend, automatic deletion and store purchase rollout are separate.
 
+Google Play saved the public privacy URL for review. The first Android store
+bundle is EAS build `ba68b09f-0bc3-437c-86a1-45d1d30a6951`, source `c71518d`,
+version 1.0.0 (2). Automatic submission is off. Verify the downloaded bundle
+before a draft upload; its build does not activate the production mobile backend.
+Future store builds also reject non-Cyntch API, sign-in, policy and Firebase
+destinations. Development and preview builds continue to permit test fixtures.
+
 Android reporting verification now passes in run `42181300863`, reusing app
 source `27c31e4` from producer `42177470430`. Artifact `13485318788` matches SHA-256
 `9a4e51187d7e58f5bf96f6a66799744146c3cd8a315f4901ecbd3dacc2549475`.
@@ -94,7 +101,7 @@ escaped terminal text, concurrent review conflicts, audit records and 90-day
 redaction. `tests/safety-report-operations.test.cjs` exercises the real command
 process, not just its helper functions. It does not claim a staffed inbox or an
 actual moderation action. Privacy and terms drafts now describe report handling
-and prohibited content; they remain unpublished.
+and prohibited content; see the 7 November publication checkpoint above.
 
 Explicit terms acceptance is also implemented behind `TERMS_ACCEPTANCE_REQUIRED`.
 Both web and native apps ask the signed-in account to read the versioned terms

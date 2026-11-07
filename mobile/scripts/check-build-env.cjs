@@ -4,6 +4,7 @@ const fail = message => { throw new Error(message) }
 const profile = process.env.EAS_BUILD_PROFILE
 const profiles = require('../eas.json').build
 const { publicPolicyUrl } = require('../src/services/public-policy-url')
+const { Buffer } = require('node:buffer')
 if (!profile || !Object.hasOwn(profiles, profile)) fail('Select a configured EAS build profile.')
 
 const key = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY ?? ''
@@ -13,11 +14,16 @@ if (!/^pk_(test|live)_[A-Za-z0-9+/=_-]+$/.test(key)) {
 if (profile === 'production' && !key.startsWith('pk_live_')) {
   fail('Production builds require a live Clerk publishable key.')
 }
-for (const name of ['EXPO_PUBLIC_PRIVACY_POLICY_URL', 'EXPO_PUBLIC_TERMS_URL']) {
-  const value = process.env[name]
-  if ((profile === 'production' || value?.trim()) && !publicPolicyUrl(value)) {
+const site = 'https://www.cyntch.com'
+for (const [name, value, path] of [
+  ['EXPO_PUBLIC_PRIVACY_POLICY_URL', process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL, '/legal/privacy'],
+  ['EXPO_PUBLIC_TERMS_URL', process.env.EXPO_PUBLIC_TERMS_URL, '/legal/terms'],
+]) {
+  const url = publicPolicyUrl(value)
+  if ((profile === 'production' || value?.trim()) && !url) {
     fail(`Set ${name} to the verified public HTTPS page, without credentials, a query or fragment.`)
   }
+  if (profile === 'production' && url !== site + path) fail(`Store builds require the published Cyntch page for ${name}.`)
 }
 
 let api
@@ -28,6 +34,13 @@ const localHttp = development && api.protocol === 'http:' &&
   ['localhost', '127.0.0.1', '[::1]', '10.0.2.2'].includes(api.hostname)
 if ((api.protocol !== 'https:' && !localHttp) || api.username || api.password || api.search || api.hash) {
   fail('EXPO_PUBLIC_API_URL must use HTTPS without credentials, a query or fragment. Development profiles also allow local HTTP.')
+}
+// HTTPS alone would allow shipping a disposable backend or another live Clerk tenant.
+// These are Cyntch's verified public destinations. Previews use their own fixtures.
+if (profile === 'production') {
+  if (api.href !== site + '/') fail('Store builds must use the Cyntch production API origin.')
+  const liveKey = 'pk_live_' + Buffer.from('clerk.cyntch.com$').toString('base64').replace(/=+$/, '')
+  if (key.replace(/=+$/, '') !== liveKey) fail('Store builds must use the Cyntch production Clerk instance.')
 }
 
 if (process.env.EAS_BUILD_PLATFORM === 'android') {
@@ -48,6 +61,9 @@ if (process.env.EAS_BUILD_PLATFORM === 'android') {
     const clients = Array.isArray(services?.client) ? services.client.filter(client =>
       client?.client_info?.android_client_info?.package_name === packageName) : []
     const number = services?.project_info?.project_number
+    if (profile === 'production' && services?.project_info?.project_id !== 'cyntch-2358a') {
+      fail('Store builds must use the Cyntch production Firebase project.')
+    }
     if (!/^\d+$/.test(number ?? '') || !services?.project_info?.project_id ||
         clients?.length !== 1 ||
         !clients[0].client_info.mobilesdk_app_id?.startsWith(`1:${number}:android:`) ||
