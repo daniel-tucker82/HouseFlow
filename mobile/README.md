@@ -4,14 +4,14 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
-Current release checkpoint, 7 November 2026 (Sydney): approximately 92% of the
+Current release checkpoint, 7 November 2026 (Sydney): approximately 94% of the
 overall goal is complete. Ordinary household controls pass on both platforms;
 private Android household deletion and private iPhone account deletion now have
 native, database and provider preservation evidence. The public deletion-request
-page and configurable native privacy/terms links are implemented and locally
-checked. Public privacy and terms pages now also pass a production build,
-anonymous HTTP checks and phone portrait/landscape inspection. Production
-release gates are still closed.
+page and native privacy/terms links are implemented. The three public pages
+are deployed on www.cyntch.com and verified anonymously. The owner confirmed
+the deletion-request inbox is monitored and ownership is verified. Mobile
+backend, automatic deletion and store purchase rollout are separate.
 
 Android reporting verification now passes in run `42181300863`, reusing app
 source `27c31e4` from producer `42177470430`. Artifact `13485318788` matches SHA-256
@@ -39,9 +39,12 @@ RevenueCat sign-up and email verification are now complete. Its saved Android
 app and restore settings are recorded below. Both scoped credential approvals
 were received; the server V2 key is securely staged and its read access is
 verified. The Google billing JSON is saved in RevenueCat and the temporary
-key-creation ban and original owner role are restored. Google Payments
-merchant setup, first-build recognition and subscription-event setup remain
-unfinished. Apple enrollment and actual store purchases remain outstanding. Automatic
+key-creation restriction and original owner role are restored. The owner completed
+the Google Payments merchant profile. Google Play sent one developer test notification;
+RevenueCat recorded its receipt at **03:21 UTC on 7 November**. Both temporary
+Google security exceptions are closed. Play still needs the first billing-enabled
+store bundle to recognise the package. Apple enrollment and actual store purchases
+remain outstanding. Automatic
 approval review rejected stopping the existing Android test server, then rejected
 starting a separate iOS gateway, each with only `blocked by policy`. Both commands
 were rejected before execution. Do not retry either action through another tool.
@@ -440,10 +443,12 @@ store-review submission has been made.
 
 The owner approved the prepared Google Play classification question, and it was
 submitted once on 7 November (Sydney). Google confirmed a support ticket and
-email response within two working days; the ticket is pending with case ID
-pending. An initial AI-generated recommendation was escalated to a support
-specialist; it is not a binding rating determination. Do not resend this question
-or change the factual IARC answers on the basis of the automated response alone.
+email response within two working days. A support specialist subsequently replied
+on case `2-0291000041355`: Google does not pre-clear compliance, referred Cyntch to
+the content-rating, UGC and Families guidance, and directed it to the ordinary
+app review process. The reply did not resolve the private-household classification
+or approve an age rating. Do not resend the question or change the factual IARC
+answers on the basis of the automated or specialist reply.
 Evidence: `cyntch-play-rating-support-submission-20261107.json` and
 `cyntch-play-rating-support-submitted-20261107.png` in the local evidence folder.
 
@@ -572,36 +577,37 @@ the managed constraint and Expo push credentials were unchanged. Rollback proof:
 RevenueCat's saved credential passes product and subscription-catalog reads.
 Purchase access reports that `com.cyntch.app` is not found; no initial store build
 has been uploaded. Do not replace the correct package name or regenerate keys
-to work around this. Google Play separately blocks its Subscriptions page until
-the owner creates a Google Payments merchant profile. The financial-account
-setup is left for the owner in Chrome.
+to work around this. The owner completed Google Payments merchant setup.
+The Play Subscriptions page now shows zero products and asks for the first
+billing-enabled upload. After the merchant setup and notification test,
+RevenueCat's separate purchase validation still reported “No application was
+found for the given package name.” Do not upload the development preview.
 Saved credential and actual check results:
 `cyntch-revenuecat-google-validation-20261107.png`.
 
-The downloaded JSON is restricted to the Windows owner and SYSTEM. Automatic
-approval review rejected its requested local deletion before execution, stating
-only `blocked by policy`. The owner was asked to delete
-`C:/Users/danie/Downloads/cyntch-2358a-12f077556688.json`; cleanup is pending and
-must not be retried through another tool. Do not delete the working cloud key.
+The owner deleted the downloaded JSON; its absence at the original Downloads
+path was verified. The working provider credential remains in RevenueCat.
 The authoritative connection and cleanup journal is
 `C:/Users/danie/.codex/tmp/cyntch-google-revenuecat-connection-20261107.json`.
 
-The first real-time subscription-notification connection created topic
-`projects/cyntch-2358a/topics/Play-Store-Notifications`, but did not complete.
-The topic has no subscriptions and no Google Play publisher grant. Reuse this
-partial resource after inspecting the failure; do not create a duplicate.
-Domain restricted sharing is inherited and allows only `C03ygs8wm`; it has not
-been changed. This is separate from the restored key-creation policy. The
-documented Google Play publisher `google-play-developer-notifications@system.gserviceaccount.com`
-is prepared with Pub/Sub Publisher on that topic only, but not saved. Approval
-was requested for this grant and, only if blocked, a temporary Cyntch-only
-domain-sharing exception with role/policy rollback. Audit Logs showed the
-successful topic creation; no detailed failed publisher event was available.
-The domain restriction is a supported diagnosis, not a confirmed API error.
-See `cyntch-google-rtdn-publisher-prepared-20261107.png`. Do not enable tracking
-of unknown purchases from server notifications with the original-household
-restore policy; purchases must remain identified through the SDK.
-The separate pending-approval journal is `cyntch-google-rtdn-connection-20261107.json`.
+Google explicitly denied the initial topic grant under `iam.allowedPolicyMemberDomains`.
+Using the approved exception on Cyntch only, the Play service
+`google-play-developer-notifications@system.gserviceaccount.com` received Pub/Sub
+Publisher on the existing `projects/cyntch-2358a/topics/Play-Store-Notifications`
+topic. The project again inherits its original sole allowed domain `C03ygs8wm`;
+the temporary Organisation Policy Administrator role was removed. Neither the
+organisation-wide domain rule nor the key-creation restriction changed in this step.
+
+RevenueCat confirmed **Connected to Google**. Play saved the same topic with
+**Subscriptions and voided purchases only**. From an initial **No notifications
+received**, RevenueCat displayed **Last received 2026-11-07, 3:21 a.m. UTC** after
+one Play test. This proves Play → Pub/Sub → RevenueCat transport, not purchase
+verification, a Cyntch webhook, or a device notification. Tracking new purchases
+from server notifications remains off so only SDK-identified households can claim
+new purchases. Do not recreate the topic, regrant the role or resend the test.
+Evidence: `cyntch-google-rtdn-connection-20261107.json`,
+`cyntch-revenuecat-play-test-received-20261107.png`,
+`cyntch-rtdn-domain-restored-20261107.png`, `cyntch-rtdn-org-role-restored-20261107.png`.
 Provider reference: [Google real-time developer notifications](https://www.revenuecat.com/docs/platform-resources/server-notifications/google-server-notifications).
 
 The saved settings do not enable purchases: actual store products, signed
@@ -609,6 +615,21 @@ Cyntch webhook delivery, sandbox lifecycle checks and production release gates
 remain unfinished. Apple enrollment and valid iOS credentials are still needed.
 
 ### Public policies prepared on 6 November 2026
+
+**Publication, 7 November:** the owner approved the prepared privacy/terms and
+confirmed the deletion inbox and verification process. Release `6c1a5de` on
+`codex/public-policy-release` is based directly on the previous live web commit
+`81e52f7`. It adds the public pages and home footer links only. Local production
+build, lint, exact middleware boundaries and deletion-on/off checks passed;
+hosted preview `dpl_C7bKcBGi6veqFWZ48i53DMdgqAkE` passed its public route checks.
+Production `dpl_AwDV7vyU9HEYGyvMAnLckMVk2H9U` serves the canonical domain.
+Anonymous GETs returned 200 for [privacy](https://www.cyntch.com/legal/privacy),
+[terms](https://www.cyntch.com/legal/terms) and [deletion instructions](https://www.cyntch.com/account-deletion),
+with correct headings, canonical URLs and the confirmed contact. The home and
+login pages returned 200, and the household dashboard redirected to sign-in.
+`/api/mobile/time` still returns 404; no mobile backend or database changes
+were deployed. Prior production rollback: `dpl_7KVEmY6CmZdLmFRQjkC9z5Aa8TQr`.
+Evidence: `cyntch-public-policies-live-20261107.json` in the local evidence folder.
 
 The privacy policy describes actual household sharing, no-email child profiles,
 local pending edits, notification preferences/previews, authentication, hosting,
@@ -629,7 +650,7 @@ overflow. Evidence: `C:/Users/danie/.codex/tmp/cyntch-policy-pages-evidence.json
 The preview's development Clerk home-page prefetch logged socket-hang-up errors;
 the policy routes themselves rendered and linked correctly without sign-in.
 
-Release configuration, after the pages are publicly deployed and verified:
+Approved release configuration (the pages are now publicly deployed and verified):
 `EXPO_PUBLIC_PRIVACY_POLICY_URL=https://www.cyntch.com/legal/privacy`,
 `EXPO_PUBLIC_TERMS_URL=https://www.cyntch.com/legal/terms`, and server-side
 `ACCOUNT_DELETION_SUPPORT_EMAIL=daniel@nexusaspyre.com`. Keep
