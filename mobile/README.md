@@ -4,7 +4,7 @@ React Native and Expo Router applications for Android and iOS. This directory is
 under active development; it is not a completed or store-released application.
 The existing web application remains at the repository root.
 
-Current release checkpoint, 7 November 2026 (Sydney): approximately 94% of the
+Current release checkpoint, 8 November 2026 (Sydney): approximately 95% of the
 overall goal is complete. Ordinary household controls pass on both platforms;
 private Android household deletion and private iPhone account deletion now have
 native, database and provider preservation evidence. The public deletion-request
@@ -12,6 +12,12 @@ page and native privacy/terms links are implemented. The three public pages
 are deployed on www.cyntch.com and verified anonymously. The owner confirmed
 the deletion-request inbox is monitored and ownership is verified. Mobile
 backend, automatic deletion and store purchase rollout are separate.
+
+Four [actual Android listing captures](../store/google-play/screenshots/README.md)
+are ready for review: Today, Routines, notification choices, and the locked
+landscape tablet. They are not uploaded. The [backend release sequence](../docs/mobile-backend-rollout.md)
+records a successful upgrade rehearsal from the populated web schema and the
+remaining deployment, provider sign-in and store testing checks.
 
 Google Play saved the public privacy URL for review. The first Android store
 bundle is EAS build `ba68b09f-0bc3-437c-86a1-45d1d30a6951`, source `c71518d`,
@@ -642,8 +648,8 @@ The RevenueCat Integrations page, filtered to **Active**, **All types** with an
 empty search on 7 November, showed no outbound integrations. The purchase-history
 disclosure inventory records this observation and must be updated when a webhook
 or another integration is enabled. This does not establish app-wide sharing
-practices. The prepared Play icon and feature graphic are in `store/google-play`;
-store screenshots still need actual captures using synthetic household data.
+practices. The prepared Play icon, feature graphic and verified native screenshot
+gallery are in `store/google-play`.
 
 ### Public policies prepared on 6 November 2026
 
