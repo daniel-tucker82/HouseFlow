@@ -64,7 +64,11 @@ as `prodeb6e53fbd0` and `prod6b0a1f5f72`, respectively. Both are attached to
 `cyntch_pro` and the matching `$rc_monthly` and `$rc_annual` packages in the
 `default` offering, alongside the existing Test Store products. Evidence:
 `cyntch-play-revenuecat-catalogue-20261107.json`. Neither plan is activated.
-Apple enrollment and purchases through a store sandbox remain outstanding. Automatic
+RevenueCat reads the Google product and subscription catalogues. Its separate
+subscription-purchase check still reports that Google could not find the package
+after the draft upload. Recheck when the internal testing state changes; a
+catalogue import does not verify purchases. Apple enrollment and purchases
+through a store sandbox remain outstanding. Automatic
 approval review rejected stopping the existing Android test server, then rejected
 starting a separate iOS gateway, each with only `blocked by policy`. Both commands
 were rejected before execution. Do not retry either action through another tool.
