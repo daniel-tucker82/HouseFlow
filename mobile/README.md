@@ -653,11 +653,9 @@ the policy routes themselves rendered and linked correctly without sign-in.
 Approved release configuration (the pages are now publicly deployed and verified):
 `EXPO_PUBLIC_PRIVACY_POLICY_URL=https://www.cyntch.com/legal/privacy`,
 `EXPO_PUBLIC_TERMS_URL=https://www.cyntch.com/legal/terms`, and server-side
-`ACCOUNT_DELETION_SUPPORT_EMAIL=daniel@nexusaspyre.com`. Keep
-`ACCOUNT_DELETION_WEB_REQUESTS_ENABLED` disabled until the mailbox request
-process can verify ownership, confirm household choices and process requests.
-Choosing the email does not establish completed request handling. Do not point
-production native purchases at still-unpublished pages.
+`ACCOUNT_DELETION_SUPPORT_EMAIL=daniel@nexusaspyre.com`. Production now has
+`ACCOUNT_DELETION_WEB_REQUESTS_ENABLED=true` following the owner's confirmation.
+This serves the instructions; no request was emailed or processed to test it.
 
 Content was checked against the [Google Play User Data policy](https://support.google.com/googleplay/android-developer/answer/10144311?hl=en),
 [Apple review guidelines](https://developer.apple.com/app-store/review/guidelines/),
