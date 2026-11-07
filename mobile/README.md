@@ -19,6 +19,24 @@ landscape tablet. They are not uploaded. The [backend release sequence](../docs/
 records a successful upgrade rehearsal from the populated web schema and the
 remaining deployment, provider sign-in and store testing checks.
 
+For the Android PIN layout check, open Settings → Set up kiosk mode on a
+dedicated landscape tablet emulator. Tap each PIN field with the software
+number pad enabled. With the field still focused, run
+`node mobile/scripts/android-kiosk-pin-visibility.cjs <emulator-serial> <field-id>`
+using `kiosk-parent-pin` and `kiosk-confirm-pin` in turn. Repeat at 1.6× font
+scale. The check reads Android's visible keyboard inset and the secure field's
+accessibility bounds; it rejects a clipped field or an edge touching the keyboard.
+Do not enter a PIN or activate a new lock for this layout check. Cancel setup
+afterwards and restore the device's previous text size.
+
+On 8 November the 2560 × 1600 Android tablet showed both fields in full at
+1.0× and 1.6×, with both the label and input above the open number pad.
+Clearance below the confirmation field was 358 px and 311 px respectively.
+Four reviewed screenshots and their measured coordinates are in the local
+`cyntch-kiosk-tablet-pin-visibility-20261108.json` evidence record. No new
+lock was submitted. This source change comes after Play draft build 2; do not
+use that earlier binary as evidence of the fix.
+
 Google Play saved the public privacy URL for review. The first Android store
 bundle is EAS build `ba68b09f-0bc3-437c-86a1-45d1d30a6951`, source `c71518d`,
 version 1.0.0 (2). Its downloaded AAB (87,066,846 bytes) passed bundletool

@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Alert, ScrollView, Switch, TextInput, View } from "react-native"
+import { Alert, KeyboardAvoidingView, Platform, ScrollView, Switch, TextInput, View } from "react-native"
 import { AppModal } from "./app-modal"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { useKiosk } from "../providers/kiosk"
@@ -33,20 +33,24 @@ export function KioskSettingsCard() {
       {!board.online ? <Copy tone="muted">Connect to set up this device. Task updates and PIN unlocking will work offline afterward.</Copy> : null}
     </Card>
     <AppModal visible={open} animationType="slide" presentationStyle="pageSheet" onRequestClose={close}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}><ScrollView automaticallyAdjustKeyboardInsets keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "android" ? "height" : undefined}>
+        <ScrollView automaticallyAdjustKeyboardInsets keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
         <Copy tone="title">Set up family display</Copy><Copy tone="muted">These choices apply only to this device.</Copy>
+        <ParentPinInput label="Parent PIN (six digits)" value={pin} onChange={setPin} />
+        <ParentPinInput testID="kiosk-confirm-pin" label="Confirm parent PIN" value={confirm} onChange={setConfirm} />
+        <Copy tone="muted">Keep this PIN private. If you forget it, you can recover access by signing in to your parent account while online.</Copy>
+        <Copy tone="heading">Family members</Copy>
         {members.map(member => <Card key={member.id}><Copy tone="heading">{member.name}</Copy>
           <View style={[styles.row, { justifyContent: "space-between" }]}><Copy>Show tasks</Copy><Switch accessibilityLabel={`Show tasks for ${member.name}`} value={visible.includes(member.id)} onValueChange={enabled => {
             setVisible(values => enabled ? [...values, member.id] : values.filter(id => id !== member.id)); if (!enabled) setEditable(values => values.filter(id => id !== member.id))
           }} /></View>
           <View style={[styles.row, { justifyContent: "space-between" }]}><Copy style={{ flex: 1 }}>Allow completion and reopening</Copy><Switch accessibilityLabel={`Allow task updates for ${member.name}`} disabled={!visible.includes(member.id)} value={editable.includes(member.id)} onValueChange={enabled => setEditable(values => enabled ? [...values, member.id] : values.filter(id => id !== member.id))} /></View>
         </Card>)}
-        <ParentPinInput label="Parent PIN (six digits)" value={pin} onChange={setPin} />
-        <ParentPinInput testID="kiosk-confirm-pin" label="Confirm parent PIN" value={confirm} onChange={setConfirm} />
-        <Copy tone="muted">Keep this PIN private. If you forget it, you can recover access by signing in to your parent account while online.</Copy>
         <Action label="Enable kiosk mode" disabled={!visible.length || pin.length !== 6 || confirm.length !== 6 || state.changing} onPress={() => void enable()} />
         <Action secondary label="Cancel" onPress={close} />
-      </ScrollView></SafeAreaView>
+      </ScrollView></KeyboardAvoidingView>
+      </SafeAreaView>
     </AppModal>
   </>
 }
