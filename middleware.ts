@@ -1,4 +1,5 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server"
+import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server"
 
 const isProtectedRoute = createRouteMatcher([
   "/app(.*)",
@@ -7,7 +8,7 @@ const isProtectedRoute = createRouteMatcher([
   "/join(.*)",
 ])
 
-export default clerkMiddleware(
+const withClerk = clerkMiddleware(
   async (auth, req) => {
     if (isProtectedRoute(req)) {
       await auth.protect()
@@ -21,6 +22,12 @@ export default clerkMiddleware(
     frontendApiProxy: { enabled: process.env.VERCEL_ENV === "preview" },
   },
 )
+
+export default function middleware(request: NextRequest, event: NextFetchEvent) {
+  // These public information pages do not read an identity or change any account.
+  if (["/account-deletion", "/legal/privacy", "/legal/terms"].includes(request.nextUrl.pathname)) return NextResponse.next()
+  return withClerk(request, event)
+}
 
 export const config = {
   matcher: [

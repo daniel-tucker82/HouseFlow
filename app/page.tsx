@@ -290,6 +290,10 @@ export default function HomePage() {
           <Brand />
         </Link>
         <p className="text-xs text-muted-foreground">A little more flow. A little more family.</p>
+        <nav aria-label="Cyntch policies" className="flex flex-wrap gap-x-5 gap-y-2 text-xs text-muted-foreground">
+          <Link href="/legal/privacy" className="inline-flex min-h-11 items-center underline underline-offset-4 hover:text-primary">Privacy policy</Link>
+          <Link href="/legal/terms" className="inline-flex min-h-11 items-center underline underline-offset-4 hover:text-primary">Terms of use</Link>
+        </nav>
         <Link href="/auth/login" className="text-xs font-medium text-muted-foreground hover:text-primary">
           Log in to your household <ArrowRight className="ml-1 inline size-3" />
         </Link>
